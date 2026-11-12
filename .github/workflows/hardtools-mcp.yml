@@ -20,7 +20,7 @@ on:
 permissions:
   contents: read
   packages: write
-  id-token: write   # OIDC için (gerekirse)
+  id-token: write
 
 env:
   NODE_VERSION: '20'
@@ -33,9 +33,9 @@ jobs:
   test-and-bundle:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v5
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: 'npm'
@@ -43,14 +43,18 @@ jobs:
       - name: Install
         run: npm ci
 
+      - name: Build
+        run: npm run build
+
       - name: Test
-        run: npm test
+        # Glob’u shell’e genişlettiriyoruz (tırnak yok)
+        run: node --test --test-concurrency=1 test/*.test.mjs
 
       - name: Bundle
         run: npm run bundle
 
       - name: Upload bundle artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: hardtools-bundle
           path: |
@@ -71,10 +75,11 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      - uses: actions/setup-node@vt
+      - uses: actions/setup-node@v5
         with:
           node-version: ${{ env.NODE_VERSION }}
           registry-url: 'https://registry.npmjs.org'
+          cache: 'npm'
 
       - name: Install
         run: npm ci
@@ -86,7 +91,7 @@ jobs:
         run: npm publish --access public
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-        continue-on-error: true   # token yoksa sessizce geç
+        continue-on-error: true
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v3
@@ -107,27 +112,17 @@ jobs:
     steps:
       - name: Check for idle MCP HTTP instances
         env:
-          # Bu değerleri kendi altyapına göre doldur
-          # Örnek: Cloudflare, Fly.io, Railway, kendi VPS listesi vs.
           API_TOKEN: ${{ secrets.INFRA_API_TOKEN }}
           IDLE_THRESHOLD_DAYS: ${{ env.IDLE_DAYS }}
         run: |
           echo "🔍 ${IDLE_THRESHOLD_DAYS} günden uzun süredir istek almayan hardtools MCP instance’ları aranıyor..."
 
-          # --- Örnek iskelet (kendi altyapına göre uyarlaman lazım) ---
-          # 1. Tüm çalışan instance’ları listele
-          # 2. Son istek zamanını (last_seen / last_request) al
-          # 3. 90 günden eski olanları kapat / sil
+          # Kendi altyapına göre doldur (Fly.io / Railway / kendi API’n)
+          # instances=$(curl -s -H "Authorization: Bearer $API_TOKEN" ...)
+          # ... 90 günden eski olanları sil
 
-          # Örnek (pseudo):
-          # instances=$(curl -s -H "Authorization: Bearer $API_TOKEN" https://api.example.com/instances?label=hardtools-mcp)
-          # echo "$instances" | jq -r '.[] | select(.last_request_at < now - ('$IDLE_THRESHOLD_DAYS' * 86400)) | .id' | while read id; do
-          #   echo "🛑 Idle instance kapatılıyor: $id"
-          #   curl -X DELETE -H "Authorization: Bearer $API_TOKEN" "https://api.example.com/instances/$id"
-          # done
+          echo "✅ Temizlik job’u tamamlandı."
 
-          echo "✅ Temizlik job’u tamamlandı (gerçek API çağrılarını kendi altyapına göre doldur)."
-
-      - name: Notify (opsiyonel)
+      - name: Notify on failure
         if: failure()
         run: echo "Idle cleanup başarısız oldu – kontrol et."
