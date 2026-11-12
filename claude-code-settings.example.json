@@ -1,0 +1,6 @@
+{
+  "_comment": "Without denying the built-in tools Claude can still use them, and hardtools adds nothing but extra options. Verify the rule syntax for your Claude Code version (see /permissions) before relying on this.",
+  "permissions": {
+    "deny": ["Bash", "Edit", "MultiEdit", "Write", "NotebookEdit", "WebFetch"]
+  }
+}

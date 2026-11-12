@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "hardtools": {
+      "command": "node",
+      "args": ["/ABSOLUTE/PATH/TO/hardtools/bundle/index.js"],
+      "env": {
+        "HARDTOOLS_PROFILE": "strict",
+        "HARDTOOLS_ROOTS": "/ABSOLUTE/PATH/TO/YOUR/PROJECT"
+      }
+    }
+  }
+}
