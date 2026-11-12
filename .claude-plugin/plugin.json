@@ -1,0 +1,6 @@
+{
+  "name": "hardtools",
+  "version": "0.2.0",
+  "description": "Hardened replacements for file read/edit/write, code search, shell and web fetch: confined paths, atomic multi-file edits, argv-only allowlisted shell, SSRF-safe fetch, tamper-evident audit log.",
+  "keywords": ["mcp", "security", "tools", "audit"]
+}

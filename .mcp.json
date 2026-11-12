@@ -1,0 +1,9 @@
+{
+  "mcpServers": {
+    "hardtools": {
+      "command": "node",
+      "args": ["${CLAUDE_PLUGIN_ROOT}/bundle/index.js"],
+      "env": { "HARDTOOLS_PROFILE": "balanced" }
+    }
+  }
+}
