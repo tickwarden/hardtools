@@ -113,13 +113,14 @@ jobs:
           export HARDTOOLS_HTTP_OPEN=1
           export HARDTOOLS_HTTP_ALLOW_LOCAL_TOOLS=1
           export HARDTOOLS_PROFILE=balanced
-          export HARDTOOLS_ROOTS=/workspace
-          export HARDTOOLS_CONFIG=/root/.hardtools/config.json
+          export HARDTOOLS_ROOTS="$PWD"
+          export HARDTOOLS_CONFIG="$PWD/hardtools.config.example.json"
           
-          mkdir -p /workspace/artifacts/hardtools_extract
-          cd /workspace/artifacts/hardtools_extract || cd .
+          # Yazma izni olan yerel dizin kullanılıyor
+          mkdir -p artifacts/hardtools_extract
+          cd artifacts/hardtools_extract || cd .
           
-          node bundle/index.js --http --host 127.0.0.1 --port 8787 --profile balanced &
+          node ../../bundle/index.js --http --host 127.0.0.1 --port 8787 --profile balanced &
 
           if [ ! -f /tmp/cloudflared ]; then
             echo "📥 Cloudflared indiriliyor..."
@@ -141,7 +142,6 @@ jobs:
         run: |
           echo "🛑 Sunucu ve tünel yayından kaldırılıyor (Unpublish)..."
           
-          # Çalışan bundle/index.js ve cloudflared süreçlerini bulup sonlandır
           for p in /proc/[0-9]*; do 
             cmd=$(tr "\0" " " < "$p/cmdline" 2>/dev/null || true)
             if echo "$cmd" | grep -qE "bundle/index.js|cloudflared"; then
