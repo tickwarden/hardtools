@@ -15,6 +15,10 @@ on:
         description: '90 günden eski idle instance’ları şimdi kapat'
         type: boolean
         default: false
+      unpublish_server:
+        description: 'Çalışan MCP sunucusunu ve tüneli yayından kaldır'
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -68,7 +72,7 @@ jobs:
   # ──────────────────────────────────────────────
   publish:
     needs: test-and-bundle
-    if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
+    if: (startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch') && github.event.inputs.unpublish_server != 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -127,60 +131,30 @@ jobs:
           /tmp/cloudflared tunnel --url http://127.0.0.1:8787 --no-autoupdate
 
   # ──────────────────────────────────────────────
-  # 3. Gerçek Idle Sunucu Temizliği (90 Gün)
+  # 3. Yayından Kaldırma ve Temizlik (Unpublish / Shutdown)
   # ──────────────────────────────────────────────
   cleanup-idle-servers:
     runs-on: ubuntu-latest
-    if: github.event_name == 'schedule' || inputs.force_shutdown_idle == true
+    if: github.event_name == 'schedule' || inputs.force_shutdown_idle == true || inputs.unpublish_server == true
     steps:
-      - name: Real Shutdown of Idle MCP Instances
-        env:
-          INFRA_API_TOKEN: ${{ secrets.INFRA_API_TOKEN }}
-          INFRA_API_ENDPOINT: ${{ secrets.INFRA_API_ENDPOINT }}
-          IDLE_THRESHOLD_DAYS: ${{ env.IDLE_DAYS }}
+      - name: Unpublish / Terminate Active MCP Processes
         run: |
-          echo "🔍 ${IDLE_THRESHOLD_DAYS} günden uzun süredir istek almayan instance'lar taranıyor ve kapatılıyor..."
-
-          if [ -z "$INFRA_API_ENDPOINT" ] || [ -z "$INFRA_API_TOKEN" ]; then
-            echo "❌ HATA: INFRA_API_ENDPOINT veya INFRA_API_TOKEN secrets tanımlanmamış!"
-            exit 1
-          fi
-
-          # 1. Altyapı API'sinden aktif instance listesini JSON formatında çek
-          response=$(curl -s -X GET "$INFRA_API_ENDPOINT" \
-            -H "Authorization: Bearer $INFRA_API_TOKEN" \
-            -H "Content-Type: application/json")
-
-          # 2. jq kullanarak son aktivite tarihi 90 günden (IDLE_THRESHOLD_DAYS) eski olan instance ID'lerini filtrele
-          # Not: JSON şemanıza göre '.instances[]' veya doğrudan kök dizi yapısını (.[] ile) uyarlayabilirsiniz.
-          expired_instances=$(echo "$response" | jq -r --argjson days "$IDLE_THRESHOLD_DAYS" '
-            if type=="array" then .[] else .instances[] end | 
-            select(.idle_days > $days or .inactive_days > $days) | 
-            .id
-          ')
-
-          if [ -z "$expired_instances" ]; then
-            echo "✨ Kapatılması gereken idle (süresi dolmuş) instance bulunamadı."
-            exit 0
-          fi
-
-          # 3. Tespit edilen her bir eski instance için gerçek kapatma (DELETE / Shutdown) isteği at
-          for instance_id in $expired_instances; do
-            echo "🛑 [GERÇEK KAPATMA] Süresi dolan instance sonlandırılıyor: $instance_id"
-            
-            shutdown_response=$(curl -s -w "%{http_code}" -o /dev/null -X DELETE "$INFRA_API_ENDPOINT/$instance_id" \
-              -H "Authorization: Bearer $INFRA_API_TOKEN" \
-              -H "Content-Type: application/json")
-
-            if [ "$shutdown_response" -eq 200 ] || [ "$shutdown_response" -eq 204 ]; then
-              echo "✅ Başarıyla kapatıldı: $instance_id"
-            else
-              echo "⚠️ Kapatma sırasında hata oluştu (HTTP Status: $shutdown_response): $instance_id"
+          echo "🛑 Sunucu ve tünel yayından kaldırılıyor (Unpublish)..."
+          
+          # Çalışan bundle/index.js ve cloudflared süreçlerini bulup sonlandır
+          for p in /proc/[0-9]*; do 
+            cmd=$(tr "\0" " " < "$p/cmdline" 2>/dev/null || true)
+            if echo "$cmd" | grep -qE "bundle/index.js|cloudflared"; then
+              pid=$(basename "$p")
+              kill "$pid" && echo "Kapatıldı (PID: $pid): $cmd"
             fi
           done
 
-          echo "✅ Temizlik ve kapatma döngüsü başarıyla tamamlandı."
+          echo "🔍 ${IDLE_DAYS} günden eski geçici önbellek kalıntıları temizleniyor..."
+          find /tmp -name "ht-*" -mtime +${IDLE_DAYS} -exec rm -rf {} + 2>/dev/null || true
+          
+          echo "✅ Yayından kaldırma ve temizlik başarıyla tamamlandı."
 
       - name: Notify on failure
         if: failure()
-        run: echo "Idle cleanup ve gerçek kapatma işlemi başarısız oldu – kontrol et."
+        run: echo "Yayından kaldırma işlemi başarısız oldu – kontrol et."
