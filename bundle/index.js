@@ -31592,7 +31592,9 @@ var OAuth = class {
       "content-type": "text/html; charset=utf-8",
       "cache-control": "no-store",
       "x-frame-options": "DENY",
-      "referrer-policy": "no-referrer",
+      // NOT "no-referrer": with that policy browsers send `Origin: null` on the same-origin form POST,
+      // which index.ts then rejects ("browser origins are not allowed"). "same-origin" still leaks nothing cross-origin.
+      "referrer-policy": "same-origin",
       "content-security-policy": "default-src 'none'; style-src 'unsafe-inline'; frame-ancestors 'none'; base-uri 'none'"
     });
     res.end(`<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>hardtools</title>

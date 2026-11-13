@@ -107,6 +107,25 @@ test("oauth: redirect URIs are restricted and never used for unregistered client
   } finally { child.kill("SIGKILL"); }
 });
 
+// Regression: a real browser sends `Origin: null` on the consent form's POST when the page is served with
+// `Referrer-Policy: no-referrer` (Fetch spec, "serializing a request origin"), and index.ts then answered 403
+// "browser origins are not allowed". Node's fetch cannot emulate that, so pin the header that causes it.
+test("oauth: consent page does not use a referrer policy that makes browsers send Origin: null", async () => {
+  const token = crypto.randomBytes(32).toString("hex");
+  const S = await start(token);
+  try {
+    const client = await (await register(S.base)).json(); const { challenge } = pkce();
+    const q = { response_type: "code", client_id: client.client_id, redirect_uri: CB, code_challenge: challenge, code_challenge_method: "S256" };
+    const r = await fetch(`${S.base}/authorize?${form(q)}`, { redirect: "manual" });
+    assert.equal(r.status, 200);
+    const rp = (r.headers.get("referrer-policy") ?? "").toLowerCase();
+    assert.ok(rp === "same-origin" || rp === "strict-origin-when-cross-origin" || rp === "origin", `unsafe referrer-policy: ${rp}`);
+    assert.notEqual(rp, "no-referrer");
+    const nul = await fetch(`${S.base}/authorize`, { method: "POST", headers: { ...FORM, origin: "null" }, body: form({ ...q, access_token: token }), redirect: "manual" });
+    assert.equal(nul.status, 403, "a literal Origin: null stays refused");
+  } finally { S.child.kill("SIGKILL"); }
+});
+
 test("oauth: tokens from another server secret are rejected; consent POST allows only same-origin; failed attempts are throttled", async () => {
   const a = crypto.randomBytes(32).toString("hex"), b = crypto.randomBytes(32).toString("hex");
   const A = await start(a), B = await start(b);

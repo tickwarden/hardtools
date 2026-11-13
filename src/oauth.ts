@@ -206,7 +206,10 @@ export class OAuth {
     const form = q ? `<p>Enter the hardtools access token (the secret from <code>connect.txt</code>) to let Claude connect.</p>
 <form method="post" action="/authorize" autocomplete="off">${hidden}<input type="password" name="access_token" autocomplete="off" autofocus required placeholder="access token"><button type="submit">Authorize</button></form>` : "";
     res.writeHead(code, {
-      "content-type": "text/html; charset=utf-8", "cache-control": "no-store", "x-frame-options": "DENY", "referrer-policy": "no-referrer",
+      "content-type": "text/html; charset=utf-8", "cache-control": "no-store", "x-frame-options": "DENY",
+      // NOT "no-referrer": with that policy browsers send `Origin: null` on the same-origin form POST,
+      // which index.ts then rejects ("browser origins are not allowed"). "same-origin" still leaks nothing cross-origin.
+      "referrer-policy": "same-origin",
       "content-security-policy": "default-src 'none'; style-src 'unsafe-inline'; frame-ancestors 'none'; base-uri 'none'",
     });
     res.end(`<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>hardtools</title>
