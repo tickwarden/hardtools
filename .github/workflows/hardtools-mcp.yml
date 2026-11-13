@@ -200,7 +200,9 @@ jobs:
           export HARDTOOLS_HTTP_ALLOW_LOCAL_TOOLS="$ALLOW_LOCAL_TOOLS"
           export HARDTOOLS_PROFILE=balanced
           export HARDTOOLS_ROOTS="$sandbox"
-          export HARDTOOLS_CONFIG="$GITHUB_WORKSPACE/artifact/hardtools.config.example.json"
+          # hardtools.config.example.json KULLANILMAZ: içindeki roots (/home/me/...) bu runner'da yok
+          # ve HARDTOOLS_ROOTS'u ezip sunucuyu "root does not exist" ile çökertir.
+          unset HARDTOOLS_CONFIG
 
           # Sunucu çıktısı log'a basılmaz (public repoda sızıntı riski).
           node "$GITHUB_WORKSPACE/artifact/bundle/index.js" \
@@ -210,11 +212,11 @@ jobs:
 
           ready=0
           for _ in $(seq 1 30); do
-            kill -0 "$NODE_PID" 2>/dev/null || { echo "::error::MCP sunucusu çöktü"; exit 1; }
+            kill -0 "$NODE_PID" 2>/dev/null || { tail -n 20 "$RUNNER_TEMP/node.log"; echo "::error::MCP sunucusu çöktü"; exit 1; }
             if (exec 3<>"/dev/tcp/127.0.0.1/$MCP_PORT") 2>/dev/null; then ready=1; break; fi
             sleep 1
           done
-          [ "$ready" = 1 ] || { echo "::error::Sunucu 30 sn içinde hazır olmadı"; exit 1; }
+          [ "$ready" = 1 ] || { tail -n 20 "$RUNNER_TEMP/node.log"; echo "::error::Sunucu 30 sn içinde hazır olmadı"; exit 1; }
 
           endpoint="$url/mcp"
           payload="$(printf 'ENDPOINT: %s\nAUTH: Authorization: Bearer %s\nLOCAL_TOOLS: %s' "$endpoint" "$token" "$ALLOW_LOCAL_TOOLS")"
