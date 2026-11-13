@@ -195,8 +195,8 @@ jobs:
           cd "$sandbox"
 
           export HARDTOOLS_HTTP_TOKEN="$token"
-          export HARDTOOLS_ALLOWED_HOSTS="$host"
-          export HARDTOOLS_HTTP_OPEN=1
+          # src/index.ts Host başlığını tam eşleştirir (port dahil). Public host + yerel host'lar.
+          export HARDTOOLS_ALLOWED_HOSTS="$host,127.0.0.1:${MCP_PORT},localhost:${MCP_PORT}"
           export HARDTOOLS_HTTP_ALLOW_LOCAL_TOOLS="$ALLOW_LOCAL_TOOLS"
           export HARDTOOLS_PROFILE=balanced
           export HARDTOOLS_ROOTS="$sandbox"
@@ -216,7 +216,8 @@ jobs:
           done
           [ "$ready" = 1 ] || { echo "::error::Sunucu 30 sn içinde hazır olmadı"; exit 1; }
 
-          payload="$(printf 'URL: %s\nTOKEN: %s\nLOCAL_TOOLS: %s' "$url" "$token" "$ALLOW_LOCAL_TOOLS")"
+          endpoint="$url/mcp"
+          payload="$(printf 'ENDPOINT: %s\nAUTH: Authorization: Bearer %s\nLOCAL_TOOLS: %s' "$endpoint" "$token" "$ALLOW_LOCAL_TOOLS")"
 
           if [ -n "$AGE_RECIPIENT" ]; then
             {
@@ -230,8 +231,8 @@ jobs:
           else
             {
               echo "### hardtools MCP yayında (private repo, düz yazı)"
-              echo "- URL: \`$url\`"
-              echo "- Token: \`$token\`"
+              echo "- Endpoint: \`$endpoint\` (yalnızca POST)"
+              echo "- Header: \`Authorization: Bearer $token\`"
               echo "- Local tools: \`$ALLOW_LOCAL_TOOLS\`"
               echo "- Kapatmak için: bu workflow'u \`action = unpublish\` ile çalıştır."
             } | tee -a "$GITHUB_STEP_SUMMARY"
