@@ -1,4 +1,6 @@
-name: hardtools MCP – Build, Publish & Lifecycle
+# AI-assisted: Bu dosya Claude (Anthropic) tarafından yeniden düzenlendi.
+# Merge etmeden önce insan gözden geçirmesi gerekir (Legends11).
+name: hardtools MCP – Build, Publish & Serve
 
 on:
   push:
@@ -6,57 +8,49 @@ on:
     tags: ['v*']
   pull_request:
     branches: [main]
-  schedule:
-    # Her gün 03:00 UTC – kullanılmayan instance’ları kontrol et
-    - cron: '0 3 * * *'
   workflow_dispatch:
     inputs:
-      force_shutdown_idle:
-        description: '90 günden eski idle instance’ları şimdi kapat'
-        type: boolean
-        default: false
-      unpublish_server:
-        description: 'Çalışan MCP sunucusunu ve tüneli yayından kaldır'
-        type: boolean
-        default: false
+      action:
+        description: 'Ne yapılsın?'
+        type: choice
+        options: [build-only, serve, unpublish]
+        default: build-only
 
+# En az yetki: her job ihtiyacı olanı kendi içinde ister.
 permissions:
   contents: read
-  packages: write
-  id-token: write
 
 env:
   NODE_VERSION: '20'
-  IDLE_DAYS: 90
+  MCP_PORT: '8787'
 
 jobs:
   # ──────────────────────────────────────────────
   # 1. Test + Bundle
   # ──────────────────────────────────────────────
   test-and-bundle:
+    if: github.event_name != 'workflow_dispatch' || inputs.action != 'unpublish'
     runs-on: ubuntu-latest
+    timeout-minutes: 15
+    concurrency:
+      group: test-${{ github.ref }}
+      cancel-in-progress: true
     steps:
       - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
 
       - uses: actions/setup-node@v5
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: 'npm'
 
-      - name: Install
-        run: npm ci
+      - run: npm ci
+      - run: npm run build
+      - run: node --test --test-concurrency=1 test/*.test.mjs
+      - run: npm run bundle
 
-      - name: Build
-        run: npm run build
-
-      - name: Test
-        run: node --test --test-concurrency=1 test/*.test.mjs
-
-      - name: Bundle
-        run: npm run bundle
-
-      - name: Upload bundle artifact
-        uses: actions/upload-artifact@v7
+      - uses: actions/upload-artifact@v7
         with:
           name: hardtools-bundle
           path: |
@@ -68,14 +62,23 @@ jobs:
           retention-days: 30
 
   # ──────────────────────────────────────────────
-  # 2. Publish, Start Server & Cloudflared Tunnel
+  # 2. npm publish (sadece v* tag'i)
   # ──────────────────────────────────────────────
-  publish:
+  publish-npm:
     needs: test-and-bundle
-    if: (startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch') && github.event.inputs.unpublish_server != 'true'
+    if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment: npm            # Settings > Environments'ta onay kuralı ekleyebilirsin
+    permissions:
+      contents: read
+      id-token: write           # npm provenance için
+    env:
+      HAS_NPM_TOKEN: ${{ secrets.NPM_TOKEN != '' }}
     steps:
       - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
 
       - uses: actions/setup-node@v5
         with:
@@ -83,78 +86,134 @@ jobs:
           registry-url: 'https://registry.npmjs.org'
           cache: 'npm'
 
-      - name: Install
-        run: npm ci
+      - name: Tag ile package.json sürümü eşleşiyor mu?
+        run: |
+          pkg="v$(node -p "require('./package.json').version")"
+          if [ "$pkg" != "$GITHUB_REF_NAME" ]; then
+            echo "::error::Tag ($GITHUB_REF_NAME) != package.json ($pkg)"
+            exit 1
+          fi
 
-      - name: Bundle
-        run: npm run bundle
+      - run: npm ci
+      - run: npm run bundle
 
-      - name: Publish to npm (optional)
-        run: npm publish --access public
+      - name: Publish to npm
+        if: env.HAS_NPM_TOKEN == 'true'
+        run: npm publish --access public --provenance
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-        continue-on-error: true
-
-      - name: Terminate old processes, Start MCP HTTP Server & Cloudflared Tunnel
-        run: |
-          for p in /proc/[0-9]*; do 
-            cmd=$(tr "\0" " " < "$p/cmdline" 2>/dev/null || true)
-            echo "$cmd" | grep -q "bundle/index.js" && kill "$(basename "$p")" && echo "killed $(basename "$p")"
-          done
-          sleep 0.4
-          
-          if [ -f /tmp/ht-token ]; then
-            export HARDTOOLS_HTTP_TOKEN="$(cat /tmp/ht-token)"
-          else
-            export HARDTOOLS_HTTP_TOKEN="default-dev-token"
-          fi
-
-          export HARDTOOLS_ALLOWED_HOSTS="*"
-          export HARDTOOLS_HTTP_OPEN=1
-          export HARDTOOLS_HTTP_ALLOW_LOCAL_TOOLS=1
-          export HARDTOOLS_PROFILE=balanced
-          export HARDTOOLS_ROOTS="$PWD"
-          export HARDTOOLS_CONFIG="$PWD/hardtools.config.example.json"
-          
-          # Yazma izni olan yerel dizin kullanılıyor
-          mkdir -p artifacts/hardtools_extract
-          cd artifacts/hardtools_extract || cd .
-          
-          node ../../bundle/index.js --http --host 127.0.0.1 --port 8787 --profile balanced &
-
-          if [ ! -f /tmp/cloudflared ]; then
-            echo "📥 Cloudflared indiriliyor..."
-            curl -L --output /tmp/cloudflared https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64
-            chmod +x /tmp/cloudflared
-          fi
-
-          echo "🌐 Cloudflared tüneli başlatılıyor..."
-          /tmp/cloudflared tunnel --url http://127.0.0.1:8787 --no-autoupdate
 
   # ──────────────────────────────────────────────
-  # 3. Yayından Kaldırma ve Temizlik (Unpublish / Shutdown)
+  # 3. MCP sunucusunu + Cloudflare tünelini yayınla
+  #    Sadece elle tetiklenir (action = serve).
+  #    Gerekli:
+  #      secrets: HARDTOOLS_HTTP_TOKEN (>=32 karakter), CLOUDFLARE_TUNNEL_TOKEN
+  #      vars:    MCP_PUBLIC_HOST, CLOUDFLARED_VERSION, CLOUDFLARED_SHA256
+  #      (opsiyonel) vars: HARDTOOLS_ALLOW_LOCAL_TOOLS = 1
   # ──────────────────────────────────────────────
-  cleanup-idle-servers:
+  serve:
+    needs: test-and-bundle
+    if: github.event_name == 'workflow_dispatch' && inputs.action == 'serve'
     runs-on: ubuntu-latest
-    if: github.event_name == 'schedule' || inputs.force_shutdown_idle == true || inputs.unpublish_server == true
+    timeout-minutes: 350        # GitHub'ın 360 dk sınırının altında, kontrollü kapanış
+    environment: mcp-public     # Required reviewers ekle: kimse onaysız public sunucu açamasın
+    concurrency:
+      group: hardtools-mcp-serve
+      cancel-in-progress: true  # Yeni serve eskisini otomatik kapatır
     steps:
-      - name: Unpublish / Terminate Active MCP Processes
+      - uses: actions/download-artifact@v7
+        with:
+          name: hardtools-bundle
+          path: artifact
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Start MCP server + Cloudflare tunnel
+        env:
+          HARDTOOLS_HTTP_TOKEN: ${{ secrets.HARDTOOLS_HTTP_TOKEN }}
+          TUNNEL_TOKEN: ${{ secrets.CLOUDFLARE_TUNNEL_TOKEN }}
+          MCP_PUBLIC_HOST: ${{ vars.MCP_PUBLIC_HOST }}
+          CLOUDFLARED_VERSION: ${{ vars.CLOUDFLARED_VERSION }}
+          CLOUDFLARED_SHA256: ${{ vars.CLOUDFLARED_SHA256 }}
+          ALLOW_LOCAL_TOOLS: ${{ vars.HARDTOOLS_ALLOW_LOCAL_TOOLS || '0' }}
         run: |
-          echo "🛑 Sunucu ve tünel yayından kaldırılıyor (Unpublish)..."
-          
-          for p in /proc/[0-9]*; do 
-            cmd=$(tr "\0" " " < "$p/cmdline" 2>/dev/null || true)
-            if echo "$cmd" | grep -qE "bundle/index.js|cloudflared"; then
-              pid=$(basename "$p")
-              kill "$pid" && echo "Kapatıldı (PID: $pid): $cmd"
+          set -euo pipefail
+
+          # --- Ön koşullar: eksikse sessizce zayıf varsayılana düşme, dur ---
+          : "${MCP_PUBLIC_HOST:?vars.MCP_PUBLIC_HOST tanımlı değil}"
+          : "${TUNNEL_TOKEN:?secrets.CLOUDFLARE_TUNNEL_TOKEN tanımlı değil}"
+          : "${CLOUDFLARED_VERSION:?vars.CLOUDFLARED_VERSION tanımlı değil}"
+          : "${CLOUDFLARED_SHA256:?vars.CLOUDFLARED_SHA256 tanımlı değil}"
+          if [ "${#HARDTOOLS_HTTP_TOKEN}" -lt 32 ]; then
+            echo "::error::HARDTOOLS_HTTP_TOKEN secret'ı yok veya 32 karakterden kısa"
+            exit 1
+          fi
+          echo "::add-mask::$HARDTOOLS_HTTP_TOKEN"
+
+          # --- cloudflared: sabit sürüm + checksum doğrulaması ---
+          cf="$RUNNER_TEMP/cloudflared"
+          curl -fsSL --retry 3 -o "$cf" \
+            "https://github.com/cloudflare/cloudflared/releases/download/${CLOUDFLARED_VERSION}/cloudflared-linux-amd64"
+          echo "${CLOUDFLARED_SHA256}  $cf" | sha256sum -c -
+          chmod +x "$cf"
+
+          # --- MCP sunucusu: repo kökü yerine boş bir sandbox dizini ---
+          sandbox="$RUNNER_TEMP/hardtools-sandbox"
+          mkdir -p "$sandbox"
+          cd "$sandbox"
+
+          export HARDTOOLS_ALLOWED_HOSTS="$MCP_PUBLIC_HOST"
+          export HARDTOOLS_HTTP_OPEN=1
+          export HARDTOOLS_HTTP_ALLOW_LOCAL_TOOLS="$ALLOW_LOCAL_TOOLS"
+          export HARDTOOLS_PROFILE=balanced
+          export HARDTOOLS_ROOTS="$sandbox"
+          export HARDTOOLS_CONFIG="$GITHUB_WORKSPACE/artifact/hardtools.config.example.json"
+
+          node "$GITHUB_WORKSPACE/artifact/bundle/index.js" \
+            --http --host 127.0.0.1 --port "$MCP_PORT" --profile balanced &
+          NODE_PID=$!
+          trap 'kill "$NODE_PID" 2>/dev/null || true' EXIT
+
+          # --- Hazır olana kadar bekle (tünel boş porta bakmasın) ---
+          ready=0
+          for _ in $(seq 1 30); do
+            if ! kill -0 "$NODE_PID" 2>/dev/null; then
+              echo "::error::MCP sunucusu başlarken çöktü"; exit 1
             fi
+            if (exec 3<>"/dev/tcp/127.0.0.1/$MCP_PORT") 2>/dev/null; then ready=1; break; fi
+            sleep 1
           done
+          [ "$ready" = 1 ] || { echo "::error::Sunucu 30 sn içinde hazır olmadı"; exit 1; }
 
-          echo "🔍 ${IDLE_DAYS} günden eski geçici önbellek kalıntıları temizleniyor..."
-          find /tmp -name "ht-*" -mtime +${IDLE_DAYS} -exec rm -rf {} + 2>/dev/null || true
-          
-          echo "✅ Yayından kaldırma ve temizlik başarıyla tamamlandı."
+          echo "🌐 Tünel başlatılıyor: https://${MCP_PUBLIC_HOST}"
+          # TUNNEL_TOKEN env'den okunur; komut satırında görünmez.
+          "$cf" tunnel --no-autoupdate --url "http://127.0.0.1:${MCP_PORT}" run
 
-      - name: Notify on failure
-        if: failure()
-        run: echo "Yayından kaldırma işlemi başarısız oldu – kontrol et."
+  # ──────────────────────────────────────────────
+  # 4. Yayından kaldır: çalışan serve run'ını iptal et
+  #    (Ayrı runner'daki process'i kill etmek mümkün değil;
+  #     tek yol run'ı iptal etmek.)
+  # ──────────────────────────────────────────────
+  unpublish:
+    if: github.event_name == 'workflow_dispatch' && inputs.action == 'unpublish'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      actions: write
+    steps:
+      - name: Cancel running serve runs
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          wf="$(basename "${GITHUB_WORKFLOW_REF%%@*}")"
+          ids="$(gh run list --workflow "$wf" --event workflow_dispatch \
+                   --status in_progress --json databaseId --jq '.[].databaseId')"
+          found=0
+          for id in $ids; do
+            [ "$id" = "$GITHUB_RUN_ID" ] && continue
+            gh run cancel "$id" && echo "İptal edildi: run $id" && found=1
+          done
+          [ "$found" = 1 ] || echo "Çalışan serve run'ı bulunamadı."
