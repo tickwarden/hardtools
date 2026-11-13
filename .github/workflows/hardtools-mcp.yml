@@ -1,5 +1,6 @@
 # AI-assisted: Bu dosya Claude (Anthropic) tarafından yeniden düzenlendi.
 # Merge etmeden önce insan gözden geçirmesi gerekir (Legends11).
+# Bu dosya çalıştırılıp test EDİLMEDİ; ilk denemeyi build-only/serve ile kendin yap.
 #
 # Bu workflow hiçbir repo secret'ı veya variable'ı GEREKTİRMEZ.
 #  - MCP token'ı her çalıştırmada rastgele üretilir ve log'da maskelenir (::add-mask::).
@@ -10,10 +11,14 @@
 #
 # serve davranışı:
 #  - MCP sunucusu çökerse aynı token/host ile yeniden başlatılır (en fazla 5 kez).
-#  - Tünel ölürse job kapanır: quick tunnel URL'si değişir, istemci yeniden yapılandırılmalıdır.
-#  - GitHub-hosted job'ların 6 saatlik KESİN sınırı vardır; bu sınıra ~5 sa 45 dk'da temiz çıkılır.
-#    Sonrasında action=serve ile yeniden başlat (yeni URL + yeni token üretilir).
+#  - GitHub-hosted job'ların 6 saatlik KESİN sınırı vardır; ~5 sa 45 dk'da temiz çıkılır.
+#  - DEVİR ZİNCİRİ: süre dolunca veya tünel ölünce workflow kendini yeniden başlatır
+#    (workflow_dispatch, action=serve). En fazla MAX_CHAIN devir. HER devirde yeni URL +
+#    yeni token üretilir: yeni run'ın `hardtools-connect` artifact'ından istemciyi
+#    yeniden yapılandırman gerekir. Sabit URL için named tunnel (hesap + secret) gerekir.
 #  - Yeni bir serve çalıştırmak, çalışan oturumu İPTAL eder (concurrency).
+#  - unpublish: çalışan VE kuyruktaki serve run'larını (devir dahil) iptal eder; iptal edilen
+#    run devir yapmaz.
 name: hardtools MCP – Build, Publish & Serve
 
 on:
@@ -37,6 +42,10 @@ on:
         description: 'serve: HARDTOOLS_HTTP_ALLOW_LOCAL_TOOLS açılsın mı? (riskli)'
         type: boolean
         default: false
+      chain_depth:
+        description: 'İç kullanım (elle değiştirme): devir sayacı'
+        type: string
+        default: '0'
 
 permissions:
   contents: read
@@ -129,6 +138,9 @@ jobs:
     if: github.event_name == 'workflow_dispatch' && inputs.action == 'serve'
     runs-on: ubuntu-latest
     timeout-minutes: 360          # GitHub-hosted job üst sınırı; temiz çıkış ~345 dk'da (aşağıda)
+    permissions:
+      contents: read
+      actions: write              # devir (gh workflow run) için
     concurrency:
       group: hardtools-mcp-serve
       cancel-in-progress: true
@@ -140,10 +152,17 @@ jobs:
       REPO_PRIVATE: ${{ github.event.repository.private }}
       AGE_RECIPIENT: ${{ inputs.age_recipient }}
       ALLOW_LOCAL_TOOLS: ${{ inputs.allow_local_tools && '1' || '0' }}
+      CHAIN_DEPTH: ${{ inputs.chain_depth }}
+      MAX_CHAIN: '8'              # elle başlatma + en fazla 8 otomatik devir (~46 saat)
     steps:
-      - name: Token teslim yolunu doğrula
+      - name: Token teslim yolunu ve devir sayacını doğrula
         run: |
           set -euo pipefail
+          # Sayaç sadece rakam olabilir; değilse 0 kabul edilir (GITHUB_ENV'e yalnızca doğrulanmış değer yazılır)
+          depth="${CHAIN_DEPTH:-0}"
+          case "$depth" in ''|*[!0-9]*) depth=0 ;; esac
+          echo "CHAIN_DEPTH=$depth" >> "$GITHUB_ENV"
+
           if [ -z "$AGE_RECIPIENT" ] && [ "$REPO_PRIVATE" != "true" ]; then
             echo "::error::Public repoda token düz yazı yazılamaz. age_recipient (PUBLIC key) ver veya repo'yu private yap."
             exit 1
@@ -216,13 +235,17 @@ jobs:
             } > "$RUNNER_TEMP/node.env"
           )
 
+          # NOT: node, GH_TOKEN/GITHUB_TOKEN OLMADAN başlatılır (env -u). Devir için gereken
+          # actions:write token'ı yalnızca "Yayında tut" adımında vardır; MCP local tools açık
+          # olsa bile sunucu sürecinin ortamında bulunmaz.
           cat > "$RUNNER_TEMP/start-node.sh" <<'SH'
           #!/usr/bin/env bash
           set -euo pipefail
           . "$RUNNER_TEMP/node.env"
           cd "$HARDTOOLS_ROOTS"
           # Sunucu çıktısı Actions log'una basılmaz (public repoda sızıntı riski); dosyaya eklenir.
-          setsid nohup node "$GITHUB_WORKSPACE/artifact/bundle/index.js" \
+          setsid nohup env -u GH_TOKEN -u GITHUB_TOKEN \
+            node "$GITHUB_WORKSPACE/artifact/bundle/index.js" \
             --http --host 127.0.0.1 --port "$MCP_PORT" --profile "$HARDTOOLS_PROFILE" \
             >>"$RUNNER_TEMP/node.log" 2>&1 &
           echo "$!" > "$RUNNER_TEMP/node.pid"
@@ -242,20 +265,21 @@ jobs:
 
           # --- Bağlantı bilgisi: log/özet YERİNE artifact dosyası ---
           endpoint="$url/mcp"
+          session="$((CHAIN_DEPTH + 1))/$((MAX_CHAIN + 1))"
           mkdir -p "$RUNNER_TEMP/connect"
           conn="$RUNNER_TEMP/connect/connect.txt"
-          plain="$(printf 'ENDPOINT (URL alanina):\n%s\n\nBASLIK ADI:\nAuthorization\n\nBASLIK DEGERI (tek satir, Bearer dahil):\nBearer %s\n\nLOCAL_TOOLS: %s\n' "$endpoint" "$token" "$ALLOW_LOCAL_TOOLS")"
+          plain="$(printf 'ENDPOINT (URL alanina):\n%s\n\nBASLIK ADI:\nAuthorization\n\nBASLIK DEGERI (tek satir, Bearer dahil):\nBearer %s\n\nLOCAL_TOOLS: %s\nOTURUM: %s\n' "$endpoint" "$token" "$ALLOW_LOCAL_TOOLS" "$session")"
           if [ -n "$AGE_RECIPIENT" ]; then
             printf '%s\n' "$plain" | age -r "$AGE_RECIPIENT" -a > "$conn"
-            echo "### hardtools MCP yayında (şifreli)" >> "$GITHUB_STEP_SUMMARY"
+            echo "### hardtools MCP yayında (şifreli) – oturum $session" >> "$GITHUB_STEP_SUMMARY"
             echo "Bağlantı bilgisi, age ile şifreli \`hardtools-connect\` artifact'ında. Çözmek için \`age -d -i <özel_anahtar> connect.txt\`." >> "$GITHUB_STEP_SUMMARY"
           else
             printf '%s\n' "$plain" > "$conn"
-            echo "### hardtools MCP yayında (private repo)" >> "$GITHUB_STEP_SUMMARY"
+            echo "### hardtools MCP yayında (private repo) – oturum $session" >> "$GITHUB_STEP_SUMMARY"
             echo "Endpoint ve token, run sayfasının altındaki **Artifacts** bölümünde \`hardtools-connect\` içinde (zip, içinde connect.txt)." >> "$GITHUB_STEP_SUMMARY"
           fi
           echo "Local tools: \`$ALLOW_LOCAL_TOOLS\`. Kapatmak için: \`action = unpublish\` ile çalıştır." >> "$GITHUB_STEP_SUMMARY"
-          echo "Oturum en fazla ~5 sa 45 dk sürer (GitHub 6 saat sınırı); sonra action = serve ile yeniden başlat." >> "$GITHUB_STEP_SUMMARY"
+          echo "Oturum en fazla ~5 sa 45 dk sürer; sonra kendini yeni bir run'a devreder (yeni URL + yeni token, en fazla $MAX_CHAIN devir)." >> "$GITHUB_STEP_SUMMARY"
 
       - name: Bağlantı bilgisini artifact olarak yükle
         uses: actions/upload-artifact@v7
@@ -265,24 +289,52 @@ jobs:
           retention-days: 1
           if-no-files-found: error
 
-      - name: Yayında tut (MCP çökerse yeniden başlat, tünel ölürse bitir)
+      - name: Yayında tut (MCP çökerse yeniden başlat; süre/tünel biterse devret)
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
         run: |
           set -uo pipefail
           CF_PID="$(cat "$RUNNER_TEMP/cf.pid")"
           deadline=$(( $(date +%s) + 345 * 60 ))   # 6 saatlik sert sınırdan önce temiz çıkış
           restarts=0
           max_restarts=5
+
+          # Yeni bir serve run'ı başlatır. İptal/unpublish durumunda bu fonksiyon ÇAĞRILMAZ
+          # (iptalde adım SIGTERM ile öldürülür; devir yalnızca aşağıdaki break noktalarında).
+          handoff() {
+            if [ "$CHAIN_DEPTH" -ge "$MAX_CHAIN" ]; then
+              echo "::warning::Devir sınırı ($MAX_CHAIN) doldu; zincir burada bitiyor. Devam için action = serve ile elle başlat."
+              return 0
+            fi
+            wf="$(basename "${GITHUB_WORKFLOW_REF%%@*}")"
+            if gh workflow run "$wf" --ref "$GITHUB_REF_NAME" \
+                 -f action=serve \
+                 -f age_recipient="$AGE_RECIPIENT" \
+                 -f allow_local_tools="$([ "$ALLOW_LOCAL_TOOLS" = 1 ] && echo true || echo false)" \
+                 -f chain_depth="$((CHAIN_DEPTH + 1))"; then
+              echo "::notice::Yeni oturum başlatıldı ($((CHAIN_DEPTH + 2))/$((MAX_CHAIN + 1))). Yeni URL/token: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/workflows/$wf"
+              {
+                echo ""
+                echo "**Devir yapıldı.** Yeni oturum: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/workflows/$wf (en yeni run → \`hardtools-connect\`)."
+              } >> "$GITHUB_STEP_SUMMARY"
+            else
+              echo "::error::Devir başarısız (gh workflow run). Elle action = serve çalıştır."
+            fi
+          }
+
           while :; do
             if ! kill -0 "$CF_PID" 2>/dev/null; then
-              # Quick tunnel yeniden başlarsa URL değişir; istemci zaten eski adrese bağlı kalamaz.
-              echo "::warning::Tünel sonlandı, job kapanıyor. Yeni adres için action = serve ile yeniden çalıştır."
+              # Quick tunnel yeniden başlarsa URL değişir; mevcut oturum kullanılamaz, yenisine devret.
+              echo "::warning::Tünel sonlandı, yeni oturuma devrediliyor."
+              handoff
               break
             fi
             NODE_PID="$(cat "$RUNNER_TEMP/node.pid")"
             if ! kill -0 "$NODE_PID" 2>/dev/null; then
               restarts=$((restarts + 1))
               if [ "$restarts" -gt "$max_restarts" ]; then
-                echo "::error::MCP sunucusu $max_restarts kez çöktü, vazgeçildi."
+                echo "::error::MCP sunucusu $max_restarts kez çöktü, vazgeçildi (devir yapılmadı)."
                 tail -n 20 "$RUNNER_TEMP/node.log"
                 exit 1
               fi
@@ -291,14 +343,15 @@ jobs:
               sleep 3
             fi
             if [ "$(date +%s)" -ge "$deadline" ]; then
-              echo "::notice::GitHub'ın 6 saatlik job sınırına yaklaşıldı; temiz kapanış. Devam için action = serve ile yeniden çalıştır."
+              echo "::notice::GitHub'ın 6 saatlik job sınırına yaklaşıldı; yeni oturuma devrediliyor."
+              handoff
               break
             fi
             sleep 5
           done
 
   # ──────────────────────────────────────────────
-  # 4. Yayından kaldır: çalışan serve run'ını iptal et
+  # 4. Yayından kaldır: çalışan ve kuyruktaki serve run'larını iptal et (devir zinciri dahil)
   # ──────────────────────────────────────────────
   unpublish:
     if: github.event_name == 'workflow_dispatch' && inputs.action == 'unpublish'
@@ -307,17 +360,25 @@ jobs:
     permissions:
       actions: write
     steps:
-      - name: Cancel running serve runs
+      - name: Cancel running and queued serve runs
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
         run: |
           wf="$(basename "${GITHUB_WORKFLOW_REF%%@*}")"
-          ids="$(gh run list --workflow "$wf" --event workflow_dispatch \
-                   --status in_progress --json databaseId --jq '.[].databaseId')"
           found=0
-          for id in $ids; do
-            [ "$id" = "$GITHUB_RUN_ID" ] && continue
-            gh run cancel "$id" && echo "İptal edildi: run $id" && found=1
+          # İki tur: ilk turda iptal edilirken yeni doğmuş bir devir run'ı varsa ikinci tur yakalar.
+          for pass in 1 2; do
+            for st in in_progress queued; do
+              ids="$(gh run list --workflow "$wf" --event workflow_dispatch \
+                       --status "$st" --limit 50 --json databaseId --jq '.[].databaseId')"
+              for id in $ids; do
+                [ "$id" = "$GITHUB_RUN_ID" ] && continue
+                if gh run cancel "$id"; then
+                  echo "İptal edildi ($st): run $id"; found=1
+                fi
+              done
+            done
+            [ "$pass" = 1 ] && sleep 15
           done
-          [ "$found" = 1 ] || echo "Çalışan serve run'ı bulunamadı."
+          [ "$found" = 1 ] || echo "Çalışan veya kuyruktaki serve run'ı bulunamadı."
