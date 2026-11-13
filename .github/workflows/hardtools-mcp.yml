@@ -25,7 +25,7 @@ on:
       age_recipient:
         description: 'serve: age (age1...) veya SSH PUBLIC key. Public repoda ZORUNLU; token bununla şifrelenir'
         type: string
-        default: 'ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIIrsoGr+eE+h/e8k+VAtrJ9X6R9MFJEa/SaNmFr08FoX hardtools-serve'
+        default: ''
       allow_local_tools:
         description: 'serve: HARDTOOLS_HTTP_ALLOW_LOCAL_TOOLS açılsın mı? (riskli)'
         type: boolean
