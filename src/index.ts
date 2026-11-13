@@ -6,6 +6,7 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { Audit, verifyAuditFile } from "./audit.js";
 import { loadPolicy, type Policy, type ProfileName } from "./config.js";
+import { OAuth } from "./oauth.js";
 import { createServer, VERSION } from "./server.js";
 
 function arg(name: string): string | undefined {
@@ -38,23 +39,35 @@ async function main() {
   if (token.length < 32) { console.error("[hardtools] refusing to start HTTP mode: set HARDTOOLS_HTTP_TOKEN to a random secret of at least 32 chars (e.g. `openssl rand -hex 32`)."); process.exit(1); }
   const host = arg("--host") ?? "127.0.0.1"; const port = Number(arg("--port") ?? 8787);
   const allowedHosts = new Set((process.env.HARDTOOLS_ALLOWED_HOSTS ?? `127.0.0.1:${port},localhost:${port}`).split(",").map(s => s.trim().toLowerCase()).filter(Boolean));
-  const tokHash = crypto.createHash("sha256").update(token).digest();
   const hits = new Map<string, { n: number; reset: number }>();
+  // claude.ai's connector dialog cannot send a custom Authorization header, so it needs OAuth (or an authless URL).
+  const oauth = new OAuth({ token, audit: (e) => audit.write(e), extraRedirectUris: (process.env.HARDTOOLS_OAUTH_REDIRECT_URIS ?? "").split(",").map(s => s.trim()).filter(Boolean) });
+  // Fallback for clients without OAuth support: the secret as a path segment (`/mcp/<token>`). Disable with HARDTOOLS_HTTP_PATH_TOKEN=0.
+  const pathTokenEnabled = process.env.HARDTOOLS_HTTP_PATH_TOKEN !== "0";
+  const eqTok = (a: string, b: string) => crypto.timingSafeEqual(crypto.createHash("sha256").update(a).digest(), crypto.createHash("sha256").update(b).digest());
 
   const srv = http.createServer(async (req, res) => {
-    const send = (code: number, msg: string) => { res.writeHead(code, { "content-type": "application/json" }); res.end(JSON.stringify({ error: msg })); };
+    const send = (code: number, msg: string, headers: Record<string, string> = {}) => { res.writeHead(code, { "content-type": "application/json", ...headers }); res.end(JSON.stringify({ error: msg })); };
     try {
       const h = String(req.headers.host ?? "").toLowerCase();
       if (!allowedHosts.has(h)) return send(403, "host not allowed");                 // DNS-rebinding defence
-      if (req.headers.origin) return send(403, "browser origins are not allowed");     // this is a machine-to-machine endpoint
-      const m = /^Bearer (.+)$/.exec(String(req.headers.authorization ?? ""));
-      const ok = m && crypto.timingSafeEqual(crypto.createHash("sha256").update(m[1]).digest(), tokHash);
+      const path = (req.url ?? "").split("?")[0];
+      // Machine-to-machine endpoint: browser origins are refused, except the consent page posting to itself.
+      if (req.headers.origin && !(path === "/authorize" && req.headers.origin === oauth.origin(req))) return send(403, "browser origins are not allowed");
       const ip = req.socket.remoteAddress ?? "?"; const now = Date.now(); const b = hits.get(ip) ?? { n: 0, reset: now + 60_000 };
       if (now > b.reset) { b.n = 0; b.reset = now + 60_000; } b.n++; hits.set(ip, b);
       if (b.n > 120) return send(429, "rate limited");
-      if (!ok) return send(401, "unauthorized");
-      if (req.url?.split("?")[0] !== "/mcp") return send(404, "not found");
-      if (req.method !== "POST") return send(405, "stateless server: POST only");
+
+      // OAuth discovery / registration / consent / token routes are public by design (the consent page demands the secret).
+      if (await oauth.handle(req, res)) return;
+
+      const isMcp = path === "/mcp" || (pathTokenEnabled && path.startsWith("/mcp/"));
+      if (!isMcp) return send(404, "not found");
+      const m = /^Bearer (.+)$/.exec(String(req.headers.authorization ?? ""));
+      const bearerOk = !!m && (eqTok(m[1], token) || oauth.isAccessToken(m[1]));
+      const pathOk = path.startsWith("/mcp/") && eqTok(path.slice(5), token);
+      if (!bearerOk && !pathOk) return send(401, "unauthorized", { "www-authenticate": `Bearer resource_metadata="${oauth.resourceMetadataUrl(req)}"` });
+      if (req.method !== "POST") return send(405, "stateless server: POST only", { allow: "POST" });
       const chunks: Buffer[] = []; let size = 0;
       for await (const c of req) { size += (c as Buffer).length; if (size > 1_000_000) return send(413, "body too large"); chunks.push(c as Buffer); }
       let body: unknown; try { body = JSON.parse(Buffer.concat(chunks).toString("utf8")); } catch { return send(400, "invalid JSON"); }
@@ -65,7 +78,7 @@ async function main() {
       await transport.handleRequest(req, res, body);
     } catch (e) { console.error("[hardtools] http error:", (e as Error).message); if (!res.headersSent) send(500, "internal error"); }
   });
-  srv.listen(port, host, () => console.error(`[hardtools] HTTP listening on http://${host}:${port}/mcp (put a TLS-terminating reverse proxy/tunnel in front for Claude web)`));
+  srv.listen(port, host, () => console.error(`[hardtools] HTTP listening on http://${host}:${port}/mcp (put a TLS-terminating reverse proxy/tunnel in front for Claude web; OAuth enabled for the claude.ai connector dialog)`));
 }
 
 main().catch((e) => { console.error("[hardtools] fatal:", (e as Error).message); process.exit(1); });

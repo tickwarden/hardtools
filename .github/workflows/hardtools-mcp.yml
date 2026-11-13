@@ -244,7 +244,8 @@ jobs:
           endpoint="$url/mcp"
           mkdir -p "$RUNNER_TEMP/connect"
           conn="$RUNNER_TEMP/connect/connect.txt"
-          plain="$(printf 'ENDPOINT (URL alanina):\n%s\n\nBASLIK ADI:\nAuthorization\n\nBASLIK DEGERI (tek satir, Bearer dahil):\nBearer %s\n\nLOCAL_TOOLS: %s\n' "$endpoint" "$token" "$ALLOW_LOCAL_TOOLS")"
+          plain="$(printf 'A) claude.ai web / Claude app  (Settings > Connectors > Add custom connector)\n   URL: %s\n   Leave "OAuth client ID/secret" empty. A browser tab opens; paste this access token when asked:\n   %s\n\nB) Fallback if A fails (URL contains the secret, treat it like a password):\n   URL: %s/%s\n\nC) Claude Code / Desktop (can send headers)\n   URL: %s\n   Header name: Authorization\n   Header value: Bearer %s\n\nLOCAL_TOOLS: %s\n' \
+            "$endpoint" "$token" "$endpoint" "$token" "$endpoint" "$token" "$ALLOW_LOCAL_TOOLS")"
           if [ -n "$AGE_RECIPIENT" ]; then
             printf '%s\n' "$plain" | age -r "$AGE_RECIPIENT" -a > "$conn"
             echo "### hardtools MCP yayında (şifreli)" >> "$GITHUB_STEP_SUMMARY"

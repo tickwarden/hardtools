@@ -45,8 +45,10 @@ Klasörü plugin olarak yükle (`.claude-plugin/plugin.json` + `.mcp.json` hazı
 export HARDTOOLS_HTTP_TOKEN=$(openssl rand -hex 32)
 node bundle/index.js --http --port 8787 --profile balanced      # 127.0.0.1'e bağlanır
 ```
-- Sabit bearer token **Claude Code / Desktop** için uygundur (istek başlığı gönderebilirler).
-- **claude.ai web** custom connector arayüzü genelde **OAuth** bekler; bu projede OAuth sunucusu **yok**. Web için önüne OAuth yapan bir geçit koymak gerekir (yapılmadı, test edilmedi).
+- A static bearer token (`Authorization: Bearer <HARDTOOLS_HTTP_TOKEN>`) works for **Claude Code / Desktop** (they can send headers).
+- **claude.ai web / Claude app**: the custom-connector dialog cannot send headers, so the server speaks a minimal stateless **OAuth 2.1** (RFC 9728 + RFC 8414 discovery, RFC 7591 dynamic client registration, PKCE S256). Add the connector with the `/mcp` URL and leave the OAuth client fields empty; a consent page opens and asks for `HARDTOOLS_HTTP_TOKEN`. Only someone holding that secret can obtain tokens (access tokens live 1 h, refresh tokens 12 h; everything dies when the server restarts with a new secret). Redirect URIs are limited to `https://claude.ai|claude.com/api/mcp/auth_callback` and loopback; add more with `HARDTOOLS_OAUTH_REDIRECT_URIS` (comma-separated, exact match).
+- Fallback for clients without OAuth support: `https://<host>/mcp/<HARDTOOLS_HTTP_TOKEN>` (the secret is part of the URL, so it can leak into proxy logs and screenshots; disable with `HARDTOOLS_HTTP_PATH_TOKEN=0`).
+- Verified with this repo's tests and the official MCP SDK OAuth client; **not yet verified against the live claude.ai dialog**.
 - Uzak modda `ht_shell` ve yazma araçları varsayılan **kapalı** (sunucunun dosya sistemi senin makinen değil). Açmak: `HARDTOOLS_HTTP_ALLOW_LOCAL_TOOLS=1` (önerilmez). TLS sonlandırma (ters vekil/tünel) senin sorumluluğunda; Host doğrulaması için `HARDTOOLS_ALLOWED_HOSTS=alanadi.com`.
 
 ## Bilinen sınırlar (özet; ayrıntı `SECURITY.md`)
