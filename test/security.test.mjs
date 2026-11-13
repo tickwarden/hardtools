@@ -180,27 +180,27 @@ test("config: a policy file inside the workspace is NEVER picked up", () => {
 });
 
 /* =============================== shell ================================== */
-test("shell: not-allowlisted commands, option injection, shell syntax and out-of-root paths are denied", async () => {
+test("shell: blocklisted commands, option injection, shell syntax and out-of-root paths are denied", async () => {
   const { root, policy } = mk("strict");
-  await denied(() => htShell(policy, { argv: ["rm", "-rf", "x"] }), "not_allowed");
-  await denied(() => htShell(policy, { argv: ["git", "-c", "core.pager=evil", "status"] }), "not_allowed");
+  await denied(() => htShell(policy, { argv: ["rm", "-rf", "x"] }), "command_denied");
+  await denied(() => htShell(policy, { argv: ["git", "-c", "core.pager=evil", "status"] }), "arg_denied");
   await denied(() => htShell(policy, { argv: ["git", "log", "--output=/tmp/x"] }), "arg_denied");
   await denied(() => htShell(policy, { argv: ["ls", "/etc"] }), "arg_path_outside_roots");
   await denied(() => htShell(policy, { argv: ["ls", "../.."] }), "arg_path_outside_roots");
   await denied(() => htShell(policy, { argv: ["ls", "--color=/etc"] }), "arg_path_outside_roots");
   await denied(() => htShell(policy, { argv: ["ls", "~/.ssh"] }), "arg_path_outside_roots");
   await denied(() => htShell(policy, { command: "ls; id" }), "shell_syntax_disabled");
-  await denied(() => htShell(policy, { argv: ["/bin/ls"] }), "not_allowed");
+  await denied(() => htShell(policy, { argv: ["/bin/ls"] }), "path_executable");
   await denied(() => htShell(policy, { argv: ["ls"], cwd: "/etc" }), "outside_roots");
   const ok = await htShell(policy, { argv: ["ls"] });
   assert.match(ok, /exit_code=0/); void root;
 });
 
-test("shell: git status works in strict (read-only allowlist)", { skip: !hasGit }, async () => {
+test("shell: git status works in strict; destructive git is blocked", { skip: !hasGit }, async () => {
   const { root, policy } = mk("strict");
   spawnSync("git", ["init", "-q"], { cwd: root });
   assert.match(await htShell(policy, { argv: ["git", "status", "--short"] }), /exit_code=0/);
-  await denied(() => htShell(policy, { argv: ["git", "commit", "-m", "x"] }), "not_allowed");
+  await denied(() => htShell(policy, { argv: ["git", "push", "origin", "main", "--force"] }), "command_denied");
 });
 
 test("shell: no shell interpretation of argv; metacharacters stay literal", async () => {
@@ -213,7 +213,7 @@ test("shell: no shell interpretation of argv; metacharacters stay literal", asyn
 test("shell: secrets are scrubbed from the child environment", async () => {
   process.env.MY_SECRET_TOKEN = "topsecret-123"; process.env.AWS_SECRET_ACCESS_KEY = "awssecret"; process.env.HARDTOOLS_HTTP_TOKEN = "x".repeat(40);
   try {
-    const strict = mk("strict", { shell: { allow: ["env"] } });
+    const strict = mk("strict", { shell: { denyCommands: [] } });
     const o1 = await htShell(strict.policy, { argv: ["env"] });
     const open = mk("open");
     const o2 = await htShell(open.policy, { argv: ["env"] });
@@ -222,7 +222,7 @@ test("shell: secrets are scrubbed from the child environment", async () => {
 });
 
 test("shell: PATH entries inside the workspace are dropped (repo-planted binaries do not run)", async () => {
-  const { root, policy } = mk("strict", { shell: { allow: ["fakecmd"] } });
+  const { root, policy } = mk("strict", { shell: { denyCommands: [] } });
   fs.mkdirSync(path.join(root, "bin")); fs.writeFileSync(path.join(root, "bin/fakecmd"), "#!/bin/sh\necho PLANTED\n", { mode: 0o755 });
   const old = process.env.PATH; process.env.PATH = `${path.join(root, "bin")}${path.delimiter}${old}`;
   try { await assert.rejects(() => htShell(policy, { argv: ["fakecmd"] }), /command not found/); } finally { process.env.PATH = old; }
@@ -329,4 +329,30 @@ test("audit: hash chain verifies, and edits/deletions are detected; secrets are 
   assert.equal(copy("edited.jsonl", edited).ok, false);
   assert.equal(copy("deleted.jsonl", [lines[0], lines[2]]).ok, false);
   assert.equal(copy("swapped.jsonl", [lines[1], lines[0], lines[2]]).ok, false);
+});
+
+test("shell blocklist: destructive commands, wrappers and history rewrites are denied; basename normalisation", async () => {
+  const { policy } = mk("balanced");
+  for (const argv of [
+    ["rm", "-rf", "x"], ["/bin/rm", "x"], ["RM", "x"], ["sudo", "ls"], ["bash", "script.sh"], ["env", "rm", "x"],
+    ["git", "push", "--force"], ["git", "push", "origin", "main", "-f"], ["git", "push", "origin", "--force-with-lease"],
+    ["git", "push", "origin", "--delete", "b"], ["git", "push", "origin", ":b"], ["git", "push", "origin", "+main"],
+    ["git", "filter-branch"], ["git", "reset", "--hard", "HEAD~1"], ["git", "branch", "-D", "b"],
+    ["gh", "repo", "delete", "x/y"], ["gh", "api", "-X", "DELETE", "/repos/x/y"],
+  ]) await denied(() => htShell(policy, { argv }), "command_denied");
+});
+
+test("shell blocklist: everything not listed runs (no allowlist anymore), strict also blocks network clients", async () => {
+  const { policy } = mk("balanced");
+  assert.match(await htShell(policy, { argv: ["echo", "hi"] }), /exit_code=0/);
+  const strict = mk("strict").policy;
+  await denied(() => htShell(strict, { argv: ["curl", "https://example.com"] }), "command_denied");
+  assert.match(await htShell(policy, { argv: ["node", "--version"] }), /exit_code=0/);
+});
+
+test("shell blocklist: open profile keeps shell syntax but tripwires still fire", async () => {
+  const { policy } = mk("open");
+  await denied(() => htShell(policy, { command: "git push origin main --force" }), "pattern_denied");
+  await denied(() => htShell(policy, { command: "gh repo delete x/y --yes" }), "pattern_denied");
+  assert.match(await htShell(policy, { command: "echo a && echo b" }), /exit_code=0/);
 });

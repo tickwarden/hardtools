@@ -35,12 +35,14 @@ class Capture {
   }
 }
 
-function matchAllow(argv: string[], allow: string[]): boolean {
-  return allow.some(entry => {
-    if (entry === "*") return true;
-    const t = entry.trim().split(/\s+/);
-    return argv.length >= t.length && t.every((x, i) => argv[i] === x);
-  });
+function normalise(argv: string[]): string {
+  const name = path.basename(argv[0]).replace(/\.(exe|cmd|bat)$/i, "");
+  return [name, ...argv.slice(1)].join(" ");
+}
+
+function matchDeny(argv: string[], deny: string[]): string | undefined {
+  const line = normalise(argv);
+  return deny.find(rx => new RegExp(rx, "i").test(line));
 }
 
 function buildEnv(policy: Policy, rootsReal: string[]): NodeJS.ProcessEnv {
@@ -79,7 +81,7 @@ export async function htShell(policy: Policy, a: ShellArgs): Promise<string> {
   if (a.argv) {
     const argv = a.argv;
     if (!argv.length || argv.length > 64 || argv.some(x => typeof x !== "string" || x.includes("\0") || x.length > 4096)) throw new PolicyError("bad_argv", "argv must be 1–64 strings (≤4096 chars, no NUL)");
-    if (!matchAllow(argv, sh.allow)) throw new PolicyError("not_allowed", `command is not in shell.allow: ${argv.slice(0, 3).join(" ")}`);
+    if (matchDeny(argv, sh.denyCommands) !== undefined) throw new PolicyError("command_denied", `command is blocked by shell.denyCommands: ${argv.slice(0, 3).join(" ")}`);
     for (const rx of sh.denyArgs.map(s => new RegExp(s))) {
       const bad = argv.slice(1).find(x => rx.test(x)); if (bad !== undefined) throw new PolicyError("arg_denied", `argument is denied by policy: ${bad}`);
     }
@@ -101,7 +103,7 @@ export async function htShell(policy: Policy, a: ShellArgs): Promise<string> {
     [file, ...args] = argv; shown = argv.join(" ");
   } else {
     const cmd = a.command as string;
-    if (!sh.allowShellSyntax || !sh.allow.includes("*")) throw new PolicyError("shell_syntax_disabled", "shell syntax (command=) is only available in profiles that allow it; use argv instead");
+    if (!sh.allowShellSyntax) throw new PolicyError("shell_syntax_disabled", "shell syntax (command=) is only available in profiles that allow it; use argv instead");
     if (!cmd.trim() || cmd.includes("\0") || cmd.length > 16384) throw new PolicyError("bad_command", "invalid command");
     for (const s of sh.shellDenyPatterns) if (new RegExp(s).test(cmd)) throw new PolicyError("pattern_denied", "command matches a deny pattern");
     [file, args] = process.platform === "win32" ? ["cmd.exe", ["/d", "/s", "/c", cmd]] : ["/bin/sh", ["-c", cmd]]; shown = cmd;

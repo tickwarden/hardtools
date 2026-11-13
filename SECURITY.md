@@ -30,8 +30,8 @@ Kapsam dışı: ele geçirilmiş işletim sistemi, kötü niyetli kullanıcı (p
 | 12 | İkili/geçersiz UTF-8 reddi; CRLF ve BOM korunur; `$&` literal | edit: CRLF…, edit: if_hash… |
 | 13 | Boyut limitleri | fs: size limits… |
 | 14 | Kabuksuz argv; `;`, `$()` literal kalır | shell: no shell interpretation… |
-| 15 | Konum bazlı allowlist; `git -c …` gibi seçenek enjeksiyonu engeli, `denyArgs` | shell: not-allowlisted… |
-| 16 | Argüman yol sınırlaması (`/etc`, `../..`, `--x=/etc`, `~`) | shell: not-allowlisted… |
+| 15 | Blocklist (`denyCommands`: yıkıcı komutlar, sarmalayıcılar, git geçmişi/repo silme); `git -c …` gibi seçenek enjeksiyonu engeli, `denyArgs` | shell: command_denied / arg_denied… |
+| 16 | Argüman yol sınırlaması (`/etc`, `../..`, `--x=/etc`, `~`) | shell: arg_path_outside_roots… |
 | 17 | Env'den gizli veri temizliği (TOKEN/SECRET/KEY… + `HARDTOOLS_*`) | shell: secrets are scrubbed… |
 | 18 | Çalışma alanı içindeki PATH girdileri atılır (repo içine konan sahte `git`) | shell: PATH entries… |
 | 19 | Zaman aşımı + süreç grubu öldürme + çıktı sınırı (baş+son), deny desenleri | shell: timeout kills… |
@@ -48,8 +48,8 @@ Henüz **testsiz**: HTTP hız sınırlaması, `ht_fetch` içindeki enjeksiyon-se
 ## Kalan riskler (dürüst liste)
 - **TOCTOU**: yol, kontrol edildiği an ile kullanıldığı an arasında değiştirilebilir (yarış). `O_NOFOLLOW` + geçici dosya/rename ile azaltıldı, tamamen kapatılmadı. Güvenmediğin bir süreç aynı dizinde eşzamanlı çalışıyorsa sandbox/ayrı kullanıcı kullan.
 - **`git` repo yapılandırmasını çalıştırır (v0.2.0'da DOĞRULANDI, giderilmedi):** `ht_shell` ile `git status` çalıştırmak, repo içindeki `.git/config`'te tanımlı `core.fsmonitor` komutunu çalıştırır (test: `fsmonitor = touch <dosya>` → dosya oluştu). Yani güvenilmeyen/klonlanmış bir repo allowlist'i atlayıp komut çalıştırabilir. `git add/checkout/commit` ise filtre ve hook çalıştırabilir. Salt-okunur git komutları için `-c core.fsmonitor=false -c core.hooksPath=/dev/null` ve `--no-ext-diff --no-textconv` enjekte etmek riski büyük ölçüde azaltır ama yazan komutlarda repo yapılandırmasına güvenmek kaçınılmaz. Güvenmediğin repoda `git`'i allowlist'ten çıkar veya `strict` kullan. Bu yüzden `ht_git` aracı eklenmedi.
-- **`balanced` içindeki `npm test`, `cargo test`, `go test`…** repo içindeki kodu çalıştırır; allowlist bunu engelleyemez. Güvenmediğin repoda `strict` kullan.
-- **`strict` allowlist'i bile** `git diff/show` ile takip edilen bir `.env` içeriğini gösterebilir (yol argümanı olarak görünmez). Gizli dosyaları repoya koyma.
+- **`balanced` içindeki `npm test`, `cargo test`, `go test`…** repo içindeki kodu çalıştırır; blocklist bunu engelleyemez. Güvenmediğin repoda `strict` kullan.
+- **`strict` blocklist'i bile** `git diff/show` ile takip edilen bir `.env` içeriğini gösterebilir (yol argümanı olarak görünmez). Gizli dosyaları repoya koyma.
 - **`open` profili sandbox değildir**: kabuk desenleri regex tabanlı tripwire; atlatılabilir.
 - **Argüman yol denetimi sezgiseldir** (`/`, `\`, `.`, `~` içeren argümanlar). Komutun kendi iç yolu çözmesini (örn. `@dosya` sözdizimi) bilemez.
 - **`ht_fetch` ile veri sızdırma**: `allowDomains` boşsa model URL sorgu dizesiyle veri taşıyabilir. `strict` allowlist'i zorunlu kılar; `balanced`'ta kendin doldur.
@@ -64,3 +64,13 @@ Henüz **testsiz**: HTTP hız sınırlaması, `ht_fetch` içindeki enjeksiyon-se
 - `ht_move` dosyalarda `link()+unlink()` ile atomik no-clobber sağlar; **dizin** taşımada `exists` kontrolü ile `rename()` arasında küçük bir TOCTOU penceresi vardır. Dosya sistemleri arası taşıma (`EXDEV`) reddedilir.
 - `.ht-trash/` kökün içindedir ve diskte yer kaplamaya devam eder; temizliği elle yapılır. Çöpteki kayıtlar `ht_search`'ün arama kapsamında olabilir (kendi `.gitignore`'una ekle).
 - `ht_glob` süslü parantez (`{a,b}`) desteklemez ve büyük/küçük harfe duyarsızdır (kasıtlı: fazla-reddet).
+
+## Blocklist modeli (allowlist kaldırıldı)
+
+`shell.allow` kaldırıldı; yerine `shell.denyCommands` (regex, `komutAdı arg…` satırına karşı) geldi. Bilinen sonuçlar:
+
+- **Listede olmayan her komut çalışır** (`python3`, `node`, `curl` (strict hariç), `make`, derleyiciler…). Blocklist bir güvenlik sınırı değildir; tüm profillerde (strict dahil) varsayılan-reddet garantisi yoktur.
+- **Atlatma yolları açık:** yorumlayıcıyla satır içi kod (`python3 script.py`, `node x.js`), listede olmayan sarmalayıcılar, farklı yazımlar. `DENY_BYPASS` (sh/bash/env/xargs…) yalnızca strict ve balanced'ta argv için engellenir; `open`'da kabuk sözdizimi zaten serbesttir.
+- **`open`'da `command=` için** yalnızca `shellDenyPatterns` regex tripwire'ları çalışır; bunlar kararlı bir çağıran tarafından atlatılabilir.
+- **Git koruması:** `push --force/-f/--delete/+ref/:ref`, `filter-branch/filter-repo`, `update-ref`, `reset --hard`, `branch -D`, `gh repo delete|rename|transfer`, `gh api -X DELETE` engellenir. `git push` argümanları farklı sırada/biçimde yazılırsa kaçabilir.
+- Mevcut `core.fsmonitor` riski (yukarıda) artık `git` dışındaki daha çok komut için de geçerlidir.

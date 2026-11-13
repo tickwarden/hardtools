@@ -20,7 +20,7 @@ const FsSchema = z.object({
 
 const ShellSchema = z.object({
   enabled: z.boolean(),
-  allow: z.array(z.string()),
+  denyCommands: z.array(z.string()),   // regex, normalised "name args" satırına karşı (blocklist)
   denyArgs: z.array(z.string()),
   allowShellSyntax: z.boolean(),
   shellDenyPatterns: z.array(z.string()),
@@ -94,10 +94,26 @@ const DENY_ARGS = [
   "^--work-tree", "^--no-index$", "^--paginate$",
 ];
 
-const READ_ONLY_CMDS = [
-  "git status", "git diff", "git log", "git show", "git branch", "git rev-parse",
-  "git ls-files", "git blame", "ls", "pwd", "wc", "head", "tail",
-  "node --version", "npm --version", "python3 --version",
+// BLOCKLIST (allowlist yok): eşleşen argv reddedilir, geri kalan her şey çalışır.
+// Her girdi bir regex'tir ve "komutAdı arg1 arg2 ..." satırına karşı test edilir (komut adı basename'dir, /bin/rm -> rm).
+// UYARI: blocklist bir güvenlik sınırı değildir; listede olmayan her şey serbesttir ve sarmalayıcılarla atlatılabilir.
+const DENY_BYPASS = [   // diğer kuralları atlatmaya yarayan sarmalayıcılar / kabuklar
+  "^(sudo|su|doas|pkexec|env|xargs|nohup|setsid|nice|ionice|chroot|busybox|eval|exec)( |$)",
+  "^(sh|bash|zsh|dash|ksh|csh|tcsh|fish)( |$)",
+];
+const DENY_DESTRUCTIVE = [   // geri dönüşsüz dosya sistemi / sistem işlemleri
+  "^(rm|shred|dd|mkfs(\\.\\w+)?|fdisk|parted|wipefs|mount|umount|truncate)( |$)",
+  "^(shutdown|reboot|halt|poweroff|systemctl|service|crontab|useradd|userdel|usermod|passwd|iptables|nft|ufw|kill|pkill|killall)( |$)",
+];
+const DENY_GIT = [   // git geçmişini / repoyu silen veya yeniden yazan işlemler (geçmiş silinmez, repo silinmez)
+  "^git( \\S+)* push( \\S+)*( -f| --force\\S*| --delete| -d| \\+\\S+| :\\S+)( |$)",
+  "^git( \\S+)* (filter-branch|filter-repo|update-ref|replace|prune|reflog (expire|delete))( |$)",
+  "^git( \\S+)* (reset( \\S+)* --hard|gc( \\S+)* --prune\\S*|branch( \\S+)* -D)( |$)",
+  "^gh( \\S+)* repo (delete|rename|transfer)( |$)",
+  "^gh( \\S+)* api( \\S+)* (-X|--method)[ =]DELETE( |$)",
+];
+const DENY_NET = [   // yalnızca strict: ağ istemcileri (strict'te ağ yalnızca ht_fetch ile, allowDomains ile)
+  "^(curl|wget|nc|ncat|netcat|ssh|scp|sftp|ftp|telnet|socat)( |$)",
 ];
 
 const BASE = {
@@ -115,7 +131,7 @@ const PROFILES: Record<ProfileName, Omit<Policy, "profile" | "roots" | "protecte
       secretScan: "block", requireHashForOverwrite: true,
     },
     shell: {
-      enabled: true, allow: READ_ONLY_CMDS, denyArgs: DENY_ARGS, allowShellSyntax: false,
+      enabled: true, denyCommands: [...DENY_BYPASS, ...DENY_DESTRUCTIVE, ...DENY_GIT, ...DENY_NET], denyArgs: DENY_ARGS, allowShellSyntax: false,
       shellDenyPatterns: [], allowRelativeExecutables: false, confineArgPaths: true, sanitizePath: true,
       timeoutMs: 20_000, maxTimeoutMs: 60_000, maxOutputBytes: 64 << 10, maxConcurrent: 2,
       envAllow: ["PATH", "LANG", "LC_ALL", "TERM"],
@@ -136,9 +152,7 @@ const PROFILES: Record<ProfileName, Omit<Policy, "profile" | "roots" | "protecte
     },
     shell: {
       enabled: true,
-      allow: [...READ_ONLY_CMDS, "git add", "git commit", "git checkout", "git switch", "git stash", "git restore",
-        "npm test", "npm run test", "npm run build", "npm run lint", "npx tsc", "tsc", "node --test",
-        "pytest", "python3 -m pytest", "cargo build", "cargo test", "cargo check", "go build", "go test", "go vet"],
+      denyCommands: [...DENY_BYPASS, ...DENY_DESTRUCTIVE, ...DENY_GIT],
       denyArgs: DENY_ARGS, allowShellSyntax: false, shellDenyPatterns: [], allowRelativeExecutables: false,
       confineArgPaths: true, sanitizePath: true,
       timeoutMs: 60_000, maxTimeoutMs: 300_000, maxOutputBytes: 128 << 10, maxConcurrent: 3,
@@ -159,11 +173,13 @@ const PROFILES: Record<ProfileName, Omit<Policy, "profile" | "roots" | "protecte
       allowRead: [], denyWrite: [".git", ".git/**"], secretScan: "warn", requireHashForOverwrite: false,
     },
     shell: {
-      enabled: true, allow: ["*"], denyArgs: [], allowShellSyntax: true,
+      enabled: true, denyCommands: [...DENY_DESTRUCTIVE, ...DENY_GIT], denyArgs: [], allowShellSyntax: true,
       // Best-effort tripwires, NOT a sandbox. A determined caller can bypass regexes.
       shellDenyPatterns: [
         "\\brm\\s+(-[a-zA-Z]*r[a-zA-Z]*f|-[a-zA-Z]*f[a-zA-Z]*r)\\s+(/|~|\\$HOME)", "\\bmkfs\\b", "\\bdd\\b[^|;&]*\\bof=/dev/",
         ":\\(\\)\\s*\\{.*\\};\\s*:", "\\b(curl|wget)\\b[^|;&]*\\|\\s*(sudo\\s+)?(ba|z)?sh\\b", ">\\s*/dev/sd[a-z]",
+        "\\bgit\\b[^|;&]*\\bpush\\b[^|;&]*(\\s-f\\b|--force|--delete)", "\\bgit\\b[^|;&]*\\b(filter-branch|filter-repo)\\b",
+        "\\bgh\\s+repo\\s+(delete|rename|transfer)\\b",
       ],
       allowRelativeExecutables: true, confineArgPaths: false, sanitizePath: false,
       timeoutMs: 120_000, maxTimeoutMs: 900_000, maxOutputBytes: 256 << 10, maxConcurrent: 4,

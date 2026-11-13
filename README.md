@@ -16,13 +16,13 @@ Claude'un yerleşik dosya/arama/kabuk/web araçlarının **sınırlandırılmı�
 | `ht_move` | `mv` | **asla üstüne yazmaz** (hedef yoksa), symlink kaynağını/kökü/`.git`'i reddeder, kendi içine taşımayı reddeder, `mkdirp` |
 | `ht_trash` | `rm` | **geri alınabilir silme**: `.ht-trash/` içine taşır, `index.jsonl`'a özgün yolu yazar; geri yükleme `ht_move` ile. Kalıcı silme aracı **bilerek yok** |
 | `ht_search` | grep | regex/sabit, bağlam, glob, `.gitignore`, sonuç ve **süre** sınırı (ReDoS öldürülebilir worker'da) |
-| `ht_shell` | bash | **kabuksuz argv**, allowlist, argüman/yol denetimi, env'den gizli veri temizliği, süre aşımında süreç grubunu öldürme |
+| `ht_shell` | bash | **kabuksuz argv**, blocklist (`shell.denyCommands`, allowlist YOK), argüman/yol denetimi, env'den gizli veri temizliği, süre aşımında süreç grubunu öldürme |
 | `ht_fetch` | web fetch | SSRF korumalı (bağlantı anında IP doğrulama, her yönlendirmede yeniden doğrulama), boyut/süre/sıkıştırma-bombası limiti, `<untrusted_web_content>` sarmalı |
 | `ht_status` | – | aktif politika + audit zinciri doğrulaması |
 
 ## Profiller
 
-`strict` (varsayılan her şey kapalı, `net.allowDomains` zorunlu, audit fail-closed) · `balanced` (günlük geliştirme) · `open` (kabuk sözdizimi serbest; **sandbox değildir**).
+`strict` (en geniş blocklist + ağ istemcileri kapalı, `net.allowDomains` zorunlu, audit fail-closed; **artık default-deny değil**) · `balanced` (günlük geliştirme) · `open` (kabuk sözdizimi serbest; **sandbox değildir**).
 
 Politika dosyası **yalnızca** `HARDTOOLS_CONFIG` veya `~/.hardtools/config.json` yolundan okunur, **asla çalışma alanından değil** (kötü niyetli bir repo kendi gevşek politikasını getiremesin). Bilinmeyen/typo anahtarlar hata verir. Örnek: `hardtools.config.example.json`. Öncelik: `--profile` > `HARDTOOLS_PROFILE` > dosya > `balanced`.
 

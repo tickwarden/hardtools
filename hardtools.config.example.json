@@ -6,7 +6,7 @@
     "denyWrite": [".git", ".git/**", ".claude/**", ".mcp.json", ".husky/**", ".gitmodules", ".github/workflows/**"]
   },
   "shell": {
-    "allow": ["git status", "git diff", "git log", "git show", "ls", "pwd", "node --version", "./gradlew build", "./gradlew test"],
+    "denyCommands": ["^(rm|shred|dd|sudo|su|sh|bash|env|xargs)( |$)", "^git( \\S+)* push( \\S+)*( -f| --force\\S*| --delete| \\+\\S+| :\\S+)( |$)", "^gh( \\S+)* repo (delete|rename|transfer)( |$)"],
     "allowRelativeExecutables": true,
     "timeoutMs": 120000
   },

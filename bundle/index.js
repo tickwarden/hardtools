@@ -31060,7 +31060,8 @@ var FsSchema = external_exports.object({
 }).strict();
 var ShellSchema = external_exports.object({
   enabled: external_exports.boolean(),
-  allow: external_exports.array(external_exports.string()),
+  denyCommands: external_exports.array(external_exports.string()),
+  // regex, normalised "name args" satırına karşı (blocklist)
   denyArgs: external_exports.array(external_exports.string()),
   allowShellSyntax: external_exports.boolean(),
   shellDenyPatterns: external_exports.array(external_exports.string()),
@@ -31146,23 +31147,27 @@ var DENY_ARGS = [
   "^--no-index$",
   "^--paginate$"
 ];
-var READ_ONLY_CMDS = [
-  "git status",
-  "git diff",
-  "git log",
-  "git show",
-  "git branch",
-  "git rev-parse",
-  "git ls-files",
-  "git blame",
-  "ls",
-  "pwd",
-  "wc",
-  "head",
-  "tail",
-  "node --version",
-  "npm --version",
-  "python3 --version"
+var DENY_BYPASS = [
+  // diğer kuralları atlatmaya yarayan sarmalayıcılar / kabuklar
+  "^(sudo|su|doas|pkexec|env|xargs|nohup|setsid|nice|ionice|chroot|busybox|eval|exec)( |$)",
+  "^(sh|bash|zsh|dash|ksh|csh|tcsh|fish)( |$)"
+];
+var DENY_DESTRUCTIVE = [
+  // geri dönüşsüz dosya sistemi / sistem işlemleri
+  "^(rm|shred|dd|mkfs(\\.\\w+)?|fdisk|parted|wipefs|mount|umount|truncate)( |$)",
+  "^(shutdown|reboot|halt|poweroff|systemctl|service|crontab|useradd|userdel|usermod|passwd|iptables|nft|ufw|kill|pkill|killall)( |$)"
+];
+var DENY_GIT = [
+  // git geçmişini / repoyu silen veya yeniden yazan işlemler (geçmiş silinmez, repo silinmez)
+  "^git( \\S+)* push( \\S+)*( -f| --force\\S*| --delete| -d| \\+\\S+| :\\S+)( |$)",
+  "^git( \\S+)* (filter-branch|filter-repo|update-ref|replace|prune|reflog (expire|delete))( |$)",
+  "^git( \\S+)* (reset( \\S+)* --hard|gc( \\S+)* --prune\\S*|branch( \\S+)* -D)( |$)",
+  "^gh( \\S+)* repo (delete|rename|transfer)( |$)",
+  "^gh( \\S+)* api( \\S+)* (-X|--method)[ =]DELETE( |$)"
+];
+var DENY_NET = [
+  // yalnızca strict: ağ istemcileri (strict'te ağ yalnızca ht_fetch ile, allowDomains ile)
+  "^(curl|wget|nc|ncat|netcat|ssh|scp|sftp|ftp|telnet|socat)( |$)"
 ];
 var BASE = {
   search: { maxFileBytes: 2 * 1024 * 1024, maxResults: 200, timeBudgetMs: 1e4 },
@@ -31194,7 +31199,7 @@ var PROFILES = {
     },
     shell: {
       enabled: true,
-      allow: READ_ONLY_CMDS,
+      denyCommands: [...DENY_BYPASS, ...DENY_DESTRUCTIVE, ...DENY_GIT, ...DENY_NET],
       denyArgs: DENY_ARGS,
       allowShellSyntax: false,
       shellDenyPatterns: [],
@@ -31237,30 +31242,7 @@ var PROFILES = {
     },
     shell: {
       enabled: true,
-      allow: [
-        ...READ_ONLY_CMDS,
-        "git add",
-        "git commit",
-        "git checkout",
-        "git switch",
-        "git stash",
-        "git restore",
-        "npm test",
-        "npm run test",
-        "npm run build",
-        "npm run lint",
-        "npx tsc",
-        "tsc",
-        "node --test",
-        "pytest",
-        "python3 -m pytest",
-        "cargo build",
-        "cargo test",
-        "cargo check",
-        "go build",
-        "go test",
-        "go vet"
-      ],
+      denyCommands: [...DENY_BYPASS, ...DENY_DESTRUCTIVE, ...DENY_GIT],
       denyArgs: DENY_ARGS,
       allowShellSyntax: false,
       shellDenyPatterns: [],
@@ -31303,7 +31285,7 @@ var PROFILES = {
     },
     shell: {
       enabled: true,
-      allow: ["*"],
+      denyCommands: [...DENY_DESTRUCTIVE, ...DENY_GIT],
       denyArgs: [],
       allowShellSyntax: true,
       // Best-effort tripwires, NOT a sandbox. A determined caller can bypass regexes.
@@ -31313,7 +31295,10 @@ var PROFILES = {
         "\\bdd\\b[^|;&]*\\bof=/dev/",
         ":\\(\\)\\s*\\{.*\\};\\s*:",
         "\\b(curl|wget)\\b[^|;&]*\\|\\s*(sudo\\s+)?(ba|z)?sh\\b",
-        ">\\s*/dev/sd[a-z]"
+        ">\\s*/dev/sd[a-z]",
+        "\\bgit\\b[^|;&]*\\bpush\\b[^|;&]*(\\s-f\\b|--force|--delete)",
+        "\\bgit\\b[^|;&]*\\b(filter-branch|filter-repo)\\b",
+        "\\bgh\\s+repo\\s+(delete|rename|transfer)\\b"
       ],
       allowRelativeExecutables: true,
       confineArgPaths: false,
@@ -40237,12 +40222,13 @@ var Capture = class {
 ${this.tail.toString("utf8")}` : h + this.tail.toString("utf8");
   }
 };
-function matchAllow(argv, allow) {
-  return allow.some((entry) => {
-    if (entry === "*") return true;
-    const t = entry.trim().split(/\s+/);
-    return argv.length >= t.length && t.every((x, i) => argv[i] === x);
-  });
+function normalise(argv) {
+  const name = path7.basename(argv[0]).replace(/\.(exe|cmd|bat)$/i, "");
+  return [name, ...argv.slice(1)].join(" ");
+}
+function matchDeny(argv, deny) {
+  const line = normalise(argv);
+  return deny.find((rx) => new RegExp(rx, "i").test(line));
 }
 function buildEnv(policy, rootsReal) {
   const env = {};
@@ -40283,7 +40269,7 @@ async function htShell(policy, a) {
   if (a.argv) {
     const argv = a.argv;
     if (!argv.length || argv.length > 64 || argv.some((x) => typeof x !== "string" || x.includes("\0") || x.length > 4096)) throw new PolicyError("bad_argv", "argv must be 1\u201364 strings (\u22644096 chars, no NUL)");
-    if (!matchAllow(argv, sh.allow)) throw new PolicyError("not_allowed", `command is not in shell.allow: ${argv.slice(0, 3).join(" ")}`);
+    if (matchDeny(argv, sh.denyCommands) !== void 0) throw new PolicyError("command_denied", `command is blocked by shell.denyCommands: ${argv.slice(0, 3).join(" ")}`);
     for (const rx of sh.denyArgs.map((s) => new RegExp(s))) {
       const bad = argv.slice(1).find((x) => rx.test(x));
       if (bad !== void 0) throw new PolicyError("arg_denied", `argument is denied by policy: ${bad}`);
@@ -40310,7 +40296,7 @@ async function htShell(policy, a) {
     shown = argv.join(" ");
   } else {
     const cmd = a.command;
-    if (!sh.allowShellSyntax || !sh.allow.includes("*")) throw new PolicyError("shell_syntax_disabled", "shell syntax (command=) is only available in profiles that allow it; use argv instead");
+    if (!sh.allowShellSyntax) throw new PolicyError("shell_syntax_disabled", "shell syntax (command=) is only available in profiles that allow it; use argv instead");
     if (!cmd.trim() || cmd.includes("\0") || cmd.length > 16384) throw new PolicyError("bad_command", "invalid command");
     for (const s of sh.shellDenyPatterns) if (new RegExp(s).test(cmd)) throw new PolicyError("pattern_denied", "command matches a deny pattern");
     [file2, args] = process.platform === "win32" ? ["cmd.exe", ["/d", "/s", "/c", cmd]] : ["/bin/sh", ["-c", cmd]];
@@ -40479,7 +40465,7 @@ function createServer2(policy, audit) {
     profile: policy.profile,
     roots: policy.roots,
     fs: { writeEnabled: policy.fs.writeEnabled, secretScan: policy.fs.secretScan, requireHashForOverwrite: policy.fs.requireHashForOverwrite, denyWrite: policy.fs.denyWrite },
-    shell: { enabled: policy.shell.enabled, shellSyntax: policy.shell.allowShellSyntax, allow: policy.shell.allow.slice(0, 60) },
+    shell: { enabled: policy.shell.enabled, shellSyntax: policy.shell.allowShellSyntax, denyCommands: policy.shell.denyCommands.length },
     net: { enabled: policy.net.enabled, schemes: policy.net.schemes, allowDomains: policy.net.allowDomains, needsAllowlist: policy.net.requireAllowDomains && policy.net.allowDomains.length === 0 },
     audit: { file: audit.file, chain: audit.verify() }
   }, null, 2)));

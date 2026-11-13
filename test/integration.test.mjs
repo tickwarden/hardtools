@@ -31,7 +31,7 @@ test("e2e/stdio: 11 tools, write→read→edit round trip, denials surface as to
     assert.match(text(await client.callTool({ name: "ht_read", arguments: { path: "hello.txt" } })), /hello there/);
     assert.match(text(await client.callTool({ name: "ht_search", arguments: { pattern: "there" } })), /hello\.txt:1:/);
     const bad = await client.callTool({ name: "ht_read", arguments: { path: "/etc/passwd" } }); assert.ok(bad.isError); assert.match(text(bad), /DENIED \[outside_roots\]/);
-    const sh = await client.callTool({ name: "ht_shell", arguments: { argv: ["rm", "-rf", "hello.txt"] } }); assert.ok(sh.isError); assert.match(text(sh), /not_allowed/);
+    const sh = await client.callTool({ name: "ht_shell", arguments: { argv: ["rm", "-rf", "hello.txt"] } }); assert.ok(sh.isError); assert.match(text(sh), /command_denied/);
     assert.ok(fs.existsSync(path.join(root, "hello.txt")));
     const st = JSON.parse(text(await client.callTool({ name: "ht_status", arguments: {} })));
     assert.equal(st.profile, "balanced"); assert.equal(st.audit.chain.ok, true); assert.ok(st.audit.chain.entries >= 10);

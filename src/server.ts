@@ -125,7 +125,7 @@ export function createServer(policy: Policy, audit: Audit): McpServer {
   }, wrap("ht_status", () => JSON.stringify({
     version: VERSION, profile: policy.profile, roots: policy.roots,
     fs: { writeEnabled: policy.fs.writeEnabled, secretScan: policy.fs.secretScan, requireHashForOverwrite: policy.fs.requireHashForOverwrite, denyWrite: policy.fs.denyWrite },
-    shell: { enabled: policy.shell.enabled, shellSyntax: policy.shell.allowShellSyntax, allow: policy.shell.allow.slice(0, 60) },
+    shell: { enabled: policy.shell.enabled, shellSyntax: policy.shell.allowShellSyntax, denyCommands: policy.shell.denyCommands.length },
     net: { enabled: policy.net.enabled, schemes: policy.net.schemes, allowDomains: policy.net.allowDomains, needsAllowlist: policy.net.requireAllowDomains && policy.net.allowDomains.length === 0 },
     audit: { file: audit.file, chain: audit.verify() },
   }, null, 2)));
