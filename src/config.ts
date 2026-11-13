@@ -90,7 +90,7 @@ const ENV_EXAMPLES = [".env.example", ".env.sample", ".env.template", ".env.dist
 
 const DENY_ARGS = [
   "^--output(=|$)", "^--exec(=|$)", "^--exec-path", "^--upload-pack", "^--receive-pack",
-  "^--ext-diff$", "^--textconv$", "^--open-files-in-pager", "^-c$", "^--config", "^--git-dir",
+  "^--ext-diff$", "^--textconv$", "^--open-files-in-pager", "^-c$", "^--config",
   "^--work-tree", "^--no-index$", "^--paginate$",
 ];
 
@@ -98,7 +98,7 @@ const DENY_ARGS = [
 // Her girdi bir regex'tir ve "komutAdı arg1 arg2 ..." satırına karşı test edilir (komut adı basename'dir, /bin/rm -> rm).
 // UYARI: blocklist bir güvenlik sınırı değildir; listede olmayan her şey serbesttir ve sarmalayıcılarla atlatılabilir.
 const DENY_BYPASS = [   // diğer kuralları atlatmaya yarayan sarmalayıcılar / kabuklar
-  "^(sudo|su|doas|pkexec|env|xargs|nohup|setsid|nice|ionice|chroot|busybox|eval|exec)( |$)",
+  "^(sudo|su|doas|pkexec|env|xargs|setsid|nice|ionice|chroot|busybox|eval)( |$)",
   "^(sh|bash|zsh|dash|ksh|csh|tcsh|fish)( |$)",
 ];
 const DENY_DESTRUCTIVE = [   // geri dönüşsüz dosya sistemi / sistem işlemleri
@@ -106,14 +106,11 @@ const DENY_DESTRUCTIVE = [   // geri dönüşsüz dosya sistemi / sistem işleml
   "^(shutdown|reboot|halt|poweroff|systemctl|service|crontab|useradd|userdel|usermod|passwd|iptables|nft|ufw|kill|pkill|killall)( |$)",
 ];
 const DENY_GIT = [   // git geçmişini / repoyu silen veya yeniden yazan işlemler (geçmiş silinmez, repo silinmez)
-  "^git( \\S+)* push( \\S+)*( -f| --force\\S*| --delete| -d| \\+\\S+| :\\S+)( |$)",
-  "^git( \\S+)* (filter-branch|filter-repo|update-ref|replace|prune|reflog (expire|delete))( |$)",
   "^git( \\S+)* (reset( \\S+)* --hard|gc( \\S+)* --prune\\S*|branch( \\S+)* -D)( |$)",
-  "^gh( \\S+)* repo (delete|rename|transfer)( |$)",
-  "^gh( \\S+)* api( \\S+)* (-X|--method)[ =]DELETE( |$)",
+  "^gh( \\S+)* repo (delete|transfer)( |$)",
 ];
 const DENY_NET = [   // yalnızca strict: ağ istemcileri (strict'te ağ yalnızca ht_fetch ile, allowDomains ile)
-  "^(curl|wget|nc|ncat|netcat|ssh|scp|sftp|ftp|telnet|socat)( |$)",
+  "^(nc|ncat|netcat|ssh|scp|sftp|ftp|telnet|socat)( |$)",
 ];
 
 const BASE = {

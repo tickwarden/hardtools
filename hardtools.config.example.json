@@ -1,18 +1,27 @@
 {
-  "profile": "balanced",
-  "roots": ["/home/me/projects/my-datapack", "/home/me/projects/my-mod"],
+  "profile": "open",
+  "roots": [],
   "fs": {
-    "secretScan": "block",
-    "denyWrite": [".git", ".git/**", ".claude/**", ".mcp.json", ".husky/**", ".gitmodules", ".github/workflows/**"]
+    "secretScan": "warn",
+    "denyWrite": [".git", ".git/**"]
   },
   "shell": {
-    "denyCommands": ["^(rm|shred|dd|sudo|su|sh|bash|env|xargs)( |$)", "^git( \\S+)* push( \\S+)*( -f| --force\\S*| --delete| \\+\\S+| :\\S+)( |$)", "^gh( \\S+)* repo (delete|rename|transfer)( |$)"],
+    "denyCommands": [
+      "^(sudo|su|doas|pkexec|chroot)( |$)",
+      "^(mkfs(\\.\\w+)?|fdisk|parted|wipefs)( |$)",
+      "^(shutdown|reboot|halt|poweroff)( |$)",
+      "^(useradd|userdel|usermod|passwd)( |$)",
+      "^git( \\S+)* (filter-branch|filter-repo)( |$)",
+      "^gh( \\S+)* repo (delete|rename|transfer)( |$)"
+    ],
+    "denyArgs": [],
+    "allowShellSyntax": true,
     "allowRelativeExecutables": true,
-    "timeoutMs": 120000
+    "timeoutMs": 300000
   },
   "net": {
-    "allowDomains": ["docs.papermc.io", "minecraft.wiki", "docs.fabricmc.net", "api.modrinth.com", "github.com", "raw.githubusercontent.com"],
-    "loopbackPorts": []
+    "allowDomains": [],
+    "requireAllowDomains": false
   },
-  "audit": { "failClosed": true }
+  "audit": { "failClosed": false }
 }

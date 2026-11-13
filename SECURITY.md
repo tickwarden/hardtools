@@ -69,8 +69,8 @@ Henüz **testsiz**: HTTP hız sınırlaması, `ht_fetch` içindeki enjeksiyon-se
 
 `shell.allow` kaldırıldı; yerine `shell.denyCommands` (regex, `komutAdı arg…` satırına karşı) geldi. Bilinen sonuçlar:
 
-- **Listede olmayan her komut çalışır** (`python3`, `node`, `curl` (strict hariç), `make`, derleyiciler…). Blocklist bir güvenlik sınırı değildir; tüm profillerde (strict dahil) varsayılan-reddet garantisi yoktur.
+- **Listede olmayan her komut çalışır** (`python3`, `node`, `curl`/`wget`, `git push` (force dahil), `make`, derleyiciler…). Blocklist bir güvenlik sınırı değildir; tüm profillerde (strict dahil) varsayılan-reddet garantisi yoktur.
 - **Atlatma yolları açık:** yorumlayıcıyla satır içi kod (`python3 script.py`, `node x.js`), listede olmayan sarmalayıcılar, farklı yazımlar. `DENY_BYPASS` (sh/bash/env/xargs…) yalnızca strict ve balanced'ta argv için engellenir; `open`'da kabuk sözdizimi zaten serbesttir.
 - **`open`'da `command=` için** yalnızca `shellDenyPatterns` regex tripwire'ları çalışır; bunlar kararlı bir çağıran tarafından atlatılabilir.
-- **Git koruması:** `push --force/-f/--delete/+ref/:ref`, `filter-branch/filter-repo`, `update-ref`, `reset --hard`, `branch -D`, `gh repo delete|rename|transfer`, `gh api -X DELETE` engellenir. `git push` argümanları farklı sırada/biçimde yazılırsa kaçabilir.
+- **Git koruması:** `reset --hard`, `branch -D`, `gc --prune`, `gh repo delete|transfer` engellenir. `push` (force dahil), `filter-branch/filter-repo`, `update-ref` ve `gh api -X DELETE` artık engellenmez; open profilindeki `shellDenyPatterns` tripwire'ları (force push, filter-branch, `gh repo delete|rename|transfer`) yalnızca `command` (kabuk sözdizimi) için geçerlidir.
 - Mevcut `core.fsmonitor` riski (yukarıda) artık `git` dışındaki daha çok komut için de geçerlidir.

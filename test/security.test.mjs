@@ -200,7 +200,11 @@ test("shell: git status works in strict; destructive git is blocked", { skip: !h
   const { root, policy } = mk("strict");
   spawnSync("git", ["init", "-q"], { cwd: root });
   assert.match(await htShell(policy, { argv: ["git", "status", "--short"] }), /exit_code=0/);
-  await denied(() => htShell(policy, { argv: ["git", "push", "origin", "main", "--force"] }), "command_denied");
+  // still blocked: history-destroying git operations
+  await denied(() => htShell(policy, { argv: ["git", "reset", "--hard", "HEAD~1"] }), "command_denied");
+  await denied(() => htShell(policy, { argv: ["git", "branch", "-D", "b"] }), "command_denied");
+  // push (incl. --force) is no longer blocklisted: it is not denied by policy (git itself fails here: no remote)
+  assert.match(await htShell(policy, { argv: ["git", "push", "origin", "main", "--force"] }), /exit_code=\d+/);
 });
 
 test("shell: no shell interpretation of argv; metacharacters stay literal", async () => {
@@ -331,22 +335,33 @@ test("audit: hash chain verifies, and edits/deletions are detected; secrets are 
   assert.equal(copy("swapped.jsonl", [lines[1], lines[0], lines[2]]).ok, false);
 });
 
-test("shell blocklist: destructive commands, wrappers and history rewrites are denied; basename normalisation", async () => {
+test("shell blocklist: destructive commands, wrappers and destructive git are denied; basename normalisation", async () => {
   const { policy } = mk("balanced");
   for (const argv of [
     ["rm", "-rf", "x"], ["/bin/rm", "x"], ["RM", "x"], ["sudo", "ls"], ["bash", "script.sh"], ["env", "rm", "x"],
-    ["git", "push", "--force"], ["git", "push", "origin", "main", "-f"], ["git", "push", "origin", "--force-with-lease"],
-    ["git", "push", "origin", "--delete", "b"], ["git", "push", "origin", ":b"], ["git", "push", "origin", "+main"],
-    ["git", "filter-branch"], ["git", "reset", "--hard", "HEAD~1"], ["git", "branch", "-D", "b"],
-    ["gh", "repo", "delete", "x/y"], ["gh", "api", "-X", "DELETE", "/repos/x/y"],
+    ["git", "reset", "--hard", "HEAD~1"], ["git", "branch", "-D", "b"],
+    ["gh", "repo", "delete", "x/y"], ["gh", "repo", "transfer", "x/y"],
   ]) await denied(() => htShell(policy, { argv }), "command_denied");
+});
+
+test("shell blocklist: commands removed from the denylist are no longer denied by policy", async () => {
+  const { policy } = mk("balanced");
+  const deny = policy.shell.denyCommands.map(rx => new RegExp(rx, "i"));
+  const blocked = (line) => deny.some(r => r.test(line));
+  for (const line of [
+    "git push --force", "git push origin main -f", "git push origin --delete b", "git push origin :b", "git push origin +main",
+    "git filter-branch", "git update-ref -d HEAD", "gh repo rename x/y z", "gh api -X DELETE /repos/x/y", "nohup ls", "exec ls", "curl https://example.com",
+  ]) assert.ok(!blocked(line), `expected not blocklisted: ${line}`);
+  // and it really runs (git fails on its own here: not a repository / no remote)
+  assert.match(await htShell(policy, { argv: ["git", "push", "--force"] }), /exit_code=\d+/);
 });
 
 test("shell blocklist: everything not listed runs (no allowlist anymore), strict also blocks network clients", async () => {
   const { policy } = mk("balanced");
   assert.match(await htShell(policy, { argv: ["echo", "hi"] }), /exit_code=0/);
   const strict = mk("strict").policy;
-  await denied(() => htShell(strict, { argv: ["curl", "https://example.com"] }), "command_denied");
+  await denied(() => htShell(strict, { argv: ["nc", "example.com", "80"] }), "command_denied");
+  await denied(() => htShell(strict, { argv: ["ssh", "example.com"] }), "command_denied");
   assert.match(await htShell(policy, { argv: ["node", "--version"] }), /exit_code=0/);
 });
 
