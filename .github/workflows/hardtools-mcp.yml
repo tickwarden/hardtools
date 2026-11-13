@@ -233,8 +233,14 @@ jobs:
           else
             {
               echo "### hardtools MCP yayında (private repo, düz yazı)"
-              echo "- Endpoint: \`$endpoint\` (yalnızca POST)"
-              echo "- Header: \`Authorization: Bearer $token\`"
+              echo "Endpoint (URL alanına, sonunda tırnak/boşluk olmadan):"
+              echo '```'
+              echo "$endpoint"
+              echo '```'
+              echo "İstek başlığı: ad \`Authorization\`, değer:"
+              echo '```'
+              echo "Bearer $token"
+              echo '```'
               echo "- Local tools: \`$ALLOW_LOCAL_TOOLS\`"
               echo "- Kapatmak için: bu workflow'u \`action = unpublish\` ile çalıştır."
             } | tee -a "$GITHUB_STEP_SUMMARY"
