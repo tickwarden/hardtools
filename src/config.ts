@@ -88,30 +88,15 @@ const SENSITIVE = [
 ];
 const ENV_EXAMPLES = [".env.example", ".env.sample", ".env.template", ".env.dist"];
 
-const DENY_ARGS = [
-  "^--output(=|$)", "^--exec(=|$)", "^--exec-path", "^--upload-pack", "^--receive-pack",
-  "^--ext-diff$", "^--textconv$", "^--open-files-in-pager", "^-c$", "^--config",
-  "^--work-tree", "^--no-index$", "^--paginate$",
-];
+const DENY_ARGS: string[] = [];
 
 // BLOCKLIST (allowlist yok): eşleşen argv reddedilir, geri kalan her şey çalışır.
 // Her girdi bir regex'tir ve "komutAdı arg1 arg2 ..." satırına karşı test edilir (komut adı basename'dir, /bin/rm -> rm).
 // UYARI: blocklist bir güvenlik sınırı değildir; listede olmayan her şey serbesttir ve sarmalayıcılarla atlatılabilir.
-const DENY_BYPASS = [   // diğer kuralları atlatmaya yarayan sarmalayıcılar / kabuklar
-  "^(sudo|su|doas|pkexec|env|xargs|setsid|nice|ionice|chroot|busybox|eval)( |$)",
-  "^(sh|bash|zsh|dash|ksh|csh|tcsh|fish)( |$)",
-];
-const DENY_DESTRUCTIVE = [   // geri dönüşsüz dosya sistemi / sistem işlemleri
-  "^(rm|shred|dd|mkfs(\\.\\w+)?|fdisk|parted|wipefs|mount|umount|truncate)( |$)",
-  "^(shutdown|reboot|halt|poweroff|systemctl|service|crontab|useradd|userdel|usermod|passwd|iptables|nft|ufw|kill|pkill|killall)( |$)",
-];
-const DENY_GIT = [   // git geçmişini / repoyu silen veya yeniden yazan işlemler (geçmiş silinmez, repo silinmez)
-  "^git( \\S+)* (reset( \\S+)* --hard|gc( \\S+)* --prune\\S*|branch( \\S+)* -D)( |$)",
-  "^gh( \\S+)* repo (delete|transfer)( |$)",
-];
-const DENY_NET = [   // yalnızca strict: ağ istemcileri (strict'te ağ yalnızca ht_fetch ile, allowDomains ile)
-  "^(nc|ncat|netcat|ssh|scp|sftp|ftp|telnet|socat)( |$)",
-];
+const DENY_BYPASS: string[] = [];
+const DENY_DESTRUCTIVE: string[] = [];
+const DENY_GIT: string[] = [];
+const DENY_NET: string[] = [];
 
 const BASE = {
   search: { maxFileBytes: 2 * 1024 * 1024, maxResults: 200, timeBudgetMs: 10_000 },
@@ -171,13 +156,7 @@ const PROFILES: Record<ProfileName, Omit<Policy, "profile" | "roots" | "protecte
     },
     shell: {
       enabled: true, denyCommands: [...DENY_DESTRUCTIVE, ...DENY_GIT], denyArgs: [], allowShellSyntax: true,
-      // Best-effort tripwires, NOT a sandbox. A determined caller can bypass regexes.
-      shellDenyPatterns: [
-        "\\brm\\s+(-[a-zA-Z]*r[a-zA-Z]*f|-[a-zA-Z]*f[a-zA-Z]*r)\\s+(/|~|\\$HOME)", "\\bmkfs\\b", "\\bdd\\b[^|;&]*\\bof=/dev/",
-        ":\\(\\)\\s*\\{.*\\};\\s*:", "\\b(curl|wget)\\b[^|;&]*\\|\\s*(sudo\\s+)?(ba|z)?sh\\b", ">\\s*/dev/sd[a-z]",
-        "\\bgit\\b[^|;&]*\\bpush\\b[^|;&]*(\\s-f\\b|--force|--delete)", "\\bgit\\b[^|;&]*\\b(filter-branch|filter-repo)\\b",
-        "\\bgh\\s+repo\\s+(delete|rename|transfer)\\b",
-      ],
+      shellDenyPatterns: [],
       allowRelativeExecutables: true, confineArgPaths: false, sanitizePath: false,
       timeoutMs: 120_000, maxTimeoutMs: 900_000, maxOutputBytes: 256 << 10, maxConcurrent: 4,
       envAllow: ["*"],

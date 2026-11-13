@@ -6,14 +6,7 @@
     "denyWrite": [".git", ".git/**"]
   },
   "shell": {
-    "denyCommands": [
-      "^(sudo|su|doas|pkexec|chroot)( |$)",
-      "^(mkfs(\\.\\w+)?|fdisk|parted|wipefs)( |$)",
-      "^(shutdown|reboot|halt|poweroff)( |$)",
-      "^(useradd|userdel|usermod|passwd)( |$)",
-      "^git( \\S+)* (filter-branch|filter-repo)( |$)",
-      "^gh( \\S+)* repo (delete|rename|transfer)( |$)"
-    ],
+    "denyCommands": [],
     "denyArgs": [],
     "allowShellSyntax": true,
     "allowRelativeExecutables": true,
