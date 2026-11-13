@@ -2,12 +2,18 @@
 # Merge etmeden önce insan gözden geçirmesi gerekir (Legends11).
 #
 # Bu workflow hiçbir repo secret'ı veya variable'ı GEREKTİRMEZ.
-#  - MCP token'ı her çalıştırmada rastgele üretilir.
+#  - MCP token'ı her çalıştırmada rastgele üretilir ve log'da maskelenir (::add-mask::).
 #  - Tünel: Cloudflare quick tunnel (hesap/token gerekmez).
 #  - npm: trusted publishing (OIDC), NPM_TOKEN yok.
-#  - Bağlantı bilgisi (endpoint + token) log/özet yerine `hardtools-connect` artifact'ında
-#    (GitHub log'daki token'ı `***` ile maskeliyor). Public repoda age ile şifrelenir;
-#    private repoda anahtar vermezsen düz yazı dosyadır.
+#  - Bağlantı bilgisi (endpoint + token) log/özet yerine `hardtools-connect` artifact'ında.
+#    Public repoda age ile şifrelenir; private repoda anahtar vermezsen düz yazı dosyadır.
+#
+# serve davranışı:
+#  - MCP sunucusu çökerse aynı token/host ile yeniden başlatılır (en fazla 5 kez).
+#  - Tünel ölürse job kapanır: quick tunnel URL'si değişir, istemci yeniden yapılandırılmalıdır.
+#  - GitHub-hosted job'ların 6 saatlik KESİN sınırı vardır; bu sınıra ~5 sa 45 dk'da temiz çıkılır.
+#    Sonrasında action=serve ile yeniden başlat (yeni URL + yeni token üretilir).
+#  - Yeni bir serve çalıştırmak, çalışan oturumu İPTAL eder (concurrency).
 name: hardtools MCP – Build, Publish & Serve
 
 on:
@@ -122,13 +128,13 @@ jobs:
     needs: test-and-bundle
     if: github.event_name == 'workflow_dispatch' && inputs.action == 'serve'
     runs-on: ubuntu-latest
-    timeout-minutes: 350
+    timeout-minutes: 360          # GitHub-hosted job üst sınırı; temiz çıkış ~345 dk'da (aşağıda)
     concurrency:
       group: hardtools-mcp-serve
       cancel-in-progress: true
     env:
       # cloudflared 2026.8.1 – linux-amd64 ham binary
-      # (sha256: github.com/cloudflare/cloudflared/releases sayfasından)
+      # (sha256 doğrulandı: release asset'inin gerçek özetiyle eşleşiyor)
       CLOUDFLARED_VERSION: '2026.8.1'
       CLOUDFLARED_SHA256: '98d8eadbfdf8c7ec994e08260599c9be991e7833c746f98692b18bdf71c9b9dc'
       REPO_PRIVATE: ${{ github.event.repository.private }}
@@ -185,30 +191,46 @@ jobs:
           [ -n "$url" ] || { cat "$cf_log"; echo "::error::Tünel URL'si 60 sn içinde alınamadı"; exit 1; }
           host="${url#https://}"
 
-          # --- Her çalıştırmada rastgele token ---
+          # --- Her çalıştırmada rastgele token; log'da maskele ---
           token="$(openssl rand -hex 32)"
+          echo "::add-mask::$token"
 
           # --- MCP sunucusu: repo yerine boş sandbox, host kısıtlı ---
           sandbox="$RUNNER_TEMP/hardtools-sandbox"
           mkdir -p "$sandbox"
-          cd "$sandbox"
 
-          export HARDTOOLS_HTTP_TOKEN="$token"
-          # src/index.ts Host başlığını tam eşleştirir (port dahil). Public host + yerel host'lar.
-          export HARDTOOLS_ALLOWED_HOSTS="$host,127.0.0.1:${MCP_PORT},localhost:${MCP_PORT}"
-          export HARDTOOLS_HTTP_ALLOW_LOCAL_TOOLS="$ALLOW_LOCAL_TOOLS"
-          export HARDTOOLS_PROFILE=balanced
-          export HARDTOOLS_ROOTS="$sandbox"
-          # hardtools.config.example.json KULLANILMAZ: içindeki roots (/home/me/...) bu runner'da yok
+          # Sunucu ortamı bir dosyada tutulur: çökerse AYNI token/host ile yeniden başlatılabilsin.
+          # (runner geçicidir; dosya yalnızca bu kullanıcıya okunabilir)
+          # hardtools.config.example.json KULLANILMAZ: içindeki roots bu runner'da yok
           # ve HARDTOOLS_ROOTS'u ezip sunucuyu "root does not exist" ile çökertir.
-          unset HARDTOOLS_CONFIG
+          (
+            umask 077
+            {
+              printf 'export HARDTOOLS_HTTP_TOKEN=%q\n' "$token"
+              # src/index.ts Host başlığını tam eşleştirir (port dahil). Public host + yerel host'lar.
+              printf 'export HARDTOOLS_ALLOWED_HOSTS=%q\n' "$host,127.0.0.1:${MCP_PORT},localhost:${MCP_PORT}"
+              printf 'export HARDTOOLS_HTTP_ALLOW_LOCAL_TOOLS=%q\n' "$ALLOW_LOCAL_TOOLS"
+              printf 'export HARDTOOLS_PROFILE=%q\n' balanced
+              printf 'export HARDTOOLS_ROOTS=%q\n' "$sandbox"
+              printf 'unset HARDTOOLS_CONFIG\n'
+            } > "$RUNNER_TEMP/node.env"
+          )
 
-          # Sunucu çıktısı log'a basılmaz (public repoda sızıntı riski).
+          cat > "$RUNNER_TEMP/start-node.sh" <<'SH'
+          #!/usr/bin/env bash
+          set -euo pipefail
+          . "$RUNNER_TEMP/node.env"
+          cd "$HARDTOOLS_ROOTS"
+          # Sunucu çıktısı Actions log'una basılmaz (public repoda sızıntı riski); dosyaya eklenir.
           setsid nohup node "$GITHUB_WORKSPACE/artifact/bundle/index.js" \
-            --http --host 127.0.0.1 --port "$MCP_PORT" --profile balanced \
-            >"$RUNNER_TEMP/node.log" 2>&1 &
-          NODE_PID=$!
-          echo "$NODE_PID" > "$RUNNER_TEMP/node.pid"
+            --http --host 127.0.0.1 --port "$MCP_PORT" --profile "$HARDTOOLS_PROFILE" \
+            >>"$RUNNER_TEMP/node.log" 2>&1 &
+          echo "$!" > "$RUNNER_TEMP/node.pid"
+          SH
+          chmod +x "$RUNNER_TEMP/start-node.sh"
+
+          bash "$RUNNER_TEMP/start-node.sh"
+          NODE_PID="$(cat "$RUNNER_TEMP/node.pid")"
 
           ready=0
           for _ in $(seq 1 30); do
@@ -218,7 +240,7 @@ jobs:
           done
           [ "$ready" = 1 ] || { tail -n 20 "$RUNNER_TEMP/node.log"; echo "::error::Sunucu 30 sn içinde hazır olmadı"; exit 1; }
 
-          # --- Bağlantı bilgisi: log/özet YERİNE artifact dosyası (GitHub log'daki token'ı maskeliyor) ---
+          # --- Bağlantı bilgisi: log/özet YERİNE artifact dosyası ---
           endpoint="$url/mcp"
           mkdir -p "$RUNNER_TEMP/connect"
           conn="$RUNNER_TEMP/connect/connect.txt"
@@ -233,6 +255,7 @@ jobs:
             echo "Endpoint ve token, run sayfasının altındaki **Artifacts** bölümünde \`hardtools-connect\` içinde (zip, içinde connect.txt)." >> "$GITHUB_STEP_SUMMARY"
           fi
           echo "Local tools: \`$ALLOW_LOCAL_TOOLS\`. Kapatmak için: \`action = unpublish\` ile çalıştır." >> "$GITHUB_STEP_SUMMARY"
+          echo "Oturum en fazla ~5 sa 45 dk sürer (GitHub 6 saat sınırı); sonra action = serve ile yeniden başlat." >> "$GITHUB_STEP_SUMMARY"
 
       - name: Bağlantı bilgisini artifact olarak yükle
         uses: actions/upload-artifact@v7
@@ -242,13 +265,37 @@ jobs:
           retention-days: 1
           if-no-files-found: error
 
-      - name: Yayında tut
+      - name: Yayında tut (MCP çökerse yeniden başlat, tünel ölürse bitir)
         run: |
-          NODE_PID="$(cat "$RUNNER_TEMP/node.pid")"
+          set -uo pipefail
           CF_PID="$(cat "$RUNNER_TEMP/cf.pid")"
-          # Biri ölürse (sunucu veya tünel) job biter; boşa yayında kalmaz.
-          while kill -0 "$NODE_PID" 2>/dev/null && kill -0 "$CF_PID" 2>/dev/null; do sleep 5; done
-          echo "::warning::Sunucu veya tünel sonlandı, job kapanıyor."
+          deadline=$(( $(date +%s) + 345 * 60 ))   # 6 saatlik sert sınırdan önce temiz çıkış
+          restarts=0
+          max_restarts=5
+          while :; do
+            if ! kill -0 "$CF_PID" 2>/dev/null; then
+              # Quick tunnel yeniden başlarsa URL değişir; istemci zaten eski adrese bağlı kalamaz.
+              echo "::warning::Tünel sonlandı, job kapanıyor. Yeni adres için action = serve ile yeniden çalıştır."
+              break
+            fi
+            NODE_PID="$(cat "$RUNNER_TEMP/node.pid")"
+            if ! kill -0 "$NODE_PID" 2>/dev/null; then
+              restarts=$((restarts + 1))
+              if [ "$restarts" -gt "$max_restarts" ]; then
+                echo "::error::MCP sunucusu $max_restarts kez çöktü, vazgeçildi."
+                tail -n 20 "$RUNNER_TEMP/node.log"
+                exit 1
+              fi
+              echo "::warning::MCP sunucusu çöktü, aynı token/host ile yeniden başlatılıyor ($restarts/$max_restarts)."
+              bash "$RUNNER_TEMP/start-node.sh" || { echo "::error::Yeniden başlatma başarısız"; exit 1; }
+              sleep 3
+            fi
+            if [ "$(date +%s)" -ge "$deadline" ]; then
+              echo "::notice::GitHub'ın 6 saatlik job sınırına yaklaşıldı; temiz kapanış. Devam için action = serve ile yeniden çalıştır."
+              break
+            fi
+            sleep 5
+          done
 
   # ──────────────────────────────────────────────
   # 4. Yayından kaldır: çalışan serve run'ını iptal et
