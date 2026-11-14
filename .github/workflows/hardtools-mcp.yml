@@ -1,4 +1,5 @@
-# AI-assisted: Bu dosya Claude (Anthropic) tarafından yeniden düzenlendi.
+# AI-assisted: Bu dosya Claude (Anthropic) tarafından yeniden düzenlendi; auto_renew zinciri ve
+# unpublish sertleştirmesi de Claude tarafından eklendi.
 # Merge etmeden önce insan gözden geçirmesi gerekir (Legends11).
 #
 # Bu workflow hiçbir repo secret'ı veya variable'ı GEREKTİRMEZ.
@@ -11,9 +12,13 @@
 # serve davranışı:
 #  - MCP sunucusu çökerse aynı token/host ile yeniden başlatılır (en fazla 5 kez).
 #  - Tünel ölürse job kapanır: quick tunnel URL'si değişir, istemci yeniden yapılandırılmalıdır.
-#  - GitHub-hosted job'ların 6 saatlik KESİN sınırı vardır; bu sınıra ~5 sa 45 dk'da temiz çıkılır.
-#    Sonrasında action=serve ile yeniden başlat (yeni URL + yeni token üretilir).
-#  - Yeni bir serve çalıştırmak, çalışan oturumu İPTAL eder (concurrency).
+#  - GitHub-hosted job'ların 6 saatlik KESİN sınırı vardır. auto_renew=true ise ~5 sa 30 dk'da
+#    aynı girdilerle yeni bir serve run'ı tetiklenir; yeni run'ın serve job'ı başlayınca
+#    concurrency eskisini iptal eder. Her yenilemede URL + token DEĞİŞİR: yeni run'ın
+#    `hardtools-connect` artifact'ından connector'ı güncellemen gerekir.
+#  - auto_renew=false ise ~5 sa 45 dk'da temiz çıkılır; elle action=serve ile yeniden başlat.
+#  - Zinciri durdurmak için action=unpublish çalıştır (çalışan + kuyruktaki serve run'larını iptal eder).
+#  - Private repoda 7/24 çalışma Actions dakika kotasını hızla tüketir (~43.000 dk/ay).
 name: hardtools MCP – Build, Publish & Serve
 
 on:
@@ -37,6 +42,10 @@ on:
         description: 'serve: HARDTOOLS_HTTP_ALLOW_LOCAL_TOOLS açılsın mı? (riskli)'
         type: boolean
         default: false
+      auto_renew:
+        description: 'serve: 6 saat dolmadan kendini yeniden başlat (unpublish ile durdurana kadar). Her yenilemede URL+token değişir'
+        type: boolean
+        default: true
 
 permissions:
   contents: read
@@ -123,6 +132,7 @@ jobs:
   # 3. MCP sunucusu + quick tunnel (sadece elle: action = serve)
   #    Endpoint + token `hardtools-connect` artifact'ında: age_recipient verilirse
   #    şifreli, verilmezse (sadece private repoda) düz yazı.
+  #    auto_renew=true ise süre dolmadan kendini yeniden tetikler.
   # ──────────────────────────────────────────────
   serve:
     needs: test-and-bundle
@@ -132,6 +142,9 @@ jobs:
     concurrency:
       group: hardtools-mcp-serve
       cancel-in-progress: true
+    permissions:
+      contents: read
+      actions: write              # auto_renew: kendini yeniden tetiklemek için
     env:
       # cloudflared 2026.8.1 – linux-amd64 ham binary
       # (sha256 doğrulandı: release asset'inin gerçek özetiyle eşleşiyor)
@@ -140,6 +153,7 @@ jobs:
       REPO_PRIVATE: ${{ github.event.repository.private }}
       AGE_RECIPIENT: ${{ inputs.age_recipient }}
       ALLOW_LOCAL_TOOLS: ${{ inputs.allow_local_tools && '1' || '0' }}
+      AUTO_RENEW: ${{ inputs.auto_renew && '1' || '0' }}
     steps:
       - name: Token teslim yolunu doğrula
         run: |
@@ -256,7 +270,11 @@ jobs:
             echo "Endpoint ve token, run sayfasının altındaki **Artifacts** bölümünde \`hardtools-connect\` içinde (zip, içinde connect.txt)." >> "$GITHUB_STEP_SUMMARY"
           fi
           echo "Local tools: \`$ALLOW_LOCAL_TOOLS\`. Kapatmak için: \`action = unpublish\` ile çalıştır." >> "$GITHUB_STEP_SUMMARY"
-          echo "Oturum en fazla ~5 sa 45 dk sürer (GitHub 6 saat sınırı); sonra action = serve ile yeniden başlat." >> "$GITHUB_STEP_SUMMARY"
+          if [ "$AUTO_RENEW" = 1 ]; then
+            echo "Otomatik yenileme AÇIK: ~5 sa 30 dk'da yeni bir serve run'ı tetiklenir. Yeni URL + token için o run'ın \`hardtools-connect\` artifact'ına bak." >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "Oturum en fazla ~5 sa 45 dk sürer (GitHub 6 saat sınırı); sonra action = serve ile yeniden başlat." >> "$GITHUB_STEP_SUMMARY"
+          fi
 
       - name: Bağlantı bilgisini artifact olarak yükle
         uses: actions/upload-artifact@v7
@@ -266,14 +284,22 @@ jobs:
           retention-days: 1
           if-no-files-found: error
 
-      - name: Yayında tut (MCP çökerse yeniden başlat, tünel ölürse bitir)
+      - name: Yayında tut (MCP çökerse yeniden başlat, süre dolmadan yenile)
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
         run: |
           set -uo pipefail
           CF_PID="$(cat "$RUNNER_TEMP/cf.pid")"
-          deadline=$(( $(date +%s) + 345 * 60 ))   # 6 saatlik sert sınırdan önce temiz çıkış
-          restarts=0
-          max_restarts=5
+          wf="$(basename "${GITHUB_WORKFLOW_REF%%@*}")"
+          start=$(date +%s)
+          renew_at=$(( start + 330 * 60 ))    # yenilemeyi tetikle (yeni run'ın bundle aşaması için ~15 dk pay)
+          deadline=$(( start + 345 * 60 ))    # 6 saatlik sert sınırdan önce temiz çıkış
+          restarts=0; max_restarts=5
+          renewed=0; renew_tries=0; last_try=0
+          local_bool=$([ "$ALLOW_LOCAL_TOOLS" = 1 ] && echo true || echo false)
           while :; do
+            now=$(date +%s)
             if ! kill -0 "$CF_PID" 2>/dev/null; then
               # Quick tunnel yeniden başlarsa URL değişir; istemci zaten eski adrese bağlı kalamaz.
               echo "::warning::Tünel sonlandı, job kapanıyor. Yeni adres için action = serve ile yeniden çalıştır."
@@ -291,15 +317,35 @@ jobs:
               bash "$RUNNER_TEMP/start-node.sh" || { echo "::error::Yeniden başlatma başarısız"; exit 1; }
               sleep 3
             fi
-            if [ "$(date +%s)" -ge "$deadline" ]; then
-              echo "::notice::GitHub'ın 6 saatlik job sınırına yaklaşıldı; temiz kapanış. Devam için action = serve ile yeniden çalıştır."
+
+            # Yenileme: süre dolmadan yeni run'ı tetikle. Yeni run'ın serve job'ı başlayınca
+            # concurrency bu run'ı iptal eder. Başarısız olursa 60 sn arayla en fazla 5 deneme.
+            if [ "$AUTO_RENEW" = 1 ] && [ "$renewed" = 0 ] && [ "$now" -ge "$renew_at" ] \
+               && [ $(( now - last_try )) -ge 60 ] && [ "$renew_tries" -lt 5 ]; then
+              renew_tries=$((renew_tries + 1)); last_try=$now
+              if gh workflow run "$wf" --ref "$GITHUB_REF_NAME" \
+                   -f action=serve -f age_recipient="$AGE_RECIPIENT" \
+                   -f allow_local_tools="$local_bool" -f auto_renew=true; then
+                renewed=1
+                echo "::notice::Yeni serve run'ı tetiklendi. Yeni URL+token için yeni run'ın hardtools-connect artifact'ına bak."
+              else
+                echo "::warning::Yenileme tetiklenemedi ($renew_tries/5)."
+              fi
+            fi
+
+            if [ "$now" -ge "$deadline" ]; then
+              if [ "$AUTO_RENEW" = 1 ] && [ "$renewed" = 0 ]; then
+                echo "::error::Yenileme başarısız; oturum kapanıyor. action = serve ile elle başlat."
+              fi
+              echo "::notice::GitHub'ın 6 saatlik job sınırına yaklaşıldı; temiz kapanış."
               break
             fi
             sleep 5
           done
 
   # ──────────────────────────────────────────────
-  # 4. Yayından kaldır: çalışan serve run'ını iptal et
+  # 4. Yayından kaldır: çalışan/kuyruktaki serve run'larını iptal et
+  #    (auto_renew zincirini keser)
   # ──────────────────────────────────────────────
   unpublish:
     if: github.event_name == 'workflow_dispatch' && inputs.action == 'unpublish'
@@ -314,11 +360,17 @@ jobs:
           GH_REPO: ${{ github.repository }}
         run: |
           wf="$(basename "${GITHUB_WORKFLOW_REF%%@*}")"
-          ids="$(gh run list --workflow "$wf" --event workflow_dispatch \
-                   --status in_progress --json databaseId --jq '.[].databaseId')"
           found=0
-          for id in $ids; do
-            [ "$id" = "$GITHUB_RUN_ID" ] && continue
-            gh run cancel "$id" && echo "İptal edildi: run $id" && found=1
+          # İki geçiş: iptal sırasında tetiklenmiş bir yenilemeyi de yakalamak için.
+          for pass in 1 2; do
+            for st in in_progress queued waiting pending; do
+              ids="$(gh run list --workflow "$wf" --event workflow_dispatch \
+                       --status "$st" --json databaseId --jq '.[].databaseId')"
+              for id in $ids; do
+                [ "$id" = "$GITHUB_RUN_ID" ] && continue
+                gh run cancel "$id" && echo "İptal edildi: run $id ($st)" && found=1
+              done
+            done
+            [ "$pass" = 1 ] && sleep 20
           done
           [ "$found" = 1 ] || echo "Çalışan serve run'ı bulunamadı."
