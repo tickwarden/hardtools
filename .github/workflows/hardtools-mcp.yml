@@ -19,6 +19,10 @@
 #  - auto_renew=false ise ~5 sa 45 dk'da temiz çıkılır; elle action=serve ile yeniden başlat.
 #  - Zinciri durdurmak için action=unpublish çalıştır (çalışan + kuyruktaki serve run'larını iptal eder).
 #  - Private repoda 7/24 çalışma Actions dakika kotasını hızla tüketir (~43.000 dk/ay).
+#
+# [2026-11-17] ubuntu-latest → ubuntu-24.04 sabitlendi (actions/runner-images#14748:
+#   ubuntu-latest 19 Kas 2026'ya kadar 26.04'e geçiyor; sessiz fail riskini önlemek için
+#   tüm job'larda image sabitleniyor).
 name: hardtools MCP – Build, Publish & Serve
 
 on:
@@ -60,7 +64,7 @@ jobs:
   # ──────────────────────────────────────────────
   test-and-bundle:
     if: github.event_name != 'workflow_dispatch' || inputs.action != 'unpublish'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
     concurrency:
       group: test-${{ github.ref }}
@@ -100,7 +104,7 @@ jobs:
   publish-npm:
     needs: test-and-bundle
     if: startsWith(github.ref, 'refs/tags/v')
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
     permissions:
       contents: read
@@ -137,7 +141,7 @@ jobs:
   serve:
     needs: test-and-bundle
     if: github.event_name == 'workflow_dispatch' && inputs.action == 'serve'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 360          # GitHub-hosted job üst sınırı; temiz çıkış ~345 dk'da (aşağıda)
     concurrency:
       group: hardtools-mcp-serve
@@ -349,7 +353,7 @@ jobs:
   # ──────────────────────────────────────────────
   unpublish:
     if: github.event_name == 'workflow_dispatch' && inputs.action == 'unpublish'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 5
     permissions:
       actions: write
