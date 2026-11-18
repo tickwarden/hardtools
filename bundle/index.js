@@ -31366,6 +31366,8 @@ var ACCESS_TTL_S = 60 * 60;
 var REFRESH_TTL_S = 12 * 60 * 60;
 var CODE_TTL_S = 60;
 var CLIENT_TTL_S = 7 * 24 * 60 * 60;
+var INVITE_TTL_S = 24 * 60 * 60;
+var SESSION_TTL_S = 10 * 60;
 var MAX_BODY = 16384;
 function redirectAllowed(uri, extra) {
   if (extra.has(uri)) return true;
@@ -31389,9 +31391,12 @@ var OAuth = class {
   o;
   key;
   usedCodes = /* @__PURE__ */ new Map();
-  // jti -> exp (single-use enforcement, in-memory)
+  // jti -> exp (authorization code single-use)
+  usedInvites = /* @__PURE__ */ new Map();
+  // jti -> exp (invite single-use)
+  sessions = /* @__PURE__ */ new Map();
+  // sessionId -> exp (invite → consent bridge)
   failures = [];
-  // timestamps of recent failed consent attempts
   extra;
   // ---- signed blobs ---------------------------------------------------------------------
   sign(p) {
@@ -31419,6 +31424,56 @@ var OAuth = class {
   /** True if `bearer` is an access token minted by this server. */
   isAccessToken(bearer) {
     return this.verify(bearer.startsWith("hta.") ? bearer.slice(4) : "", "at") !== null;
+  }
+  // ---- invite codes ---------------------------------------------------------------------
+  /**
+   * Mint a single-use invite code valid for 24 hours.
+   * Returns the full invite URL to embed in connect.txt.
+   */
+  mintInvite(origin) {
+    const jti = crypto3.randomBytes(12).toString("base64url");
+    const code = this.sign({ t: "inv", jti, exp: this.now() + INVITE_TTL_S });
+    return `${origin}/invite/${encodeURIComponent(code)}`;
+  }
+  /**
+   * Validate and consume an invite code.
+   * Returns a short-lived session token on success, null on failure.
+   */
+  redeemInvite(code) {
+    const p = this.verify(code, "inv");
+    if (!p) return null;
+    const nowS = this.now();
+    for (const [k, e] of this.usedInvites) if (e < nowS) this.usedInvites.delete(k);
+    if (this.usedInvites.has(p.jti)) return null;
+    this.usedInvites.set(p.jti, p.exp);
+    const sessionId = crypto3.randomBytes(24).toString("base64url");
+    this.sessions.set(sessionId, nowS + SESSION_TTL_S);
+    this.o.audit?.({ ev: "invite_redeemed" });
+    return sessionId;
+  }
+  /** Check whether a session cookie is still valid (without consuming it). */
+  hasValidSession(req) {
+    const sid = this.parseCookie(req, "ht_session");
+    if (!sid) return false;
+    const exp = this.sessions.get(sid);
+    if (!exp || exp < this.now()) {
+      this.sessions.delete(sid ?? "");
+      return false;
+    }
+    return true;
+  }
+  /** Consume (invalidate) the session after the authorization code is issued. */
+  consumeSession(req) {
+    const sid = this.parseCookie(req, "ht_session");
+    if (sid) this.sessions.delete(sid);
+  }
+  parseCookie(req, name) {
+    const header = req.headers.cookie ?? "";
+    for (const part of header.split(";")) {
+      const [k, ...rest] = part.trim().split("=");
+      if (k.trim() === name) return decodeURIComponent(rest.join("=").trim());
+    }
+    return null;
   }
   // ---- helpers --------------------------------------------------------------------------
   /** Public origin. The Host header was already validated against HARDTOOLS_ALLOWED_HOSTS by the caller. */
@@ -31467,7 +31522,7 @@ var OAuth = class {
     return out;
   }
   // ---- routing --------------------------------------------------------------------------
-  /** Returns true when the request was an OAuth/discovery route and has been fully handled. */
+  /** Returns true when the request was an OAuth/discovery/invite route and has been fully handled. */
   async handle(req, res) {
     const path8 = (req.url ?? "").split("?")[0];
     const method = req.method ?? "GET";
@@ -31509,7 +31564,37 @@ var OAuth = class {
       await this.tokenEndpoint(req, res);
       return true;
     }
+    if (path8.startsWith("/invite/")) {
+      await this.handleInvite(req, res, path8, origin);
+      return true;
+    }
     return false;
+  }
+  // ---- /invite/<code> -------------------------------------------------------------------
+  async handleInvite(req, res, path8, origin) {
+    if (req.method !== "GET") {
+      this.oerr(res, 405, "invalid_request", "GET only");
+      return;
+    }
+    const code = decodeURIComponent(path8.slice("/invite/".length));
+    const sessionId = this.redeemInvite(code);
+    if (!sessionId) {
+      this.page(res, 410, "This invite link has already been used or has expired. Ask for a new one.", null);
+      return;
+    }
+    const cookieExp = new Date((this.now() + SESSION_TTL_S) * 1e3).toUTCString();
+    res.writeHead(200, {
+      "set-cookie": `ht_session=${encodeURIComponent(sessionId)}; HttpOnly; SameSite=Lax; Path=/; Expires=${cookieExp}${origin.startsWith("https") ? "; Secure" : ""}`,
+      "content-type": "text/html; charset=utf-8",
+      "cache-control": "no-store",
+      "x-frame-options": "DENY",
+      "content-security-policy": "default-src 'none'; style-src 'unsafe-inline'; frame-ancestors 'none'; base-uri 'none'"
+    });
+    res.end(`<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>hardtools</title>
+<style>body{font:16px system-ui,sans-serif;max-width:30rem;margin:4rem auto;padding:0 1rem}button{padding:.6rem 1.2rem}</style>
+<h1>hardtools</h1>
+<p>Invite link accepted. You have <strong>10 minutes</strong> to connect Claude.</p>
+<p>Go to <strong>Settings &rarr; Connectors &rarr; Add custom connector</strong> in Claude and paste the MCP endpoint URL (<code>${origin}/mcp</code>). When prompted to authorize, this session will be recognized automatically.</p>`);
   }
   // ---- RFC 7591 dynamic client registration (stateless: client_id is a signed blob) ------
   async register(req, res) {
@@ -31545,7 +31630,7 @@ var OAuth = class {
       return null;
     }
   }
-  // ---- authorization endpoint: consent page that demands the server secret ----------------
+  // ---- authorization endpoint -----------------------------------------------------------
   async authorize(req, res, origin) {
     let q;
     if (req.method === "GET") q = Object.fromEntries(new URL(req.url ?? "/", origin).searchParams);
@@ -31568,7 +31653,16 @@ var OAuth = class {
     if (q.response_type !== "code") return back({ error: "unsupported_response_type" });
     if (q.code_challenge_method !== "S256" || !/^[A-Za-z0-9_-]{43}$/.test(q.code_challenge ?? ""))
       return back({ error: "invalid_request", error_description: "PKCE with S256 is required" });
-    if (req.method === "GET") return this.page(res, 200, "", q);
+    if (req.method === "GET") {
+      if (this.hasValidSession(req)) {
+        this.consumeSession(req);
+        const jti2 = crypto3.randomBytes(12).toString("base64url");
+        const code2 = this.sign({ t: "code", jti: jti2, cid: q.client_id, ru: q.redirect_uri, cc: q.code_challenge, exp: this.now() + CODE_TTL_S });
+        this.o.audit?.({ ev: "oauth_authorize", ok: true, via: "invite_session" });
+        return back({ code: code2 });
+      }
+      return this.page(res, 200, "", q);
+    }
     const now = Date.now();
     this.failures = this.failures.filter((t) => now - t < 6e4);
     if (this.failures.length >= 10) return this.page(res, 429, "Too many failed attempts. Wait a minute.", q);
@@ -31579,21 +31673,20 @@ var OAuth = class {
     }
     const jti = crypto3.randomBytes(12).toString("base64url");
     const code = this.sign({ t: "code", jti, cid: q.client_id, ru: q.redirect_uri, cc: q.code_challenge, exp: this.now() + CODE_TTL_S });
-    this.o.audit?.({ ev: "oauth_authorize", ok: true });
+    this.o.audit?.({ ev: "oauth_authorize", ok: true, via: "direct_token" });
     back({ code });
   }
   page(res, code, error62, q) {
     const esc2 = (s) => s.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
     const keep = ["response_type", "client_id", "redirect_uri", "state", "code_challenge", "code_challenge_method", "scope", "resource"];
     const hidden = q ? keep.filter((k) => typeof q[k] === "string").map((k) => `<input type="hidden" name="${k}" value="${esc2(q[k])}">`).join("") : "";
-    const form = q ? `<p>Enter the hardtools access token (the secret from <code>connect.txt</code>) to let Claude connect.</p>
+    const form = q ? `<p>Enter the access token only, without the <code>Bearer</code> prefix. Do not paste an invite URL or a private key.</p>
+<p>GitHub Actions: open <strong>BAGLAN.html</strong> from this run\u2019s hardtools-connect ZIP on your computer. In the \u201CAccess token\u201D section, match this page\u2019s address and copy the token.</p>
 <form method="post" action="/authorize" autocomplete="off">${hidden}<input type="password" name="access_token" autocomplete="off" autofocus required placeholder="access token"><button type="submit">Authorize</button></form>` : "";
     res.writeHead(code, {
       "content-type": "text/html; charset=utf-8",
       "cache-control": "no-store",
       "x-frame-options": "DENY",
-      // NOT "no-referrer": with that policy browsers send `Origin: null` on the same-origin form POST,
-      // which index.ts then rejects ("browser origins are not allowed"). "same-origin" still leaks nothing cross-origin.
       "referrer-policy": "same-origin",
       "content-security-policy": "default-src 'none'; style-src 'unsafe-inline'; frame-ancestors 'none'; base-uri 'none'"
     });
@@ -40749,8 +40842,12 @@ async function main() {
   const allowedHosts = new Set((process.env.HARDTOOLS_ALLOWED_HOSTS ?? `127.0.0.1:${port},localhost:${port}`).split(",").map((s) => s.trim().toLowerCase()).filter(Boolean));
   const hits = /* @__PURE__ */ new Map();
   const oauth = new OAuth({ token, audit: (e) => audit.write(e), extraRedirectUris: (process.env.HARDTOOLS_OAUTH_REDIRECT_URIS ?? "").split(",").map((s) => s.trim()).filter(Boolean) });
-  const pathTokenEnabled = process.env.HARDTOOLS_HTTP_PATH_TOKEN !== "0";
   const eqTok = (a, b) => crypto6.timingSafeEqual(crypto6.createHash("sha256").update(a).digest(), crypto6.createHash("sha256").update(b).digest());
+  const inviteOrigin = process.env.HARDTOOLS_INVITE_ORIGIN ?? "";
+  if (inviteOrigin) {
+    const inviteUrl = oauth.mintInvite(inviteOrigin);
+    console.error(`[hardtools] invite URL (one use; keep private): ${inviteUrl}`);
+  }
   const srv = http2.createServer(async (req, res) => {
     const send = (code, msg, headers = {}) => {
       res.writeHead(code, { "content-type": "application/json", ...headers });
@@ -40772,12 +40869,10 @@ async function main() {
       hits.set(ip, b);
       if (b.n > 120) return send(429, "rate limited");
       if (await oauth.handle(req, res)) return;
-      const isMcp = path8 === "/mcp" || pathTokenEnabled && path8.startsWith("/mcp/");
-      if (!isMcp) return send(404, "not found");
+      if (path8 !== "/mcp") return send(404, "not found");
       const m = /^Bearer (.+)$/.exec(String(req.headers.authorization ?? ""));
       const bearerOk = !!m && (eqTok(m[1], token) || oauth.isAccessToken(m[1]));
-      const pathOk = path8.startsWith("/mcp/") && eqTok(path8.slice(5), token);
-      if (!bearerOk && !pathOk) return send(401, "unauthorized", { "www-authenticate": `Bearer resource_metadata="${oauth.resourceMetadataUrl(req)}"` });
+      if (!bearerOk) return send(401, "unauthorized", { "www-authenticate": `Bearer resource_metadata="${oauth.resourceMetadataUrl(req)}"` });
       if (req.method !== "POST") return send(405, "stateless server: POST only", { allow: "POST" });
       const chunks = [];
       let size = 0;

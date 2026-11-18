@@ -2,7 +2,7 @@
 
 Claude'un yerleşik dosya/arama/kabuk/web araçlarının **sınırlandırılmış, denetlenebilir** karşılıkları. Tek bir MCP sunucusu; Claude Code, Claude Desktop (stdio) ve uzak MCP (HTTP) üzerinden çalışır.
 
-> **Durum:** v0.2.0, kod AI tarafından yazıldı (bkz. `CREDITS.md`). 37 otomatik test geçiyor, ama bağımsız insan güvenlik incelemesi yapılmadı. Claude Code / Desktop / claude.ai içinde **gerçek yükleme burada denenmedi**; testler MCP SDK istemcisi ve ham HTTP ile yapıldı.
+> **Durum:** v0.2.0, kod AI tarafından yazıldı (bkz. `CREDITS.md`). Otomatik testler var; bağımsız insan güvenlik incelemesi yapılmadı. Claude Code / Desktop / claude.ai içinde **gerçek yükleme burada denenmedi**; testler MCP SDK istemcisi ve ham HTTP ile yapıldı.
 
 ## Araçlar
 
@@ -29,7 +29,7 @@ Politika dosyası **yalnızca** `HARDTOOLS_CONFIG` veya `~/.hardtools/config.jso
 ## Kurulum
 
 ```bash
-npm install && npm test          # 37 test (derleme dahil)
+npm ci && npm test               # kilitli bağımlılıklar + testler (derleme dahil)
 npm run bundle                   # bundle/index.js (node_modules gerekmez)
 ```
 
@@ -50,17 +50,18 @@ Klasörü plugin olarak yükle (`.claude-plugin/plugin.json` + `.mcp.json` hazı
    `age_recipient` alanına **kendi açık anahtarını** gir (`age1…` veya `.pub` dosyandaki
    `ssh-ed25519 …` / `ssh-rsa …` satırı). İstersen bir kez `HARDTOOLS_AGE_RECIPIENT`
    adlı **repository variable** olarak kaydet. Özel anahtarını GitHub'a yükleme.
-   Private repoda alıcıyı boş bırakırsan repo okuyucuları bağlantı dosyasını düz metin olarak indirebilir.
-2. Çalışan run'ın **Artifacts → hardtools-connect** dosyasını indir ve ZIP'i çıkar.
-   **Önce `BASLA-BURADAN.txt` dosyasını aç.** Bu şifresiz kılavuzda o run'ın tam MCP
-   endpointi, Windows/PowerShell ve macOS/Linux komutları, Claude connector alanları,
-   oturum durumu bağlantısı ve sorun giderme adımları var. **Summary veya log gerekmez.**
-3. Aynı ZIP'teki `connect.txt` tek kullanımlık daveti ve bearer token'ı içerir.
-   Şifreliyse kendi özel anahtarınla, kılavuzdaki gibi **yerelde** aç; örneğin
-   `age -d -i hardtools-key.txt connect.txt`. Daveti Claude ile aynı tarayıcı profilinde
-   bir kez aç; connector URL alanına daveti değil, kılavuzdaki `/mcp` adresini gir.
-   Name: `hardtools`. OAuth client ID ve secret boş kalır. Oturum kapanırsa yeni run'ın
-   ZIP'ini kullan. Özel anahtar ZIP'e veya repoya yüklenmez.
+   Private repoda hem girdi hem repo değişkeni boşsa repo okuyucuları bağlantı dosyasını düz metin olarak indirebilir.
+2. Çalışan run’dan **Artifacts → hardtools-connect** ZIP’ini indir. Windows’ta **Tümünü ayıkla**, sonra **`BAGLAN.html`** dosyasını bilgisayarında Edge, Chrome veya Firefox ile aç. Aynı klasördeki `connect.txt` dosyasını (veya inen ZIP’i) seç. Şifreliyse **kendi** `hardtools-ozel-anahtar.zip` veya `hardtools-key.txt` dosyanı seç. `age1…` alıcısında kurulum, terminal, Summary veya canlı log gerekmez. Okuyucu ağa bağlanmaz ve dosyaları yüklemez. **SSH alıcısı** için `BASLA-BURADAN.txt` içindeki yerel `age -d` yolunu kullan; düz metin private pakette anahtar istenmez.
+3. İhtiyacına göre doğru değeri kopyala:
+
+   | Nereye? | `BAGLAN.html` içinde neyi seçmelisin? |
+   |---|---|
+   | Claude ile aynı tarayıcı profili | **Daveti kopyala**. Adresi bir kez aç, 10 dakika içinde Claude’dan bağlan. |
+   | Claude → Settings → Connectors → Add custom connector → URL | **/mcp adresini kopyala**. Ad: `hardtools`; OAuth client ID ve secret boş. |
+   | Yetkilendirme sayfasındaki **Access token** kutusu | Okuyucuda bu bölümü aç ve sayfanın alan adını veya tam `/authorize` adresini gir. Eşleşirse **Access token’ı kopyala**; kutuya `Bearer` yazmadan yapıştır. |
+   | Header destekleyen istemci → `Authorization` değeri | **Header değerini kopyala**. Burada `Bearer ` öneki dahildir. |
+
+   `BASLA-BURADAN.txt` tam endpointi, durum bağlantısını ve terminal alternatifini içerir. Okuyucu daveti kendiliğinden açmaz, yeni token üretmez ve run’ın canlılığını sorgulamaz. Eski bir run kapandıysa yeni run’ın ZIP’i gerekir. Okuyucusuz eski bir **çalışan** run için repodaki `bundle/BAGLAN.html` dosyasını indirip kendi bilgisayarında açabilir, o run’ın ZIP’ini seçebilirsin. Özel anahtarını, davetini veya token’ını paylaşma.
 
 **Kısa doğrulama bir yayın değildir.** `check-connection`, artifact'ı job sürerken geri
 indirip karşılaştırır ve tünelin MCP adresini doğrular; sonra **bilerek kapanır**.
@@ -74,7 +75,6 @@ node bundle/index.js --http --port 8787 --profile balanced      # 127.0.0.1'e ba
 ```
 - A static bearer token (`Authorization: Bearer <HARDTOOLS_HTTP_TOKEN>`) works for **Claude Code / Desktop** (they can send headers).
 - **claude.ai web / Claude app**: the custom-connector dialog cannot send headers, so the server speaks a minimal stateless **OAuth 2.1** (RFC 9728 + RFC 8414 discovery, RFC 7591 dynamic client registration, PKCE S256). Add the connector with the `/mcp` URL and leave the OAuth client fields empty; a consent page opens and asks for `HARDTOOLS_HTTP_TOKEN`. Only someone holding that secret can obtain tokens (access tokens live 1 h, refresh tokens 12 h; everything dies when the server restarts with a new secret). Redirect URIs are limited to `https://claude.ai|claude.com/api/mcp/auth_callback` and loopback; add more with `HARDTOOLS_OAUTH_REDIRECT_URIS` (comma-separated, exact match).
-- Fallback for clients without OAuth support: `https://<host>/mcp/<HARDTOOLS_HTTP_TOKEN>` (the secret is part of the URL, so it can leak into proxy logs and screenshots; disable with `HARDTOOLS_HTTP_PATH_TOKEN=0`).
 - Verified with this repo's tests and the official MCP SDK OAuth client; **not yet verified against the live claude.ai dialog**.
 - Uzak modda `ht_shell` ve yazma araçları varsayılan **kapalı** (sunucunun dosya sistemi senin makinen değil). Açmak: `HARDTOOLS_HTTP_ALLOW_LOCAL_TOOLS=1` (önerilmez). TLS sonlandırma (ters vekil/tünel) senin sorumluluğunda; Host doğrulaması için `HARDTOOLS_ALLOWED_HOSTS=alanadi.com`.
 

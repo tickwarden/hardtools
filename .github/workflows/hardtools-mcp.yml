@@ -1,9 +1,9 @@
 # AI yardımıyla düzenlendi; birleştirmeden önce insan incelemesi önerilir.
-# serve: endpoint ve kullanım kılavuzu hardtools-connect/BASLA-BURADAN.txt içinde.
+# serve: yerel okuyucu BAGLAN.html ve kılavuz BASLA-BURADAN.txt hardtools-connect içinde.
 # Canlı log kolaylıktır; bağlantı için job özeti gerekmez.
 # Tek kullanımlık davet ve bearer token herkese açık değildir: hardtools-connect içinde
 # teslim edilir. Public repoda alıcının açık anahtarı gerekir; özel anahtar yüklenmez.
-# Private repoda alıcı belirtilmezse artifact açıktır (repo okuyucuları okuyabilir).
+# Private repoda alıcı girdisi ve repo değişkeni boşsa artifact açıktır (repo okuyucuları okuyabilir).
 # check-connection: aynı teslim yolunu job sürerken doğrular ve tüneli açık bırakmaz.
 #
 # serve davranışı:
@@ -83,9 +83,17 @@ jobs:
           cache: 'npm'
 
       - run: npm ci
-      - run: npm run build
-      - run: node --test --test-concurrency=1 test/*.test.mjs
+      - run: npm test
       - run: npm run bundle
+      - name: Dağıtılan bundle kaynakla eşleşiyor mu?
+        run: git diff --exit-code --stat -- bundle/index.js bundle/search-worker.js bundle/BAGLAN.html
+      - name: Dağıtılan sunucuda OAuth ve bağlantı yolları
+        env:
+          HT_ENTRY: bundle/index.js
+        run: node --test --test-concurrency=1 test/oauth.test.mjs
+
+      - name: Yerel HTML okuyucusunu kurulu Chrome ile doğrula
+        run: CHROME_BIN="$(command -v google-chrome)" npm run test:reader
 
       - uses: actions/upload-artifact@v7
         with:
@@ -93,6 +101,7 @@ jobs:
           path: |
             bundle/
             scripts/connect-guide.mjs
+            scripts/connect-payload.sh
             package.json
             README.md
             LICENSE
@@ -297,29 +306,20 @@ jobs:
           printf '::add-mask::%s\n' "${invite_url##*/}"
           # Yalnızca herkese açık alanlar şifresiz rehbere girebilir.
           run_url="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
-          guide="$RUNNER_TEMP/connect/BASLA-BURADAN.txt"
-          node "$GITHUB_WORKSPACE/artifact/scripts/connect-guide.mjs" \
-            "$endpoint" "$run_url" "$GITHUB_RUN_NUMBER" "$RUN_MODE" "$DELIVERY" > "$guide"
-          test -s "$guide"
+          node "$GITHUB_WORKSPACE/artifact/scripts/connect-guide.mjs" "$RUNNER_TEMP/connect" \
+            "$endpoint" "$run_url" "$GITHUB_RUN_NUMBER" "$RUN_MODE" "$DELIVERY"
+          test -s "$RUNNER_TEMP/connect/BAGLAN.html"
+          test -s "$RUNNER_TEMP/connect/BASLA-BURADAN.txt"
 
           # Özel metni public repoda diske düz metin yazmadan age'ye aktar.
-          connection_details() {
-            printf 'HARDTOOLS MCP — ÖZEL BAĞLANTI BİLGİSİ | #%s (%s)\n\n' "$GITHUB_RUN_NUMBER" "$RUN_MODE"
-            if [[ "$RUN_MODE" == check-connection ]]; then
-              echo 'SADECE TEST — Kontrol bitince bu adres kapanır. Claude için yeni bir serve başlat.'
-            fi
-            printf 'Claude web: önce tek kullanımlık daveti Claude ile aynı tarayıcı profilinde aç:\n%s\n\n' "$invite_url"
-            printf 'Settings → Connectors → Add custom connector\nName: hardtools\nMCP Endpoint URL: %s\n' "$endpoint"
-            printf 'OAuth client ID ve secret boş kalsın. Devam edip yetkilendirmeyi tamamla.\n\n'
-            printf 'Header destekleyen istemciler (davet gerekmez)\nURL: %s\nHeader name: Authorization\nHeader value: Bearer %s\n\n' "$endpoint" "$token"
-            printf 'Oturum: %s\nYerel araçlar: %s | Otomatik yenileme: %s\n' "$run_url" "$ALLOW_LOCAL_TOOLS" "$AUTO_RENEW"
-            echo 'Bu bilgiler yalnızca bu job açıkken geçerlidir. Daveti, tokenı ve özel anahtarı paylaşma.'
-          }
+          # shellcheck source=scripts/connect-payload.sh
+          source "$GITHUB_WORKSPACE/artifact/scripts/connect-payload.sh"
           if [[ "$DELIVERY" == plain && "$REPO_PRIVATE" == true ]]; then
-            connection_details > "$conn"
+            connection_details "$invite_url" "$endpoint" "$token" "$run_url" > "$conn"
           else
-            connection_details | "$RUNNER_TEMP/age" -R "$RUNNER_TEMP/recipients.txt" -a > "$conn"
+            connection_details "$invite_url" "$endpoint" "$token" "$run_url" | "$RUNNER_TEMP/age" -R "$RUNNER_TEMP/recipients.txt" -a > "$conn"
           fi
+          test -s "$conn"
           # /mcp yolu kimlik bilgisi içermez; davet ve bearer step output DEĞİLDİR.
           printf 'endpoint=%s\n' "$endpoint" >> "$GITHUB_OUTPUT"
 
@@ -328,8 +328,9 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: hardtools-connect
-          # Dizin veya glob değil: yalnızca bu iki dosya; log/env/anahtar yok.
+          # Üç açıkça adlandırılmış dosya; log/env/özel anahtar yükleme.
           path: |
+            ${{ runner.temp }}/connect/BAGLAN.html
             ${{ runner.temp }}/connect/BASLA-BURADAN.txt
             ${{ runner.temp }}/connect/connect.txt
           retention-days: 1
@@ -348,7 +349,7 @@ jobs:
             help="Bu test adresini Claude'a ekleme. Kontrol bitince kapanır. Bağlanmak için yeni bir Run workflow aç ve serve seç; Re-run jobs testi tekrarlar."
           else
             title='MCP yayını'
-            help='hardtools-connect ZIP dosyasını indir, çıkar ve BASLA-BURADAN.txt dosyasını aç. Endpoint ve tüm bağlantı adımları orada.'
+            help='hardtools-connect ZIP dosyasını indir, çıkar ve BAGLAN.html dosyasını bilgisayarında aç. Adımlar ve terminal alternatifi BASLA-BURADAN.txt içinde.'
           fi
           printf '::notice title=%s::%s\n' "$title" "$help"
           printf '::notice title=MCP endpoint::%s\n' "$ENDPOINT"
@@ -367,7 +368,7 @@ jobs:
           ENDPOINT: ${{ steps.start_mcp.outputs.endpoint }}
         run: |
           set -euo pipefail
-          for file in BASLA-BURADAN.txt connect.txt; do
+          for file in BAGLAN.html BASLA-BURADAN.txt connect.txt; do
             cmp -s "$RUNNER_TEMP/connect/$file" "$RUNNER_TEMP/check-connect/$file" || {
               echo "::error::İndirilen $file eksik veya yüklenenle aynı değil."; exit 1;
             }

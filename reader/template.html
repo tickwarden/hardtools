@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="tr"><head><meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; connect-src 'none'; script-src 'sha256-@@JSHASH@@'; style-src 'sha256-@@CSSHASH@@'; base-uri 'none'; form-action 'none'; object-src 'none'">
+<meta name="viewport" content="width=device-width,initial-scale=1"><meta name="referrer" content="no-referrer">
+<meta name="hardtools-run" content="" data-mode="" data-endpoint="">
+<title>hardtools · Bağlantı bilgileri</title><style>@@CSS@@</style></head>
+<body><main>
+<header><span class="brand">hardtools <b>/</b> MCP</span><span class="badge">Çevrimdışı okuyucu</span></header>
+<h1>Bağlantı bilgileri</h1><p class="lead">Bu oturumun davetini, connector adresini ve gerekirse giriş kutusuna yazılacak metni kendi bilgisayarında al.</p>
+<p id="context" class="meta" hidden></p>
+<noscript>Bu yerel okuyucu JavaScript gerektirir. Diğer yol için ZIP’teki BASLA-BURADAN.txt dosyasını aç.</noscript>
+<section aria-labelledby="step1"><h2 id="step1">1 · Bağlantı dosyasını seç</h2>
+<label for="pack">Bu run’ın <strong>connect.txt</strong> dosyası veya <strong>hardtools-connect.zip</strong></label>
+<input id="pack" type="file" accept=".txt,.zip,.age" disabled>
+<div id="keyRow" hidden><label for="key">Eşleşen <strong>hardtools-ozel-anahtar.zip</strong> veya <strong>hardtools-key.txt</strong></label><input id="key" type="file" accept=".zip,.txt" disabled></div>
+<p class="hint">Dosyalar gönderilmez. Özel anahtarını GitHub’a, giriş formuna veya başka bir siteye verme.</p></section>
+<section id="results" hidden aria-labelledby="step2"><h2 id="step2">2 · İhtiyacın olan değeri kopyala</h2>
+<p class="meta" id="which"></p>
+<div class="item"><div><h3>Davet URL’si</h3><p>Önce Claude ile aynı tarayıcı profilinde bir kez aç. Sonra 10 dakika içinde Claude’dan bağlan. Kopyalamak daveti tüketmez.</p></div><button type="button" id="copyInvite">Daveti kopyala</button></div>
+<div class="item"><div><h3>Claude connector URL’si</h3><p><code id="ep"></code></p><p>Ad: <b>hardtools</b>. OAuth client ID ve secret boş kalır.</p></div><button type="button" id="copyEndpoint">/mcp adresini kopyala</button></div>
+<details id="formBox"><summary>“Access token” kutusu mu açıldı?</summary>
+<p>Yetkilendirme sekmesinin adres çubuğundan alan adını veya tam <code>/authorize</code> adresini buraya yapıştır. Adres bu paketle eşleşirse yalnızca kutunun istediği metni kopyalayabilirsin.</p>
+<label for="target">Yetkilendirme sayfasının adresi</label><input id="target" type="text" autocomplete="off" spellcheck="false" autocapitalize="none" placeholder="…trycloudflare.com">
+<p id="match" class="hint" aria-live="polite"></p><button type="button" id="copyRaw" disabled>Access token’ı kopyala</button>
+<p class="hint">Giriş kutusuna yapıştırıp <b>Authorize</b> düğmesine bas. Başına <code>Bearer</code> ekleme.</p></details>
+<details id="headerBox"><summary>Authorization header kullanan bir istemcim var</summary><p>Header name: <b>Authorization</b>. Header value için aşağıdaki düğme <code>Bearer</code> önekini de kopyalar. Bunu web giriş kutusuna yapıştırma.</p><button type="button" id="copyHeader">Header değerini kopyala</button></details>
+</section>
+<div id="manualBox" hidden><label for="manual">Panoya erişilemedi. Seçili metni Ctrl+C (Mac: ⌘C) ile kopyala.</label><textarea id="manual" readonly rows="3" spellcheck="false" autocomplete="off"></textarea></div>
+<div class="foot"><p id="status" role="status" aria-live="polite">ZIP’i çıkarıp BAGLAN.html dosyasını kendi bilgisayarında aç.</p><button class="secondary" type="button" id="reset" disabled>Temizle</button></div>
+<p class="hint">Bu okuyucu canlı durumu sorgulamaz. Bitmiş bir run’ın değerleri çalışmaz. Temizle sayfadaki verileri kaldırır; panoyu ayrıca temizleyebilirsin.</p>
+</main><script>@@JS@@</script>
+<!-- Bundled third-party license notices:
+@@NOTICES@@
+--></body></html>

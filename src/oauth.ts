@@ -1,6 +1,5 @@
 // AI-generated (Claude, Anthropic), 2026-11-13. Requires human security review before production use.
-// 2026-11-17: Invite-code sistemi eklendi. Ham HTTP token artık connect.txt'ye yazılmıyor;
-//             bunun yerine HMAC-imzalı, tek seferlik, 24 saat geçerli davet URL'si kullanılıyor.
+// connect.txt delivers the one-use invite and static token to the recipient (encrypted on public repos).
 //
 // Minimal, stateless OAuth 2.1 authorization server for the remote (--http) mode.
 //
@@ -11,12 +10,12 @@
 // `401 {"error":"unauthorized"}` makes the dialog fail with "could not add connector".
 //
 // Security model:
-//   - HARDTOOLS_HTTP_TOKEN is the master secret; it never leaves the server process.
+//   - HARDTOOLS_HTTP_TOKEN is the master secret; disclose it only to the authorized recipient.
 //   - Invite codes are HMAC-signed blobs derived from the master secret.
 //     Each code is single-use (jti tracked in memory) and expires in 24 hours.
 //   - Visiting /invite/<code> pre-authorizes that browser session via a short-lived
 //     session cookie, which the consent page then consumes instead of asking for the token.
-//   - Restarting the server invalidates all invite codes and sessions.
+//   - Invite redemption and browser sessions are tracked per process.
 import crypto from "node:crypto";
 import type http from "node:http";
 
@@ -210,7 +209,7 @@ export class OAuth {
     const code = decodeURIComponent(path.slice("/invite/".length));
     const sessionId = this.redeemInvite(code);
     if (!sessionId) {
-      this.page(res, 410, "This invite link has already been used or has expired. Ask for a new one.", null, null);
+      this.page(res, 410, "This invite link has already been used or has expired. Ask for a new one.", null);
       return;
     }
     // Set session cookie, then redirect to /authorize with no pre-filled params.
@@ -258,14 +257,14 @@ export class OAuth {
   private async authorize(req: http.IncomingMessage, res: http.ServerResponse, origin: string) {
     let q: Record<string, string>;
     if (req.method === "GET") q = Object.fromEntries(new URL(req.url ?? "/", origin).searchParams);
-    else if (req.method === "POST") { const b = await this.readParams(req); if (!b) return this.page(res, 400, "Request too large or malformed.", null, null); q = b; }
+    else if (req.method === "POST") { const b = await this.readParams(req); if (!b) return this.page(res, 400, "Request too large or malformed.", null); q = b; }
     else return this.oerr(res, 405, "invalid_request", "GET or POST only");
 
     // Validate client + redirect_uri FIRST; on failure never redirect (open-redirect protection).
     const client = this.verify(q.client_id, "c");
-    if (!client) return this.page(res, 400, "Unknown or expired client. Remove the connector and add it again.", null, null);
+    if (!client) return this.page(res, 400, "Unknown or expired client. Remove the connector and add it again.", null);
     if (!q.redirect_uri || !Array.isArray(client.ru) || !client.ru.includes(q.redirect_uri))
-      return this.page(res, 400, "redirect_uri does not match the registered client.", null, null);
+      return this.page(res, 400, "redirect_uri does not match the registered client.", null);
     const back = (params: Record<string, string>) => {
       const u = new URL(q.redirect_uri); for (const [k, v] of Object.entries(params)) u.searchParams.set(k, v);
       if (q.state) u.searchParams.set("state", q.state);
@@ -285,15 +284,15 @@ export class OAuth {
         this.o.audit?.({ ev: "oauth_authorize", ok: true, via: "invite_session" });
         return back({ code });
       }
-      return this.page(res, 200, "", q, null);
+      return this.page(res, 200, "", q);
     }
 
-    // POST: check the secret (fallback for direct token entry — kept for Claude Code / Desktop)
+    // POST: direct token entry when the web client has no valid invite session.
     const now = Date.now(); this.failures = this.failures.filter(t => now - t < 60_000);
-    if (this.failures.length >= 10) return this.page(res, 429, "Too many failed attempts. Wait a minute.", q, null);
+    if (this.failures.length >= 10) return this.page(res, 429, "Too many failed attempts. Wait a minute.", q);
     if (typeof q.access_token !== "string" || !safeEq(q.access_token.trim(), this.o.token)) {
       this.failures.push(now); this.o.audit?.({ ev: "oauth_authorize", ok: false });
-      return this.page(res, 401, "Wrong access token.", q, null);
+      return this.page(res, 401, "Wrong access token.", q);
     }
     const jti = crypto.randomBytes(12).toString("base64url");
     const code = this.sign({ t: "code", jti, cid: q.client_id, ru: q.redirect_uri, cc: q.code_challenge, exp: this.now() + CODE_TTL_S });
@@ -301,12 +300,12 @@ export class OAuth {
     back({ code });
   }
 
-  private page(res: http.ServerResponse, code: number, error: string, q: Record<string, string> | null, _unused: null) {
+  private page(res: http.ServerResponse, code: number, error: string, q: Record<string, string> | null) {
     const esc = (s: string) => s.replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]!));
     const keep = ["response_type", "client_id", "redirect_uri", "state", "code_challenge", "code_challenge_method", "scope", "resource"];
     const hidden = q ? keep.filter(k => typeof q[k] === "string").map(k => `<input type="hidden" name="${k}" value="${esc(q[k])}">`).join("") : "";
-    // Token form is kept as fallback for Claude Code / Desktop direct use
-    const form = q ? `<p>Enter the hardtools access token to let Claude connect. Alternatively, use an invite link.</p>
+    const form = q ? `<p>Enter the access token only, without the <code>Bearer</code> prefix. Do not paste an invite URL or a private key.</p>
+<p>GitHub Actions: open <strong>BAGLAN.html</strong> from this run’s hardtools-connect ZIP on your computer. In the “Access token” section, match this page’s address and copy the token.</p>
 <form method="post" action="/authorize" autocomplete="off">${hidden}<input type="password" name="access_token" autocomplete="off" autofocus required placeholder="access token"><button type="submit">Authorize</button></form>` : "";
     res.writeHead(code, {
       "content-type": "text/html; charset=utf-8", "cache-control": "no-store", "x-frame-options": "DENY",

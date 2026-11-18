@@ -57,7 +57,9 @@ Henüz **testsiz**: HTTP hız sınırlaması, `ht_fetch` içindeki enjeksiyon-se
 - **Audit tail-truncation'ı** (dosya sonunu kesme) tespit edilmez; zincir yalnızca ortadaki değişikliği yakalar. Dosya süreç başına ayrıdır; sahibi aynı kullanıcıysa yine de silebilir. Kritikse log'u uzak yere gönder.
 - **Windows**: `.cmd` shim çalışmaz, `O_NOFOLLOW` yok, izin bitleri anlamsız. Asıl hedef Linux/macOS/WSL.
 - **Kaynak limitleri** (CPU/bellek ulimit) kabuk komutlarına uygulanmaz; süre ve çıktı limiti vardır.
-- **Remote HTTP mode**: no TLS (a reverse proxy/tunnel is required). A minimal stateless OAuth 2.1 server (`src/oauth.ts`) serves the claude.ai connector dialog; its consent page is gated by `HARDTOOLS_HTTP_TOKEN`. Tokens are HMAC-signed and derived from that secret (nothing is stored; codes are single-use only per process). The consent-failure throttle is global (a tunnel hides client IPs). The `/mcp/<token>` fallback puts the secret in the URL. Tested by `test/oauth.test.mjs`; not independently reviewed.
+- **Remote HTTP mode**: no TLS (a reverse proxy/tunnel is required). A minimal stateless OAuth 2.1 server (`src/oauth.ts`) serves the claude.ai connector dialog; its consent page is gated by `HARDTOOLS_HTTP_TOKEN`. Tokens are HMAC-signed and derived from that secret (nothing is stored; codes are single-use only per process). The consent-failure throttle is global (a tunnel hides client IPs). The MCP endpoint is `/mcp` only; use OAuth or the Authorization header, never a token in the URL. Tested by `test/oauth.test.mjs`; not independently reviewed.
+
+- **Bağlantı okuyucusu**: `BAGLAN.html` yalnızca yerel dosya olarak çalışır; ağ erişimi CSP ile kapalıdır. GitHub’daki güvenilir run’ın artifact’ını kullan. ZIP’in şifresiz kısımları yalnızca o run’ın herkese açık bilgilerini taşır, `connect.txt` ise public repoda şifrelidir. Pano ve pano geçmişi tarayıcının dışında kalır.
 
 ## v0.2.0 araçları (ht_glob / ht_mkdir / ht_move / ht_trash)
 - Hepsi `resolveSafe` ile aynı kök/symlink/korumalı yol denetimini kullanır; `ht_mkdir/move/trash` yazma politikasına (`fs.writeEnabled`) bağlıdır (uzak HTTP modunda varsayılan kapalı).

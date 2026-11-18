@@ -12,10 +12,11 @@
   },
   "scripts": {
     "build": "tsc -p tsconfig.json",
-    "test": "npm run build && node --test --test-concurrency=1 \"test/*.test.mjs\"",
+    "test": "npm run build && node --test --test-concurrency=1 test",
     "start": "node dist/index.js",
     "bundle": "npm run build && node build-bundle.mjs",
-    "test:bundle": "npm run bundle && HT_ENTRY=bundle/index.js node --test --test-concurrency=1 \"test/integration.test.mjs\""
+    "test:bundle": "npm run bundle && HT_ENTRY=bundle/index.js node --test --test-concurrency=1 test/integration.test.mjs test/oauth.test.mjs",
+    "test:reader": "node scripts/reader-browser-check.mjs"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.12.0",
@@ -23,7 +24,10 @@
   },
   "devDependencies": {
     "@types/node": "^20.14.0",
+    "age-encryption": "0.3.1",
     "esbuild": "^0.28.2",
+    "fflate": "0.8.2",
+    "playwright-core": "1.65.1",
     "typescript": "^5.5.0"
   }
 }

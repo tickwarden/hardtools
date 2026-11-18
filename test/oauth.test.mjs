@@ -57,7 +57,9 @@ test("oauth: anonymous probe gets a discoverable 401, then the full flow yields 
     const { verifier, challenge } = pkce();
     const q = { response_type: "code", client_id: client.client_id, redirect_uri: CB, state: "xyz", code_challenge: challenge, code_challenge_method: "S256" };
     const page = await fetch(`${base}/authorize?${form(q)}`); assert.equal(page.status, 200);
-    assert.match(await page.text(), /name="access_token"/);
+    const consent = await page.text();
+    assert.match(consent, /name="access_token"/); assert.match(consent, /BAGLAN\.html/);
+    assert.match(consent, /without the <code>Bearer<\/code> prefix/); assert.ok(!consent.includes(token));
     const wrong = await fetch(`${base}/authorize`, { method: "POST", headers: FORM, body: form({ ...q, access_token: "nope" }), redirect: "manual" });
     assert.equal(wrong.status, 401);
     const good = await fetch(`${base}/authorize`, { method: "POST", headers: FORM, body: form({ ...q, access_token: token }), redirect: "manual" });
