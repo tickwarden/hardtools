@@ -169,42 +169,76 @@ jobs:
           set -euo pipefail
           rec="$RUNNER_TEMP/recipients.txt"
           : > "$rec"
-          src="$AGE_RECIPIENT"
+          src="${AGE_RECIPIENT:-}"
 
-          # Public repoda boş bırakılırsa: tetikleyenin GitHub SSH key'lerine şifrele.
-          if [ -z "$src" ] && [ "$REPO_PRIVATE" != "true" ]; then
-            src="github:$GH_ACTOR"
+          # Public repoda boş bırakılırsa: tetikleyenin GitHub SSH key'lerine şifrele
+          if [ -z "$src" ] && [ "${REPO_PRIVATE:-}" != "true" ]; then
+            src="github:${GH_ACTOR}"
           fi
 
           if [ -z "$src" ]; then
-            # Sadece private repo + age_recipient boş: düz yazı
+            # Private repo + age_recipient boş → düz yazı
             echo "DELIVERY=plain" >> "$GITHUB_ENV"
             echo "RENEW_RECIPIENT=" >> "$GITHUB_ENV"
             exit 0
           fi
 
+          # Modern age binary (apt 1.1.1 yerine – malformed hatasını önler)
+          curl -fsSL --retry 3 -o /tmp/age.tgz \
+            "https://github.com/FiloSottile/age/releases/download/v1.2.1/age-v1.2.1-linux-amd64.tar.gz"
+          tar -xzf /tmp/age.tgz -C /tmp
+          cp /tmp/age/age /tmp/age/age-keygen "$RUNNER_TEMP/"
+          chmod +x "$RUNNER_TEMP/age" "$RUNNER_TEMP/age-keygen"
+          export PATH="$RUNNER_TEMP:$PATH"
+
           case "$src" in
             github:*)
               user="${src#github:}"
-              [[ "$user" =~ ^[A-Za-z0-9-]+$ ]] || { echo "::error::Geçersiz GitHub kullanıcı adı"; exit 1; }
-              if [[ "$user" == *"[bot]" ]] || ! curl -fsSL --retry 3 "https://github.com/${user}.keys" \
-                   | grep -E '^(ssh-ed25519|ssh-rsa) ' > "$rec"; then
-                echo "::warn::github:${user} için ssh-ed25519/ssh-rsa public key bulunamadı. GitHub hesabına SSH key ekle veya age_recipient ver."
+              if ! [[ "$user" =~ ^[A-Za-z0-9-]+$ ]]; then
+                echo "::error::Geçersiz GitHub kullanıcı adı: $user"
+                exit 1
+              fi
+              if [[ "$user" == *"[bot]" ]]; then
+                echo "::error::Bot hesapları için SSH key alınamaz. age_recipient olarak age1... ver."
+                exit 1
+              fi
+              if ! curl -fsSL --retry 3 "https://github.com/${user}.keys" \
+                   | grep -E '^(ssh-ed25519|ssh-rsa) ' > "$rec" || [ ! -s "$rec" ]; then
+                echo "::error::github:${user} için ssh-ed25519/ssh-rsa public key bulunamadı."
+                echo "GitHub hesabına SSH key ekle veya age_recipient olarak age1... ver."
                 exit 1
               fi
               ;;
-            *)
+            age1*)
+              # Sadece temiz age public key
+              printf '%s\n' "$src" | tr -d '\r\t ' | grep -E '^age1[0-9a-z]+$' > "$rec" || {
+                echo "::error::Geçersiz age public key"
+                exit 1
+              }
+              ;;
+            ssh-ed25519*|ssh-rsa*)
               printf '%s\n' "$src" > "$rec"
+              ;;
+            *)
+              # Bilinmeyen format → otomatik age key üret (fallback)
+              echo "::warning::Tanımlanamayan alıcı formatı, otomatik age key çifti üretiliyor."
+              "$RUNNER_TEMP/age-keygen" -o "$RUNNER_TEMP/auto-age-key.txt" 2>/dev/null
+              "$RUNNER_TEMP/age-keygen" -y "$RUNNER_TEMP/auto-age-key.txt" > "$rec"
+              echo "AUTO_AGE_KEY=1" >> "$GITHUB_ENV"
               ;;
           esac
 
-          sudo apt-get update -qq
-          sudo apt-get install -y -qq age
-          echo test | age -R "$rec" -a >/dev/null \
-            || { echo "::warn::Alıcı geçersiz (age1..., ssh PUBLIC key veya github:kullanici)"; }
+          # Son doğrulama – geçersizse burada patlat (sonraki adımda malformed hatası çıkmasın)
+          if ! echo "test" | age -R "$rec" -a >/dev/null 2>&1; then
+            echo "::error::Alıcı dosyası geçersiz (malformed recipient). İçerik:"
+            cat -A "$rec" || true
+            exit 1
+          fi
 
           echo "DELIVERY=age" >> "$GITHUB_ENV"
           echo "RENEW_RECIPIENT=$src" >> "$GITHUB_ENV"
+          echo "Alıcı hazır:"
+          cat "$rec"
 
       - uses: actions/download-artifact@v7
         with:
