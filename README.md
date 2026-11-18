@@ -42,7 +42,11 @@ Klasörü plugin olarak yükle (`.claude-plugin/plugin.json` + `.mcp.json` hazı
 
 ### GitHub Actions: job bitmeden bağlanma
 
-1. **Actions → hardtools MCP → Run workflow** menüsünde `serve` seç. Public repoda
+1. **Actions → hardtools MCP → Run workflow** menüsünde varsayılan **`serve`** seçili kalsın.
+   Actions listesinde bu çalıştırma **MCP yayını (serve)** olarak görünür. Elle başlatılan
+   yayın, ilk bağlantıyı beklerken de açık kalır. `auto_renew` varsayılan olarak kapalıdır:
+   normal kapanış yaklaşık 5 saat 45 dakika sonradır. `push` ve PR olayları MCP yayını açmaz.
+   Public repoda
    `age_recipient` alanına **kendi açık anahtarını** gir (`age1…` veya `.pub` dosyandaki
    `ssh-ed25519 …` / `ssh-rsa …` satırı). İstersen bir kez `HARDTOOLS_AGE_RECIPIENT`
    adlı **repository variable** olarak kaydet. Özel anahtarını GitHub'a yükleme.
@@ -56,9 +60,10 @@ Klasörü plugin olarak yükle (`.claude-plugin/plugin.json` + `.mcp.json` hazı
    Connectors'da `hardtools` adıyla logdaki **MCP endpointini** gir. OAuth client ID/secret boş kalır.
    Davet de bearer token gibi gizlidir. Job kapanınca tünel kapanır; yenilenen run farklı adres verir.
 
-**Kısa doğrulama:** `serve` yerine `check-connection` seçmek aynı canlı logu üretir,
-artifact'ı **job hâlâ çalışırken** geri indirip karşılaştırır ve tünelin OAuth metadata'sındaki
-MCP adresini kontrol eder. Mevcut `serve` oturumunu değiştirmez, daveti kullanmaz ve kendini yenilemez.
+**Kısa doğrulama bir yayın değildir.** `check-connection`, artifact'ı job sürerken geri
+indirip karşılaştırır ve tünelin MCP adresini doğrular; sonra **bilerek kapanır**.
+Bu testin URL'sini Claude'a ekleme. Eski testte **Re-run jobs** yine test çalıştırır;
+gerçek bir oturum için **Run workflow → serve** kullan.
 
 ### Uzak / HTTP modu (web dahil: **sınırlı**)
 ```bash

@@ -20,6 +20,11 @@
 #   ubuntu-latest 19 Kas 2026'ya kadar 26.04'e geçiyor; sessiz fail riskini önlemek için
 #   tüm job'larda image sabitleniyor).
 name: hardtools MCP – Build, Publish & Serve
+run-name: >-
+  ${{ github.event_name == 'workflow_dispatch' &&
+      (inputs.action == 'serve' && 'MCP yayını (serve)' ||
+       inputs.action == 'check-connection' && 'Kısa bağlantı testi (yayın değildir)' ||
+       format('hardtools · {0}', inputs.action)) || '' }}
 
 on:
   push:
@@ -30,10 +35,10 @@ on:
   workflow_dispatch:
     inputs:
       action:
-        description: 'Ne yapılsın?'
+        description: 'serve: MCP oturumu aç; check-connection: yalnızca test et ve kapat.'
         type: choice
-        options: [build-only, serve, check-connection, unpublish]
-        default: build-only
+        options: [serve, check-connection, build-only, unpublish]
+        default: serve
       age_recipient:
         description: 'serve/check-connection: age veya SSH açık anahtarı. Varsayılan: HARDTOOLS_AGE_RECIPIENT repo variable. Public repoda anahtar zorunlu.'
         type: string
@@ -43,9 +48,9 @@ on:
         type: boolean
         default: false
       auto_renew:
-        description: 'serve: 6 saat dolmadan kendini yeniden başlat (unpublish ile durdurana kadar). Her yenilemede URL+token değişir'
+        description: 'Tek oturum yerine süre dolmadan yeni oturum başlat. Yenilenirse URL ve token değişir.'
         type: boolean
-        default: true
+        default: false
 
 permissions:
   contents: read
@@ -63,7 +68,8 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     concurrency:
-      group: test-${{ github.ref }}${{ inputs.action == 'check-connection' && '-check-connection' || '' }}
+      # CI push'u, henüz hazırlanan manuel bir serve oturumunu iptal etmesin.
+      group: test-${{ github.ref }}-${{ github.event_name == 'workflow_dispatch' && inputs.action || 'ci' }}
       cancel-in-progress: true
     steps:
       - uses: actions/checkout@v7
@@ -133,6 +139,7 @@ jobs:
   #    concurrency grubunu kullanır; mevcut serve oturumunu iptal etmez.
   # ──────────────────────────────────────────────
   serve:
+    name: ${{ inputs.action == 'check-connection' && 'check-connection (geçici test)' || 'serve' }}
     needs: test-and-bundle
     if: github.event_name == 'workflow_dispatch' && (inputs.action == 'serve' || inputs.action == 'check-connection')
     runs-on: ubuntu-24.04
@@ -304,18 +311,26 @@ jobs:
           retention-days: 1
           if-no-files-found: error
 
-      - name: Bağlantı hazır (canlı log)
+      - name: ${{ inputs.action == 'check-connection' && 'Test adresi (kontrolden sonra kapanır)' || 'Bağlantı hazır (canlı log)' }}
         env:
+          RUN_MODE: ${{ inputs.action }}
           ENDPOINT: ${{ steps.start_mcp.outputs.endpoint }}
           ARTIFACT_URL: ${{ steps.connect_artifact.outputs.artifact-url }}
         run: |
           set -euo pipefail
           : "${ENDPOINT:?MCP endpoint boş}" "${ARTIFACT_URL:?Artifact bağlantısı boş}"
+          if [[ "$RUN_MODE" == check-connection ]]; then
+            title='Kısa bağlantı testi — yayın değildir'
+            help="Bu test adresini Claude'a ekleme. Kontrol bitince kapanır. Bağlanmak için yeni bir Run workflow aç ve serve seç; Re-run jobs testi tekrarlar."
+          else
+            title='MCP yayını'
+            help='Claude web: connect.txt içindeki daveti önce tarayıcıda aç. Connector URL alanına MCP endpointini gir; OAuth alanları boş kalır.'
+          fi
+          printf '::notice title=%s::%s\n' "$title" "$help"
           printf '::notice title=MCP endpoint::%s\n' "$ENDPOINT"
           printf '::notice title=hardtools-connect::%s\n' "$ARTIFACT_URL"
-          echo 'Claude web: connect.txt içindeki daveti önce tarayıcıda aç. Connector URL alanına MCP endpointini gir; OAuth alanları boş kalır.'
           {
-            echo '### hardtools bağlantısı'
+            printf '### %s\n\n%s\n\n' "$title" "$help"
             printf -- '- MCP endpoint (yalnızca job çalışırken geçerli): <%s>\n' "$ENDPOINT"
             printf -- '- [hardtools-connect dosyasını indir](%s) — davet ve bearer token burada, logda değil.\n' "$ARTIFACT_URL"
           } >> "$GITHUB_STEP_SUMMARY"
@@ -366,8 +381,8 @@ jobs:
           while :; do
             now=$(date +%s)
             if ! kill -0 "$CF_PID" 2>/dev/null; then
-              echo "::warning::Tünel sonlandı, job kapanıyor. Yeni adres için action = serve ile yeniden çalıştır."
-              break
+              echo "::error::Tünel beklenmedik biçimde kapandı; bu MCP adresi artık geçerli değil. Yeni bir serve oturumu başlat."
+              exit 1
             fi
             NODE_PID="$(cat "$RUNNER_TEMP/node.pid")"
             if ! kill -0 "$NODE_PID" 2>/dev/null; then
