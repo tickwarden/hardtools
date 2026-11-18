@@ -8,8 +8,10 @@
 #  - Tünel: Cloudflare quick tunnel (hesap/token gerekmez).
 #  - npm: trusted publishing (OIDC), NPM_TOKEN yok.
 #  - Bağlantı bilgisi (endpoint + token) log/özet yerine `hardtools-connect` artifact'ında.
-#    Public repoda her zaman age ile şifrelenir (age_recipient boşsa tetikleyenin GitHub SSH
-#    key'lerine). Private repoda age_recipient vermezsen düz yazı dosyadır.
+#    age_recipient verilirse age ile şifrelenir. Boşsa: her çalıştırmada otomatik key çifti
+#    üretilir; private key `hardtools-age-key` artifact'ında, connect.txt şifreli.
+#    Public repoda age_recipient boş bırakılırsa da otomasyona gider (eskiden github:actor
+#    kullanılıyordu, SSH key gerektirdiği için kaldırıldı).
 #
 # serve davranışı:
 #  - MCP sunucusu çökerse aynı token/host ile yeniden başlatılır (en fazla 5 kez).
@@ -25,6 +27,8 @@
 # [2026-11-17] ubuntu-latest → ubuntu-24.04 sabitlendi (actions/runner-images#14748:
 #   ubuntu-latest 19 Kas 2026'ya kadar 26.04'e geçiyor; sessiz fail riskini önlemek için
 #   tüm job'larda image sabitleniyor).
+# [2026-11-18] github:kullanici SSH key fallback kaldırıldı. age_recipient boş bırakılırsa
+#   otomatik age key çifti üretilir; private key hardtools-age-key artifact'ında.
 name: hardtools MCP – Build, Publish & Serve
 
 on:
@@ -41,7 +45,7 @@ on:
         options: [build-only, serve, unpublish]
         default: build-only
       age_recipient:
-        description: 'serve: age (age1...), SSH PUBLIC key veya github:kullanici. Boşsa: public repoda tetikleyenin GitHub SSH keyi, private repoda düz yazı'
+        description: 'serve: age (age1...) veya SSH PUBLIC key. Boşsa: otomatik key üretilir, hardtools-age-key artifact''ından indir.'
         type: string
         default: ''
       allow_local_tools:
@@ -136,10 +140,11 @@ jobs:
 
   # ──────────────────────────────────────────────
   # 3. MCP sunucusu + quick tunnel (sadece elle: action = serve)
-  #    Endpoint + token `hardtools-connect` artifact'ında:
-  #     - public repo: HER ZAMAN age ile şifreli (age_recipient boşsa tetikleyenin
-  #       GitHub SSH key'lerine)
-  #     - private repo: age_recipient verilirse şifreli, verilmezse düz yazı
+  #    Endpoint + token `hardtools-connect` artifact'ında (age ile şifreli).
+  #    age_recipient verilirse: age1.../SSH public key ile şifrele.
+  #    age_recipient boşsa: otomatik age key çifti üret; private key
+  #    `hardtools-age-key` artifact'ında, connect.txt o key ile şifreli.
+  #    Kullanım: age -d -i age-private-key.txt connect.txt
   #    auto_renew=true ise süre dolmadan kendini yeniden tetikler.
   # ──────────────────────────────────────────────
   serve:
@@ -158,30 +163,16 @@ jobs:
       # (sha256 doğrulandı: release asset'inin gerçek özetiyle eşleşiyor)
       CLOUDFLARED_VERSION: '2026.8.1'
       CLOUDFLARED_SHA256: '98d8eadbfdf8c7ec994e08260599c9be991e7833c746f98692b18bdf71c9b9dc'
-      REPO_PRIVATE: ${{ github.event.repository.private }}
       AGE_RECIPIENT: ${{ inputs.age_recipient }}
-      GH_ACTOR: ${{ github.actor }}
       ALLOW_LOCAL_TOOLS: ${{ inputs.allow_local_tools && '1' || '0' }}
       AUTO_RENEW: ${{ inputs.auto_renew && '1' || '0' }}
     steps:
-      - name: Token teslim yolunu belirle
+      - name: age binary'yi yükle + alıcıyı hazırla
         run: |
           set -euo pipefail
           rec="$RUNNER_TEMP/recipients.txt"
-          : > "$rec"
-          src="${AGE_RECIPIENT:-}"
-
-          # Public repoda boş bırakılırsa: tetikleyenin GitHub SSH key'lerine şifrele
-          if [ -z "$src" ] && [ "${REPO_PRIVATE:-}" != "true" ]; then
-            src="github:${GH_ACTOR}"
-          fi
-
-          if [ -z "$src" ]; then
-            # Private repo + age_recipient boş → düz yazı
-            echo "DELIVERY=plain" >> "$GITHUB_ENV"
-            echo "RENEW_RECIPIENT=" >> "$GITHUB_ENV"
-            exit 0
-          fi
+          key_dir="$RUNNER_TEMP/age-key"
+          mkdir -p "$key_dir"
 
           # Modern age binary (apt 1.1.1 yerine – malformed hatasını önler)
           curl -fsSL --retry 3 -o /tmp/age.tgz \
@@ -191,54 +182,55 @@ jobs:
           chmod +x "$RUNNER_TEMP/age" "$RUNNER_TEMP/age-keygen"
           export PATH="$RUNNER_TEMP:$PATH"
 
-          case "$src" in
-            github:*)
-              user="${src#github:}"
-              if ! [[ "$user" =~ ^[A-Za-z0-9-]+$ ]]; then
-                echo "::error::Geçersiz GitHub kullanıcı adı: $user"
-                exit 1
-              fi
-              if [[ "$user" == *"[bot]" ]]; then
-                echo "::error::Bot hesapları için SSH key alınamaz. age_recipient olarak age1... ver."
-                exit 1
-              fi
-              if ! curl -fsSL --retry 3 "https://github.com/${user}.keys" \
-                   | grep -E '^(ssh-ed25519|ssh-rsa) ' > "$rec" || [ ! -s "$rec" ]; then
-                echo "::error::github:${user} için ssh-ed25519/ssh-rsa public key bulunamadı."
-                echo "GitHub hesabına SSH key ekle veya age_recipient olarak age1... ver."
-                exit 1
-              fi
-              ;;
-            age1*)
-              # Sadece temiz age public key
-              printf '%s\n' "$src" | tr -d '\r\t ' | grep -E '^age1[0-9a-z]+$' > "$rec" || {
-                echo "::error::Geçersiz age public key"
-                exit 1
-              }
-              ;;
-            ssh-ed25519*|ssh-rsa*)
-              printf '%s\n' "$src" > "$rec"
-              ;;
-            *)
-              # Bilinmeyen format → otomatik age key üret (fallback)
-              echo "::warning::Tanımlanamayan alıcı formatı, otomatik age key çifti üretiliyor."
-              "$RUNNER_TEMP/age-keygen" -o "$RUNNER_TEMP/auto-age-key.txt" 2>/dev/null
-              "$RUNNER_TEMP/age-keygen" -y "$RUNNER_TEMP/auto-age-key.txt" > "$rec"
-              echo "AUTO_AGE_KEY=1" >> "$GITHUB_ENV"
-              ;;
-          esac
+          src="${AGE_RECIPIENT:-}"
 
-          # Son doğrulama – geçersizse burada patlat (sonraki adımda malformed hatası çıkmasın)
-          if ! echo "test" | age -R "$rec" -a >/dev/null 2>&1; then
+          if [ -z "$src" ]; then
+            # age_recipient boş → otomatik key üret
+            echo "::notice::age_recipient verilmedi; otomatik key çifti üretiliyor."
+            (
+              umask 077
+              "$RUNNER_TEMP/age-keygen" -o "$key_dir/age-private-key.txt"
+            )
+            "$RUNNER_TEMP/age-keygen" -y "$key_dir/age-private-key.txt" > "$rec"
+            echo "AUTO_KEY=1" >> "$GITHUB_ENV"
+            echo "RENEW_RECIPIENT=" >> "$GITHUB_ENV"
+          else
+            echo "AUTO_KEY=0" >> "$GITHUB_ENV"
+            echo "RENEW_RECIPIENT=$src" >> "$GITHUB_ENV"
+            case "$src" in
+              age1*)
+                printf '%s\n' "$src" | tr -d '\r\t ' | grep -E '^age1[0-9a-z]+$' > "$rec" || {
+                  echo "::error::Geçersiz age public key"
+                  exit 1
+                }
+                ;;
+              ssh-ed25519*|ssh-rsa*)
+                printf '%s\n' "$src" > "$rec"
+                ;;
+              *)
+                echo "::error::Desteklenmeyen age_recipient formatı. age1... veya ssh-ed25519/ssh-rsa ile başlayan SSH public key gir, ya da boş bırak (otomatik key)."
+                exit 1
+                ;;
+            esac
+          fi
+
+          # Son doğrulama
+          if ! echo "test" | "$RUNNER_TEMP/age" -R "$rec" -a >/dev/null 2>&1; then
             echo "::error::Alıcı dosyası geçersiz (malformed recipient). İçerik:"
             cat -A "$rec" || true
             exit 1
           fi
 
-          echo "DELIVERY=age" >> "$GITHUB_ENV"
-          echo "RENEW_RECIPIENT=$src" >> "$GITHUB_ENV"
-          echo "Alıcı hazır:"
-          cat "$rec"
+          echo "Alıcı hazır."
+
+      - name: Otomatik key artifact'ını yükle (boşsa)
+        if: env.AUTO_KEY == '1'
+        uses: actions/upload-artifact@v7
+        with:
+          name: hardtools-age-key
+          path: ${{ runner.temp }}/age-key/age-private-key.txt
+          retention-days: 1
+          if-no-files-found: error
 
       - uses: actions/download-artifact@v7
         with:
@@ -284,21 +276,14 @@ jobs:
           sandbox="$RUNNER_TEMP/hardtools-sandbox"
           mkdir -p "$sandbox"
 
-          # Sunucu ortamı bir dosyada tutulur: çökerse AYNI token/host ile yeniden başlatılabilsin.
-          # (runner geçicidir; dosya yalnızca bu kullanıcıya okunabilir)
-          # hardtools.config.example.json KULLANILMAZ: içindeki roots bu runner'da yok
-          # ve HARDTOOLS_ROOTS'u ezip sunucuyu "root does not exist" ile çökertir.
           (
             umask 077
             {
               printf 'export HARDTOOLS_HTTP_TOKEN=%q\n' "$token"
-              # src/index.ts Host başlığını tam eşleştirir (port dahil). Public host + yerel host'lar.
               printf 'export HARDTOOLS_ALLOWED_HOSTS=%q\n' "$host,127.0.0.1:${MCP_PORT},localhost:${MCP_PORT}"
               printf 'export HARDTOOLS_HTTP_ALLOW_LOCAL_TOOLS=%q\n' "$ALLOW_LOCAL_TOOLS"
               printf 'export HARDTOOLS_PROFILE=%q\n' balanced
               printf 'export HARDTOOLS_ROOTS=%q\n' "$sandbox"
-              # HARDTOOLS_INVITE_ORIGIN: sunucu başlarken invite URL üretmek için kullanılır.
-              # Ham token connect.txt'ye yazılmaz; bunun yerine sunucunun ürettiği invite URL yer alır.
               printf 'export HARDTOOLS_INVITE_ORIGIN=%q\n' "$url"
               printf 'unset HARDTOOLS_CONFIG\n'
             } > "$RUNNER_TEMP/node.env"
@@ -309,7 +294,6 @@ jobs:
           set -euo pipefail
           . "$RUNNER_TEMP/node.env"
           cd "$HARDTOOLS_ROOTS"
-          # Sunucu çıktısı Actions log'una basılmaz (public repoda sızıntı riski); dosyaya eklenir.
           setsid nohup node "$GITHUB_WORKSPACE/artifact/bundle/index.js" \
             --http --host 127.0.0.1 --port "$MCP_PORT" --profile "$HARDTOOLS_PROFILE" \
             >>"$RUNNER_TEMP/node.log" 2>&1 &
@@ -328,13 +312,11 @@ jobs:
           done
           [ "$ready" = 1 ] || { tail -n 20 "$RUNNER_TEMP/node.log"; echo "::error::Sunucu 30 sn içinde hazır olmadı"; exit 1; }
 
-          # --- Bağlantı bilgisi: log/özet YERİNE artifact dosyası ---
-          # Invite URL sunucu başlangıcında node.env aracılığıyla üretilir; başlatma logundan okunur.
+          # --- Bağlantı bilgisi: artifact dosyası ---
           endpoint="$url/mcp"
           mkdir -p "$RUNNER_TEMP/connect"
           conn="$RUNNER_TEMP/connect/connect.txt"
 
-          # Sunucudan invite URL'sini oku (en fazla 15 sn bekle)
           invite_url=""
           for _ in $(seq 1 15); do
             invite_url="$(grep -oE "${url}/invite/[A-Za-z0-9._~%=-]+" "$RUNNER_TEMP/node.log" | head -n1 || true)"
@@ -349,20 +331,25 @@ jobs:
 
           plain="$(printf 'A) claude.ai web / Claude app  (Settings > Connectors > Add custom connector)\n   1. Git: %s\n      Bu invite linkini aç (tek seferlik, 24 saat geçerli).\n   2. Sonra connector ekle:\n      URL: %s\n      OAuth client ID/secret bırak boş. Yetkilendirme otomatik tamamlanır.\n\nB) Claude Code / Desktop (header gönderebilir, invite gerekmez)\n   URL: %s\n   Header name: Authorization\n   Header value: Bearer %s\n\nLOCAL_TOOLS: %s\n' \
             "$invite_url" "$endpoint" "$endpoint" "$token" "$ALLOW_LOCAL_TOOLS")"
-          if [ "$DELIVERY" = age ]; then
-            printf '%s\n' "$plain" | age -R "$RUNNER_TEMP/recipients.txt" -a > "$conn"
-            echo "### hardtools MCP yayında (şifreli)" >> "$GITHUB_STEP_SUMMARY"
-            echo "Bağlantı bilgisi \`hardtools-connect\` artifact'ında, age ile şifreli. SSH key'inle aç: \`age -d -i ~/.ssh/id_ed25519 connect.txt\` (age key'i verdiysen \`-i key.txt\`)." >> "$GITHUB_STEP_SUMMARY"
+
+          printf '%s\n' "$plain" | "$RUNNER_TEMP/age" -R "$RUNNER_TEMP/recipients.txt" -a > "$conn"
+
+          if [ "$AUTO_KEY" = 1 ]; then
+            echo "### hardtools MCP yayında (otomatik key)" >> "$GITHUB_STEP_SUMMARY"
+            echo "connect.txt şifreli. Aç:" >> "$GITHUB_STEP_SUMMARY"
+            echo '```' >> "$GITHUB_STEP_SUMMARY"
+            echo "age -d -i age-private-key.txt connect.txt" >> "$GITHUB_STEP_SUMMARY"
+            echo '```' >> "$GITHUB_STEP_SUMMARY"
+            echo "Private key **hardtools-age-key** artifact'ında. connect.txt **hardtools-connect** artifact'ında." >> "$GITHUB_STEP_SUMMARY"
           else
-            printf '%s\n' "$plain" > "$conn"
-            echo "### hardtools MCP yayında (private repo)" >> "$GITHUB_STEP_SUMMARY"
-            echo "Endpoint ve token, run sayfasının altındaki **Artifacts** bölümünde \`hardtools-connect\` içinde (zip, içinde connect.txt)." >> "$GITHUB_STEP_SUMMARY"
+            echo "### hardtools MCP yayında (sağlanan key)" >> "$GITHUB_STEP_SUMMARY"
+            echo "connect.txt şifreli. SSH key: \`age -d -i ~/.ssh/id_ed25519 connect.txt\`; age key: \`age -d -i key.txt connect.txt\`" >> "$GITHUB_STEP_SUMMARY"
           fi
           echo "Local tools: \`$ALLOW_LOCAL_TOOLS\`. Kapatmak için: \`action = unpublish\` ile çalıştır." >> "$GITHUB_STEP_SUMMARY"
           if [ "$AUTO_RENEW" = 1 ]; then
-            echo "Otomatik yenileme AÇIK: ~5 sa 30 dk'da yeni bir serve run'ı tetiklenir. Yeni URL + token için o run'ın \`hardtools-connect\` artifact'ına bak." >> "$GITHUB_STEP_SUMMARY"
+            echo "Otomatik yenileme AÇIK: ~5 sa 30 dk'da yeni bir serve run'ı tetiklenir. Yeni URL+token için o run'ın artifact'larına bak." >> "$GITHUB_STEP_SUMMARY"
           else
-            echo "Oturum en fazla ~5 sa 45 dk sürer (GitHub 6 saat sınırı); sonra action = serve ile yeniden başlat." >> "$GITHUB_STEP_SUMMARY"
+            echo "Oturum en fazla ~5 sa 45 dk sürer; sonra action = serve ile yeniden başlat." >> "$GITHUB_STEP_SUMMARY"
           fi
 
       - name: Bağlantı bilgisini artifact olarak yükle
@@ -382,15 +369,14 @@ jobs:
           CF_PID="$(cat "$RUNNER_TEMP/cf.pid")"
           wf="$(basename "${GITHUB_WORKFLOW_REF%%@*}")"
           start=$(date +%s)
-          renew_at=$(( start + 330 * 60 ))    # yenilemeyi tetikle (yeni run'ın bundle aşaması için ~15 dk pay)
-          deadline=$(( start + 345 * 60 ))    # 6 saatlik sert sınırdan önce temiz çıkış
+          renew_at=$(( start + 330 * 60 ))
+          deadline=$(( start + 345 * 60 ))
           restarts=0; max_restarts=5
           renewed=0; renew_tries=0; last_try=0
           local_bool=$([ "$ALLOW_LOCAL_TOOLS" = 1 ] && echo true || echo false)
           while :; do
             now=$(date +%s)
             if ! kill -0 "$CF_PID" 2>/dev/null; then
-              # Quick tunnel yeniden başlarsa URL değişir; istemci zaten eski adrese bağlı kalamaz.
               echo "::warning::Tünel sonlandı, job kapanıyor. Yeni adres için action = serve ile yeniden çalıştır."
               break
             fi
@@ -407,10 +393,8 @@ jobs:
               sleep 3
             fi
 
-            # Yenileme: süre dolmadan yeni run'ı tetikle. Yeni run'ın serve job'ı başlayınca
-            # concurrency bu run'ı iptal eder. Başarısız olursa 60 sn arayla en fazla 5 deneme.
-            # Çözülmüş alıcı (RENEW_RECIPIENT) aktarılır: yenileme run'ının actor'ü bot olur,
-            # bu yüzden github:$GH_ACTOR varsayılanı orada çalışmaz.
+            # Yenileme: auto_renew=true ise, age_recipient boş olduğunda RENEW_RECIPIENT da boş;
+            # yeni run da otomatik key üretir. Elle verildiyse RENEW_RECIPIENT aktarılır.
             if [ "$AUTO_RENEW" = 1 ] && [ "$renewed" = 0 ] && [ "$now" -ge "$renew_at" ] \
                && [ $(( now - last_try )) -ge 60 ] && [ "$renew_tries" -lt 5 ]; then
               renew_tries=$((renew_tries + 1)); last_try=$now
@@ -418,7 +402,7 @@ jobs:
                    -f action=serve -f age_recipient="${RENEW_RECIPIENT:-}" \
                    -f allow_local_tools="$local_bool" -f auto_renew=true; then
                 renewed=1
-                echo "::notice::Yeni serve run'ı tetiklendi. Yeni URL+token için yeni run'ın hardtools-connect artifact'ına bak."
+                echo "::notice::Yeni serve run'ı tetiklendi. Yeni URL+token için yeni run'ın artifact'larına bak."
               else
                 echo "::warning::Yenileme tetiklenemedi ($renew_tries/5)."
               fi
@@ -452,7 +436,6 @@ jobs:
         run: |
           wf="$(basename "${GITHUB_WORKFLOW_REF%%@*}")"
           found=0
-          # İki geçiş: iptal sırasında tetiklenmiş bir yenilemeyi de yakalamak için.
           for pass in 1 2; do
             for st in in_progress queued waiting pending; do
               ids="$(gh run list --workflow "$wf" --event workflow_dispatch \
