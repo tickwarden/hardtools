@@ -40,6 +40,26 @@ Klasörü plugin olarak yükle (`.claude-plugin/plugin.json` + `.mcp.json` hazı
 ### Claude Desktop (stdio)
 `claude_desktop_config.example.json` içeriğini Desktop'un MCP yapılandırmasına ekle. Desktop'ta çalışma dizini proje olmadığı için `HARDTOOLS_ROOTS` **zorunlu** pratikte.
 
+### GitHub Actions: job bitmeden bağlanma
+
+1. **Actions → hardtools MCP → Run workflow** menüsünde `serve` seç. Public repoda
+   `age_recipient` alanına **kendi açık anahtarını** gir (`age1…` veya `.pub` dosyandaki
+   `ssh-ed25519 …` / `ssh-rsa …` satırı). İstersen bir kez `HARDTOOLS_AGE_RECIPIENT`
+   adlı **repository variable** olarak kaydet. Özel anahtarını GitHub'a yükleme.
+   Private repoda alıcıyı boş bırakırsan repo okuyucuları bağlantı dosyasını düz metin olarak indirebilir.
+2. Çalışan run'da **serve → Bağlantı hazır (canlı log)** adımını aç. `/mcp` ile biten
+   endpoint ve `hardtools-connect` indirme bağlantısı burada görünür; **Summary'yi veya
+   “Yayında tut” adımının bitmesini bekleme**. Artifact bağlantısını GitHub'a giriş yapmışken aç.
+3. Zip'ten `connect.txt` dosyasını çıkar. Şifreliyse kendi bilgisayarında
+   `age -d -i ~/.ssh/id_ed25519 connect.txt` (age anahtarı için `age -d -i key.txt connect.txt`)
+   ile aç. Dosyadaki tek kullanımlık daveti önce tarayıcıda aç; sonra Claude → Settings →
+   Connectors'da `hardtools` adıyla logdaki **MCP endpointini** gir. OAuth client ID/secret boş kalır.
+   Davet de bearer token gibi gizlidir. Job kapanınca tünel kapanır; yenilenen run farklı adres verir.
+
+**Kısa doğrulama:** `serve` yerine `check-connection` seçmek aynı canlı logu üretir,
+artifact'ı **job hâlâ çalışırken** geri indirip karşılaştırır ve tünelin OAuth metadata'sındaki
+MCP adresini kontrol eder. Mevcut `serve` oturumunu değiştirmez, daveti kullanmaz ve kendini yenilemez.
+
 ### Uzak / HTTP modu (web dahil: **sınırlı**)
 ```bash
 export HARDTOOLS_HTTP_TOKEN=$(openssl rand -hex 32)
