@@ -1,5 +1,6 @@
 # AI-assisted: Bu dosya Claude (Anthropic) tarafından yeniden düzenlendi; auto_renew zinciri ve
-# unpublish sertleştirmesi de Claude tarafından eklendi.
+# unpublish sertleştirmesi de Claude tarafından eklendi. Teslim yolunun private/public ayrımı
+# (public repoda tetikleyenin GitHub SSH key'lerine şifreleme) de Claude tarafından eklendi.
 # Merge etmeden önce insan gözden geçirmesi gerekir (Legends11).
 #
 # Bu workflow hiçbir repo secret'ı veya variable'ı GEREKTİRMEZ.
@@ -7,7 +8,8 @@
 #  - Tünel: Cloudflare quick tunnel (hesap/token gerekmez).
 #  - npm: trusted publishing (OIDC), NPM_TOKEN yok.
 #  - Bağlantı bilgisi (endpoint + token) log/özet yerine `hardtools-connect` artifact'ında.
-#    Public repoda age ile şifrelenir; private repoda anahtar vermezsen düz yazı dosyadır.
+#    Public repoda her zaman age ile şifrelenir (age_recipient boşsa tetikleyenin GitHub SSH
+#    key'lerine). Private repoda age_recipient vermezsen düz yazı dosyadır.
 #
 # serve davranışı:
 #  - MCP sunucusu çökerse aynı token/host ile yeniden başlatılır (en fazla 5 kez).
@@ -39,7 +41,7 @@ on:
         options: [build-only, serve, unpublish]
         default: build-only
       age_recipient:
-        description: 'serve: age (age1...) veya SSH PUBLIC key. Public repoda ZORUNLU; token bununla şifrelenir'
+        description: 'serve: age (age1...), SSH PUBLIC key veya github:kullanici. Boşsa: public repoda tetikleyenin GitHub SSH keyi, private repoda düz yazı'
         type: string
         default: ''
       allow_local_tools:
@@ -134,8 +136,10 @@ jobs:
 
   # ──────────────────────────────────────────────
   # 3. MCP sunucusu + quick tunnel (sadece elle: action = serve)
-  #    Endpoint + token `hardtools-connect` artifact'ında: age_recipient verilirse
-  #    şifreli, verilmezse (sadece private repoda) düz yazı.
+  #    Endpoint + token `hardtools-connect` artifact'ında:
+  #     - public repo: HER ZAMAN age ile şifreli (age_recipient boşsa tetikleyenin
+  #       GitHub SSH key'lerine)
+  #     - private repo: age_recipient verilirse şifreli, verilmezse düz yazı
   #    auto_renew=true ise süre dolmadan kendini yeniden tetikler.
   # ──────────────────────────────────────────────
   serve:
@@ -156,22 +160,51 @@ jobs:
       CLOUDFLARED_SHA256: '98d8eadbfdf8c7ec994e08260599c9be991e7833c746f98692b18bdf71c9b9dc'
       REPO_PRIVATE: ${{ github.event.repository.private }}
       AGE_RECIPIENT: ${{ inputs.age_recipient }}
+      GH_ACTOR: ${{ github.actor }}
       ALLOW_LOCAL_TOOLS: ${{ inputs.allow_local_tools && '1' || '0' }}
       AUTO_RENEW: ${{ inputs.auto_renew && '1' || '0' }}
     steps:
-      - name: Token teslim yolunu doğrula
+      - name: Token teslim yolunu belirle
         run: |
           set -euo pipefail
-          if [ -z "$AGE_RECIPIENT" ] && [ "$REPO_PRIVATE" != "true" ]; then
-            echo "::error::Public repoda token düz yazı yazılamaz. age_recipient (PUBLIC key) ver veya repo'yu private yap."
-            exit 1
+          rec="$RUNNER_TEMP/recipients.txt"
+          : > "$rec"
+          src="$AGE_RECIPIENT"
+
+          # Public repoda boş bırakılırsa: tetikleyenin GitHub SSH key'lerine şifrele.
+          if [ -z "$src" ] && [ "$REPO_PRIVATE" != "true" ]; then
+            src="github:$GH_ACTOR"
           fi
-          if [ -n "$AGE_RECIPIENT" ]; then
-            sudo apt-get update -qq
-            sudo apt-get install -y -qq age
-            echo test | age -r "$AGE_RECIPIENT" -a >/dev/null \
-              || { echo "::error::age_recipient geçersiz (age1... veya ssh PUBLIC key olmalı)"; exit 1; }
+
+          if [ -z "$src" ]; then
+            # Sadece private repo + age_recipient boş: düz yazı
+            echo "DELIVERY=plain" >> "$GITHUB_ENV"
+            echo "RENEW_RECIPIENT=" >> "$GITHUB_ENV"
+            exit 0
           fi
+
+          case "$src" in
+            github:*)
+              user="${src#github:}"
+              [[ "$user" =~ ^[A-Za-z0-9-]+$ ]] || { echo "::error::Geçersiz GitHub kullanıcı adı"; exit 1; }
+              if [[ "$user" == *"[bot]" ]] || ! curl -fsSL --retry 3 "https://github.com/${user}.keys" \
+                   | grep -E '^(ssh-ed25519|ssh-rsa) ' > "$rec"; then
+                echo "::error::github:${user} için ssh-ed25519/ssh-rsa public key bulunamadı. GitHub hesabına SSH key ekle veya age_recipient ver."
+                exit 1
+              fi
+              ;;
+            *)
+              printf '%s\n' "$src" > "$rec"
+              ;;
+          esac
+
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq age
+          echo test | age -R "$rec" -a >/dev/null \
+            || { echo "::error::Alıcı geçersiz (age1..., ssh PUBLIC key veya github:kullanici)"; exit 1; }
+
+          echo "DELIVERY=age" >> "$GITHUB_ENV"
+          echo "RENEW_RECIPIENT=$src" >> "$GITHUB_ENV"
 
       - uses: actions/download-artifact@v7
         with:
@@ -282,10 +315,10 @@ jobs:
 
           plain="$(printf 'A) claude.ai web / Claude app  (Settings > Connectors > Add custom connector)\n   1. Git: %s\n      Bu invite linkini aç (tek seferlik, 24 saat geçerli).\n   2. Sonra connector ekle:\n      URL: %s\n      OAuth client ID/secret bırak boş. Yetkilendirme otomatik tamamlanır.\n\nB) Claude Code / Desktop (header gönderebilir, invite gerekmez)\n   URL: %s\n   Header name: Authorization\n   Header value: Bearer %s\n\nLOCAL_TOOLS: %s\n' \
             "$invite_url" "$endpoint" "$endpoint" "$token" "$ALLOW_LOCAL_TOOLS")"
-          if [ -n "$AGE_RECIPIENT" ]; then
-            printf '%s\n' "$plain" | age -r "$AGE_RECIPIENT" -a > "$conn"
+          if [ "$DELIVERY" = age ]; then
+            printf '%s\n' "$plain" | age -R "$RUNNER_TEMP/recipients.txt" -a > "$conn"
             echo "### hardtools MCP yayında (şifreli)" >> "$GITHUB_STEP_SUMMARY"
-            echo "Bağlantı bilgisi, age ile şifreli \`hardtools-connect\` artifact'ında. Çözmek için \`age -d -i <özel_anahtar> connect.txt\`." >> "$GITHUB_STEP_SUMMARY"
+            echo "Bağlantı bilgisi \`hardtools-connect\` artifact'ında, age ile şifreli. SSH key'inle aç: \`age -d -i ~/.ssh/id_ed25519 connect.txt\` (age key'i verdiysen \`-i key.txt\`)." >> "$GITHUB_STEP_SUMMARY"
           else
             printf '%s\n' "$plain" > "$conn"
             echo "### hardtools MCP yayında (private repo)" >> "$GITHUB_STEP_SUMMARY"
@@ -342,11 +375,13 @@ jobs:
 
             # Yenileme: süre dolmadan yeni run'ı tetikle. Yeni run'ın serve job'ı başlayınca
             # concurrency bu run'ı iptal eder. Başarısız olursa 60 sn arayla en fazla 5 deneme.
+            # Çözülmüş alıcı (RENEW_RECIPIENT) aktarılır: yenileme run'ının actor'ü bot olur,
+            # bu yüzden github:$GH_ACTOR varsayılanı orada çalışmaz.
             if [ "$AUTO_RENEW" = 1 ] && [ "$renewed" = 0 ] && [ "$now" -ge "$renew_at" ] \
                && [ $(( now - last_try )) -ge 60 ] && [ "$renew_tries" -lt 5 ]; then
               renew_tries=$((renew_tries + 1)); last_try=$now
               if gh workflow run "$wf" --ref "$GITHUB_REF_NAME" \
-                   -f action=serve -f age_recipient="$AGE_RECIPIENT" \
+                   -f action=serve -f age_recipient="${RENEW_RECIPIENT:-}" \
                    -f allow_local_tools="$local_bool" -f auto_renew=true; then
                 renewed=1
                 echo "::notice::Yeni serve run'ı tetiklendi. Yeni URL+token için yeni run'ın hardtools-connect artifact'ına bak."
