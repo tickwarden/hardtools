@@ -8,10 +8,10 @@
 #  - Tünel: Cloudflare quick tunnel (hesap/token gerekmez).
 #  - npm: trusted publishing (OIDC), NPM_TOKEN yok.
 #  - Bağlantı bilgisi (endpoint + token) log/özet yerine `hardtools-connect` artifact'ında.
-#    age_recipient verilirse age ile şifrelenir. Boşsa: her çalıştırmada otomatik key çifti
-#    üretilir; private key `hardtools-age-key` artifact'ında, connect.txt şifreli.
-#    Public repoda age_recipient boş bırakılırsa da otomasyona gider (eskiden github:actor
-#    kullanılıyordu, SSH key gerektirdiği için kaldırıldı).
+#    age_recipient verilirse age ile şifrelenir (her iki repo tipinde).
+#    Boşta private repoda: düz metin (artifact zip'ini indir, connect.txt'yi aç).
+#    Boşta public repoda: otomatik age key çifti üretilir; private key
+#    `hardtools-age-key` artifact'ında, connect.txt o key ile şifreli.
 #
 # serve davranışı:
 #  - MCP sunucusu çökerse aynı token/host ile yeniden başlatılır (en fazla 5 kez).
@@ -27,8 +27,9 @@
 # [2026-11-17] ubuntu-latest → ubuntu-24.04 sabitlendi (actions/runner-images#14748:
 #   ubuntu-latest 19 Kas 2026'ya kadar 26.04'e geçiyor; sessiz fail riskini önlemek için
 #   tüm job'larda image sabitleniyor).
-# [2026-11-18] github:kullanici SSH key fallback kaldırıldı. age_recipient boş bırakılırsa
-#   otomatik age key çifti üretilir; private key hardtools-age-key artifact'ında.
+# [2026-11-18] github:kullanici SSH key fallback kaldırıldı.
+#   age_recipient boş + private repo → connect.txt düz metin (zip'ten direkt oku).
+#   age_recipient boş + public repo → otomatik age key; private key hardtools-age-key artifact'ında.
 name: hardtools MCP – Build, Publish & Serve
 
 on:
@@ -45,7 +46,7 @@ on:
         options: [build-only, serve, unpublish]
         default: build-only
       age_recipient:
-        description: 'serve: age (age1...) veya SSH PUBLIC key. Boşsa: otomatik key üretilir, hardtools-age-key artifact''ından indir.'
+        description: 'serve: age (age1...) veya SSH PUBLIC key. Boşsa: private repoda düz metin, public repoda otomatik key (hardtools-age-key artifact).'
         type: string
         default: ''
       allow_local_tools:
@@ -142,9 +143,9 @@ jobs:
   # 3. MCP sunucusu + quick tunnel (sadece elle: action = serve)
   #    Endpoint + token `hardtools-connect` artifact'ında (age ile şifreli).
   #    age_recipient verilirse: age1.../SSH public key ile şifrele.
-  #    age_recipient boşsa: otomatik age key çifti üret; private key
-  #    `hardtools-age-key` artifact'ında, connect.txt o key ile şifreli.
-  #    Kullanım: age -d -i age-private-key.txt connect.txt
+  #    age_recipient boşsa + private repo: connect.txt düz metin (artifact zip → connect.txt).
+  #    age_recipient boşsa + public repo: otomatik age key; hardtools-age-key artifact'ı +
+  #    age -d -i age-private-key.txt connect.txt
   #    auto_renew=true ise süre dolmadan kendini yeniden tetikler.
   # ──────────────────────────────────────────────
   serve:
@@ -166,6 +167,7 @@ jobs:
       AGE_RECIPIENT: ${{ inputs.age_recipient }}
       ALLOW_LOCAL_TOOLS: ${{ inputs.allow_local_tools && '1' || '0' }}
       AUTO_RENEW: ${{ inputs.auto_renew && '1' || '0' }}
+      REPO_PRIVATE: ${{ github.event.repository.private }}
     steps:
       - name: age binary'yi yükle + alıcıyı hazırla
         run: |
@@ -185,17 +187,27 @@ jobs:
           src="${AGE_RECIPIENT:-}"
 
           if [ -z "$src" ]; then
-            # age_recipient boş → otomatik key üret
-            echo "::notice::age_recipient verilmedi; otomatik key çifti üretiliyor."
-            (
-              umask 077
-              "$RUNNER_TEMP/age-keygen" -o "$key_dir/age-private-key.txt"
-            )
-            "$RUNNER_TEMP/age-keygen" -y "$key_dir/age-private-key.txt" > "$rec"
-            echo "AUTO_KEY=1" >> "$GITHUB_ENV"
-            echo "RENEW_RECIPIENT=" >> "$GITHUB_ENV"
+            if [ "${REPO_PRIVATE:-}" = "true" ]; then
+              # Private repo + boş → şifreleme yok, düz metin
+              echo "DELIVERY=plain" >> "$GITHUB_ENV"
+              echo "AUTO_KEY=0" >> "$GITHUB_ENV"
+              echo "RENEW_RECIPIENT=" >> "$GITHUB_ENV"
+              exit 0
+            else
+              # Public repo + boş → otomatik age key üret
+              echo "::notice::Public repo; age_recipient verilmedi; otomatik key çifti üretiliyor."
+              (
+                umask 077
+                "$RUNNER_TEMP/age-keygen" -o "$key_dir/age-private-key.txt"
+              )
+              "$RUNNER_TEMP/age-keygen" -y "$key_dir/age-private-key.txt" > "$rec"
+              echo "DELIVERY=age" >> "$GITHUB_ENV"
+              echo "AUTO_KEY=1" >> "$GITHUB_ENV"
+              echo "RENEW_RECIPIENT=" >> "$GITHUB_ENV"
+            fi
           else
             echo "AUTO_KEY=0" >> "$GITHUB_ENV"
+            echo "DELIVERY=age" >> "$GITHUB_ENV"
             echo "RENEW_RECIPIENT=$src" >> "$GITHUB_ENV"
             case "$src" in
               age1*)
@@ -332,18 +344,23 @@ jobs:
           plain="$(printf 'A) claude.ai web / Claude app  (Settings > Connectors > Add custom connector)\n   1. Git: %s\n      Bu invite linkini aç (tek seferlik, 24 saat geçerli).\n   2. Sonra connector ekle:\n      URL: %s\n      OAuth client ID/secret bırak boş. Yetkilendirme otomatik tamamlanır.\n\nB) Claude Code / Desktop (header gönderebilir, invite gerekmez)\n   URL: %s\n   Header name: Authorization\n   Header value: Bearer %s\n\nLOCAL_TOOLS: %s\n' \
             "$invite_url" "$endpoint" "$endpoint" "$token" "$ALLOW_LOCAL_TOOLS")"
 
-          printf '%s\n' "$plain" | "$RUNNER_TEMP/age" -R "$RUNNER_TEMP/recipients.txt" -a > "$conn"
-
-          if [ "$AUTO_KEY" = 1 ]; then
-            echo "### hardtools MCP yayında (otomatik key)" >> "$GITHUB_STEP_SUMMARY"
-            echo "connect.txt şifreli. Aç:" >> "$GITHUB_STEP_SUMMARY"
-            echo '```' >> "$GITHUB_STEP_SUMMARY"
-            echo "age -d -i age-private-key.txt connect.txt" >> "$GITHUB_STEP_SUMMARY"
-            echo '```' >> "$GITHUB_STEP_SUMMARY"
-            echo "Private key **hardtools-age-key** artifact'ında. connect.txt **hardtools-connect** artifact'ında." >> "$GITHUB_STEP_SUMMARY"
+          if [ "${DELIVERY:-age}" = "plain" ]; then
+            printf '%s\n' "$plain" > "$conn"
+            echo "### hardtools MCP yayında (düz metin)" >> "$GITHUB_STEP_SUMMARY"
+            echo "**hardtools-connect** artifact'ını indir, zip'in içindeki \`connect.txt\`'yi aç." >> "$GITHUB_STEP_SUMMARY"
           else
-            echo "### hardtools MCP yayında (sağlanan key)" >> "$GITHUB_STEP_SUMMARY"
-            echo "connect.txt şifreli. SSH key: \`age -d -i ~/.ssh/id_ed25519 connect.txt\`; age key: \`age -d -i key.txt connect.txt\`" >> "$GITHUB_STEP_SUMMARY"
+            printf '%s\n' "$plain" | "$RUNNER_TEMP/age" -R "$RUNNER_TEMP/recipients.txt" -a > "$conn"
+            if [ "$AUTO_KEY" = 1 ]; then
+              echo "### hardtools MCP yayında (otomatik key)" >> "$GITHUB_STEP_SUMMARY"
+              echo "connect.txt şifreli. Aç:" >> "$GITHUB_STEP_SUMMARY"
+              echo '```' >> "$GITHUB_STEP_SUMMARY"
+              echo "age -d -i age-private-key.txt connect.txt" >> "$GITHUB_STEP_SUMMARY"
+              echo '```' >> "$GITHUB_STEP_SUMMARY"
+              echo "Private key **hardtools-age-key** artifact'ında. connect.txt **hardtools-connect** artifact'ında." >> "$GITHUB_STEP_SUMMARY"
+            else
+              echo "### hardtools MCP yayında (sağlanan key)" >> "$GITHUB_STEP_SUMMARY"
+              echo "connect.txt şifreli. SSH key: \`age -d -i ~/.ssh/id_ed25519 connect.txt\`; age key: \`age -d -i key.txt connect.txt\`" >> "$GITHUB_STEP_SUMMARY"
+            fi
           fi
           echo "Local tools: \`$ALLOW_LOCAL_TOOLS\`. Kapatmak için: \`action = unpublish\` ile çalıştır." >> "$GITHUB_STEP_SUMMARY"
           if [ "$AUTO_RENEW" = 1 ]; then
