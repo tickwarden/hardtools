@@ -70,10 +70,11 @@ export function getIdentity(bytes) {
   let data = bytes;
   if (isZip(bytes)) data = members(bytes, ['hardtools-key.txt'])['hardtools-key.txt'];
   if (!data || data.length > 4096) fail('hardtools-ozel-anahtar.zip veya içindeki hardtools-key.txt gerekiyor.');
-  const ids = text(data).split(/\r?\n/).map(l => l.trim()).filter(l => /^AGE-SECRET-KEY-1[A-Z0-9]{58}$/.test(l));
-  if (data !== bytes) data.fill(0);
-  if (ids.length !== 1) fail('Geçerli bir age özel anahtarı seç (.pub değil).');
-  return ids[0];
+  try {
+    const ids = text(data).split(/\r?\n/).map(l => l.trim()).filter(l => l && !l.startsWith('#'));
+    if (ids.length !== 1 || !/^AGE-SECRET-KEY-1[A-Z0-9]{58}$/.test(ids[0])) fail('Tek bir geçerli age özel anahtarı seç (.pub değil).');
+    return ids[0];
+  } finally { if (data !== bytes) data.fill(0); }
 }
 
 export function parseDetails(s, binding = {}) {

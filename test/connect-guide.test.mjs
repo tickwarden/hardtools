@@ -9,7 +9,7 @@ test('hardtools-connect: public guide contains the exact endpoint, platform comm
   const guide = renderGuide(ep, run, '12', 'serve', 'age');
   for (const literal of ['\n' + ep + '\n', run, '#12', '.\\age.exe -d -i .\\hardtools-key.txt .\\connect.txt',
     'age -d -i hardtools-key.txt connect.txt', 'Name: hardtools', 'OAuth client secret: boş bırak', 'Authorization',
-    'Run workflow → main → serve']) assert.ok(guide.includes(literal), literal);
+    'Run workflow → main → serve', 'Yeni anahtar oluştur', 'hardtools-key.txt indir', 'age_recipient']) assert.ok(guide.includes(literal), literal);
   assert.ok(!guide.includes('/invite/'));
 });
 

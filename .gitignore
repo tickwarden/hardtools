@@ -2,3 +2,7 @@ node_modules/
 dist/
 *.log
 .DS_Store
+
+# Locally saved age identities (including browser duplicate-download filenames).
+hardtools-key*.txt
+hardtools-ozel-anahtar*.zip

@@ -8,9 +8,10 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { chromium } from 'playwright-core';
-import { armor, Encrypter, generateX25519Identity, identityToRecipient } from 'age-encryption';
+import { armor, Encrypter, generateX25519Identity } from 'age-encryption';
 import { zipSync } from 'fflate';
 import { writePublicFiles } from './connect-guide.mjs';
+import { checkKeyPanel } from './reader-key-check.mjs';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
 const dir = await mkdtemp(join(tmpdir(), 'ht-reader-'));
@@ -24,12 +25,6 @@ try {
   await writePublicFiles(dir, ep, run, '37', 'serve', 'age');
   const local = pathToFileURL(join(dir, 'BAGLAN.html')).href;
   const html = await readFile(join(dir, 'BAGLAN.html')), guide = await readFile(join(dir, 'BASLA-BURADAN.txt'));
-  const id = await generateX25519Identity(), recipient = await identityToRecipient(id);
-  const enc = new Encrypter(); enc.addRecipient(recipient);
-  // Optional Go age interoperability check; no extra installation required on the CI runner.
-  const cipher = process.env.AGE_BIN ? execFileSync(process.env.AGE_BIN, ['-a', '-r', recipient], { input: plain }) : Buffer.from(armor.encode(await enc.encrypt(plain)));
-  const zip = Buffer.from(zipSync({ 'connect.txt': cipher, 'BASLA-BURADAN.txt': guide, 'BAGLAN.html': html }));
-  const keyZip = Buffer.from(zipSync({ 'hardtools-key.txt': Buffer.from('# generated for this test\n' + id + '\n') }));
   browser = await chromium.launch({ executablePath: process.env.CHROME_BIN || 'google-chrome', headless: true, args: ['--disable-gpu', '--disable-dev-shm-usage', '--disable-background-networking'] });
   const context = await browser.newContext(), page = await context.newPage();
   const requests = [], errors = [];
@@ -41,6 +36,12 @@ try {
   const put = (field, name, buffer) => $(field).setInputFiles({ name, buffer, mimeType: 'application/octet-stream' });
   const status = part => page.waitForFunction(s => document.querySelector('#status').textContent.includes(s), part, { timeout: 5000 });
   const copied = () => page.evaluate(() => window.testCopied);
+  const { bytes: keyBytes, recipient } = await checkKeyPanel(page, root, dir);
+  const enc = new Encrypter(); enc.addRecipient(recipient);
+  // Optionally exercise the exact Go age/age-keygen CLI in both directions.
+  const cipher = process.env.AGE_BIN ? execFileSync(process.env.AGE_BIN, ['-a', '-r', recipient], { input: plain }) : Buffer.from(armor.encode(await enc.encrypt(plain)));
+  const zip = Buffer.from(zipSync({ 'connect.txt': cipher, 'BASLA-BURADAN.txt': guide, 'BAGLAN.html': html }));
+  const keyZip = Buffer.from(zipSync({ 'hardtools-key.txt': keyBytes }));
   await page.goto(local);
   await put('pack', 'hardtools-connect.zip', zip); await status('Paket şifreli');
   await put('key', 'hardtools-ozel-anahtar.zip', keyZip); await status('Hazır.');
@@ -57,13 +58,14 @@ try {
   await page.evaluate(() => { window.denyClipboard = false; });
   await $('headerBox').locator('summary').click(); await $('copyHeader').click(); await status('Header değeri Bearer'); assert.equal(await copied(), 'Bearer ' + token);
   await put('key', 'other-key.txt', Buffer.from(await generateX25519Identity())); await status('Dosya açılamadı'); assert.ok(await $('results').isHidden());
-  await put('pack', 'connect.txt', cipher); await status('Paket şifreli'); await put('key', 'hardtools-key.txt', Buffer.from(id)); await status('Hazır.');
+  await put('pack', 'connect.txt', cipher); await status('Paket şifreli'); await put('key', 'hardtools-key.txt', keyBytes); await status('Hazır.');
   await put('pack', 'plain.txt', plain); await status('Hazır.'); assert.ok(await $('key').isHidden());
   await put('pack', 'other.txt', Buffer.from(plain.toString().replaceAll(host, 'other-run.trycloudflare.com'))); await status('eşleşmiyor'); assert.ok(await $('results').isHidden());
   await put('pack', 'test.zip', Buffer.from(zipSync({ 'connect.txt': cipher, 'BASLA-BURADAN.txt': Buffer.from('SADECE TEST — örnek') }))); await status('kapalı bir oturum');
   await $('reset').click(); assert.equal(await $('pack').inputValue(), ''); assert.equal(await $('manual').inputValue(), ''); assert.ok(await $('key').isHidden());
-  await writePublicFiles(dir, ep, run, '37', 'check-connection', 'age'); await page.reload(); await status('kapalı bir oturum'); assert.ok(await $('pack').isDisabled());
-  const preview = await context.newPage(); await preview.setContent(html.toString()); assert.ok(await preview.locator('#pack').isDisabled()); assert.match(await preview.locator('#status').textContent(), /Önizlemede/);
+  await writePublicFiles(dir, ep, run, '37', 'check-connection', 'age'); await page.reload(); await status('kapalı bir oturum'); assert.ok(await $('pack').isDisabled()); assert.ok(await $('makeKey').isEnabled());
+  const preview = await context.newPage(); await preview.setContent(html.toString()); assert.ok(await preview.locator('#pack').isDisabled()); assert.ok(await preview.locator('#makeKey').isDisabled()); assert.ok(await preview.locator('#sourceKey').isDisabled()); assert.match(await preview.locator('#status').textContent(), /Önizlemede/);
   assert.deepEqual(requests, []); assert.deepEqual(errors, []);
-  console.log('Browser PASS: workflow payload, encrypted/plain ZIP and TXT, 4 copy targets, origin mismatch, manual copy, wrong key, closed run, preview lock, reset; zero network requests.');
+  keyBytes.fill(0);
+  console.log('Browser PASS: local keygen -o/-y, native TXT download, public-only clipboard, workflow payload, encrypted/plain ZIP and TXT, 4 copy targets, origin mismatch, manual copy, wrong key, closed run, preview lock, reset; zero network requests.');
 } finally { await browser?.close(); await rm(dir, { recursive: true, force: true }); }

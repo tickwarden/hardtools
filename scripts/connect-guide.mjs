@@ -17,7 +17,12 @@ export function renderGuide(endpoint, runUrl, runNumber, mode, delivery) {
   const unlock = delivery === 'plain' ? `connect.txt bu private repo için düz metin. Okuyucuda yalnızca bu dosyayı seç;
 anahtar gerekmez. Bir metin düzenleyiciyle de açabilirsin. Repo okuyucuları da
 indirebilir; içeriğini paylaşma.` : `connect.txt şifrelidir. Okuyucuda bu dosyayı, ardından kendi
-hardtools-ozel-anahtar.zip veya içindeki hardtools-key.txt dosyasını seç.
+hardtools-key.txt dosyanı (veya önceki hardtools-ozel-anahtar.zip dosyanı) seç.
+Elinde bir anahtar varsa “Anahtar işlemleri → Anahtarım var” bölümünde açık
+anahtarını görebilirsin. İlk kez başlıyorsan repodaki bundle/BAGLAN.html’yi
+indirip yerelde aç: “Yeni anahtar oluştur” → “hardtools-key.txt indir”. Açık
+age1… değerini YENİ serve çalıştırmasının age_recipient alanına gir. Yeni bir
+anahtar bu ZIP’in mevcut şifresini açmaz.
 age1… alıcısı için Windows’ta paket kurman gerekmez. Eşleşen ÖZEL anahtar
 sende kalır. Anahtar yerine .pub seçme; hiçbir dosyayı bir siteye yükleme.
 

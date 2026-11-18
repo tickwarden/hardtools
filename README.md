@@ -40,6 +40,14 @@ Klasörü plugin olarak yükle (`.claude-plugin/plugin.json` + `.mcp.json` hazı
 ### Claude Desktop (stdio)
 `claude_desktop_config.example.json` içeriğini Desktop'un MCP yapılandırmasına ekle. Desktop'ta çalışma dizini proje olmadığı için `HARDTOOLS_ROOTS` **zorunlu** pratikte.
 
+### İlk kullanım: Windows’ta `age-keygen.exe` olmadan anahtar al
+
+Bir yayına yalnızca davetle katılıyorsan özel anahtara ihtiyacın yok. Kendi şifreli bağlantı paketini alacaksan **`serve` başlatmadan önce** [**BAGLAN.html**](bundle/BAGLAN.html) dosyasını repodan **Download raw file (↓)** ile indir ve bilgisayarında Edge, Chrome veya Firefox ile aç. Bu adım için henüz bir artifact gerekmez.
+
+- **Anahtarın yoksa:** **Anahtar işlemleri → Yeni anahtar oluştur → hardtools-key.txt indir**. Bu, `age-keygen -o hardtools-key.txt` karşılığıdır. TXT’yi güvenli bir yerde sakla; ZIP yapman gerekmez. Önceki bir anahtarın üstüne yazma.
+- **Anahtarın varsa:** **Anahtarım var** altında kendi TXT’ni veya eski `hardtools-ozel-anahtar.zip` dosyanı seç. `age-keygen -y hardtools-key.txt` gibi, mevcut özel anahtardan açık anahtar hesaplanır; dosyan değişmez.
+- **Açık anahtarı kopyala:** `age1…` ile başlayan değeri aşağıdaki `age_recipient` alanına gir. Özel TXT’yi yükleme. Yeni anahtar eski bir paketi açmaz; ayar sonraki çalıştırma içindir.
+
 ### GitHub Actions: job bitmeden bağlanma
 
 1. **Actions → hardtools MCP → Run workflow** menüsünde varsayılan **`serve`** seçili kalsın.

@@ -3,12 +3,23 @@
 <meta http-equiv="Content-Security-Policy" content="default-src 'none'; connect-src 'none'; script-src 'sha256-@@JSHASH@@'; style-src 'sha256-@@CSSHASH@@'; base-uri 'none'; form-action 'none'; object-src 'none'">
 <meta name="viewport" content="width=device-width,initial-scale=1"><meta name="referrer" content="no-referrer">
 <meta name="hardtools-run" content="" data-mode="" data-endpoint="">
-<title>hardtools · Bağlantı bilgileri</title><style>@@CSS@@</style></head>
+<title>hardtools · Anahtar ve bağlantı</title><style>@@CSS@@</style></head>
 <body><main>
-<header><span class="brand">hardtools <b>/</b> MCP</span><span class="badge">Çevrimdışı okuyucu</span></header>
-<h1>Bağlantı bilgileri</h1><p class="lead">Bu oturumun davetini, connector adresini ve gerekirse giriş kutusuna yazılacak metni kendi bilgisayarında al.</p>
+<header><span class="brand">hardtools <b>/</b> MCP</span><span class="badge">Çevrimdışı</span></header>
+<h1>Anahtar ve bağlantı</h1><p class="lead">İlk yayınından önce anahtarını hazırla. Çalışan bir yayının varsa bağlantı paketini aç. Terminal gerekmez.</p>
+<p id="localNotice" class="local-note">Bu HTML dosyasını indir ve kendi bilgisayarında aç. Önizlemede anahtar oluşturulmaz ve dosya okunmaz.</p>
 <p id="context" class="meta" hidden></p>
-<noscript>Bu yerel okuyucu JavaScript gerektirir. Diğer yol için ZIP’teki BASLA-BURADAN.txt dosyasını aç.</noscript>
+<noscript>Bu araç JavaScript gerektirir. Bağlantı için ZIP’teki BASLA-BURADAN.txt dosyasını da kullanabilirsin.</noscript>
+<section class="key-panel" aria-label="Yerel age anahtarı">
+<details id="keysPanel" open><summary><span class="eyebrow">Yayından önce</span> Anahtar işlemleri</summary>
+<div class="key-choices">
+<div><h3>Anahtarım yok</h3><p>Bu cihazda yeni bir age anahtarı oluştur. Özel anahtar bir TXT dosyası olarak sende kalır.</p><button id="makeKey" type="button" disabled>Yeni anahtar oluştur</button></div>
+<div><h3>Anahtarım var</h3><label for="sourceKey">Açık anahtarını görmek için <b>hardtools-key.txt</b> dosyanı seç. Önceki özel anahtar ZIP’i de olur.</label><input id="sourceKey" type="file" accept=".txt,.zip,text/plain" disabled></div>
+</div>
+<div id="saveRow" class="key-result" hidden><h3>1 · Özel dosyayı kendine sakla</h3><p>Şifrelenmemiş bir özel anahtardır. Güvenli bir yerde yedekle, önceki anahtarının üzerine kaydetme ve GitHub’a yükleme.</p><a id="saveKey" class="btn-link" download="hardtools-key.txt">hardtools-key.txt indir</a></div>
+<div id="recipientRow" class="key-result" hidden><label for="recipient"><b>Açık anahtar</b> · GitHub’a verilecek değer</label><input type="text" id="recipient" readonly spellcheck="false" autocomplete="off"><button id="copyRecipient" type="button" disabled>Açık anahtarı kopyala</button><p>Yeni <strong>Run workflow → serve</strong> çalıştırmasında <code>age_recipient</code> alanına bu <code>age1…</code> değerini gir. Yetkin yoksa yalnızca bu değeri repo sahibine gönder.</p></div>
+<div class="key-foot"><p id="keysStatus" role="status" aria-live="polite"></p><button class="secondary" type="button" id="clearKeys" disabled>Anahtar alanını temizle</button></div>
+<p class="hint">Yeni anahtar, başka bir anahtara şifrelenmiş eski paketi açmaz. Aşağıdaki bağlantı bölümü için mevcut paketin kendi anahtarı gerekir.</p></details></section>
 <section aria-labelledby="step1"><h2 id="step1">1 · Bağlantı dosyasını seç</h2>
 <label for="pack">Bu run’ın <strong>connect.txt</strong> dosyası veya <strong>hardtools-connect.zip</strong></label>
 <input id="pack" type="file" accept=".txt,.zip,.age" disabled>

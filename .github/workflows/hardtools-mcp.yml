@@ -41,7 +41,7 @@ on:
         options: [serve, check-connection, build-only, unpublish]
         default: serve
       age_recipient:
-        description: 'serve/check-connection: age veya SSH açık anahtarı. Varsayılan: HARDTOOLS_AGE_RECIPIENT repo variable. Public repoda anahtar zorunlu.'
+        description: 'age/SSH açık anahtarı. İlk kez: önce repodaki bundle/BAGLAN.html ile oluştur. Boşsa HARDTOOLS_AGE_RECIPIENT kullanılır.'
         type: string
         default: ''
       allow_local_tools:

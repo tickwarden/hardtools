@@ -1,4 +1,5 @@
 import { connectionFile, MAX_FILE, packetBinding, ReaderError, targetMatches, unlock } from './format.mjs';
+import { enableKeyPanel } from './keys.mjs';
 
 const el = id => document.getElementById(id);
 const meta = document.querySelector('meta[name=hardtools-run]');
@@ -82,17 +83,27 @@ async function copy(kind) {
 if (binding.number) {
   el('context').textContent = `Run #${binding.number} · ${binding.endpoint}`; el('context').hidden = false;
 }
-if (location.protocol !== 'file:' || window.self !== window.top) {
-  say('Önizlemede dosya seçimi kapalı. ZIP’i çıkarıp BAGLAN.html dosyasını bilgisayarında aç.');
-} else if (meta.dataset.mode && meta.dataset.mode !== 'serve') {
-  say('Bu kısa test veya kapalı bir oturum. Bağlanmak için çalışan serve paketini kullan.', 'bad');
-} else if (!globalThis.crypto?.subtle) {
-  say('Tarayıcı yerel şifre çözmeyi desteklemiyor. Dosyayı güncel Edge, Chrome veya Firefox ile aç.', 'bad');
+const local = location.protocol === 'file:' && window.self === window.top;
+const closedRun = Boolean(meta.dataset.mode && meta.dataset.mode !== 'serve');
+el('localNotice').hidden = local; el('keysPanel').open = !binding.number || closedRun;
+if (!local) {
+  say('Önizlemede işlemler kapalı. BAGLAN.html dosyasını indirip kendi bilgisayarında aç.');
+} else if (!globalThis.crypto?.subtle || typeof globalThis.crypto.getRandomValues !== 'function') {
+  el('localNotice').hidden = false; el('localNotice').textContent = 'Güvenli kriptografi kullanılamıyor. Dosyayı güncel Edge, Chrome veya Firefox ile aç.';
+  say(el('localNotice').textContent, 'bad');
 } else {
-  pack.disabled = el('reset').disabled = false;
-  pack.addEventListener('change', () => { key.value = ''; key.disabled = el('keyRow').hidden = true; void refresh(); });
-  key.addEventListener('change', refresh);
-  target.addEventListener('input', checkTarget);
-  for (const [id, kind] of [['copyInvite', 'invite'], ['copyEndpoint', 'endpoint'], ['copyRaw', 'raw'], ['copyHeader', 'header']]) el(id).addEventListener('click', () => copy(kind));
-  el('reset').addEventListener('click', reset); window.addEventListener('pagehide', reset); reset();
+  // Preparing a key for a future run is independent of the selected run/packet.
+  const resetKeys = enableKeyPanel(el, readFile);
+  window.addEventListener('pagehide', resetKeys);
+  if (closedRun) {
+    el('localNotice').hidden = false; el('localNotice').textContent = 'Bu kısa test veya kapalı bir oturum. Yeni yayın için anahtar hazırlayabilirsin; bu paketten bağlanamazsın.';
+    say(el('localNotice').textContent, 'bad');
+  } else {
+    pack.disabled = el('reset').disabled = false;
+    pack.addEventListener('change', () => { key.value = ''; key.disabled = el('keyRow').hidden = true; void refresh(); });
+    key.addEventListener('change', refresh);
+    target.addEventListener('input', checkTarget);
+    for (const [id, kind] of [['copyInvite', 'invite'], ['copyEndpoint', 'endpoint'], ['copyRaw', 'raw'], ['copyHeader', 'header']]) el(id).addEventListener('click', () => copy(kind));
+    el('reset').addEventListener('click', () => { resetKeys(); reset(); }); window.addEventListener('pagehide', reset); reset();
+  }
 }
