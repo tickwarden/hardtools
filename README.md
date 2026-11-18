@@ -51,14 +51,16 @@ Klasörü plugin olarak yükle (`.claude-plugin/plugin.json` + `.mcp.json` hazı
    `ssh-ed25519 …` / `ssh-rsa …` satırı). İstersen bir kez `HARDTOOLS_AGE_RECIPIENT`
    adlı **repository variable** olarak kaydet. Özel anahtarını GitHub'a yükleme.
    Private repoda alıcıyı boş bırakırsan repo okuyucuları bağlantı dosyasını düz metin olarak indirebilir.
-2. Çalışan run'da **serve → Bağlantı hazır (canlı log)** adımını aç. `/mcp` ile biten
-   endpoint ve `hardtools-connect` indirme bağlantısı burada görünür; **Summary'yi veya
-   “Yayında tut” adımının bitmesini bekleme**. Artifact bağlantısını GitHub'a giriş yapmışken aç.
-3. Zip'ten `connect.txt` dosyasını çıkar. Şifreliyse kendi bilgisayarında
-   `age -d -i ~/.ssh/id_ed25519 connect.txt` (age anahtarı için `age -d -i key.txt connect.txt`)
-   ile aç. Dosyadaki tek kullanımlık daveti önce tarayıcıda aç; sonra Claude → Settings →
-   Connectors'da `hardtools` adıyla logdaki **MCP endpointini** gir. OAuth client ID/secret boş kalır.
-   Davet de bearer token gibi gizlidir. Job kapanınca tünel kapanır; yenilenen run farklı adres verir.
+2. Çalışan run'ın **Artifacts → hardtools-connect** dosyasını indir ve ZIP'i çıkar.
+   **Önce `BASLA-BURADAN.txt` dosyasını aç.** Bu şifresiz kılavuzda o run'ın tam MCP
+   endpointi, Windows/PowerShell ve macOS/Linux komutları, Claude connector alanları,
+   oturum durumu bağlantısı ve sorun giderme adımları var. **Summary veya log gerekmez.**
+3. Aynı ZIP'teki `connect.txt` tek kullanımlık daveti ve bearer token'ı içerir.
+   Şifreliyse kendi özel anahtarınla, kılavuzdaki gibi **yerelde** aç; örneğin
+   `age -d -i hardtools-key.txt connect.txt`. Daveti Claude ile aynı tarayıcı profilinde
+   bir kez aç; connector URL alanına daveti değil, kılavuzdaki `/mcp` adresini gir.
+   Name: `hardtools`. OAuth client ID ve secret boş kalır. Oturum kapanırsa yeni run'ın
+   ZIP'ini kullan. Özel anahtar ZIP'e veya repoya yüklenmez.
 
 **Kısa doğrulama bir yayın değildir.** `check-connection`, artifact'ı job sürerken geri
 indirip karşılaştırır ve tünelin MCP adresini doğrular; sonra **bilerek kapanır**.

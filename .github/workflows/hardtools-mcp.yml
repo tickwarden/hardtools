@@ -1,5 +1,6 @@
 # AI yardımıyla düzenlendi; birleştirmeden önce insan incelemesi önerilir.
-# serve: /mcp adresi ve artifact indirme bağlantısı canlı job logundadır.
+# serve: endpoint ve kullanım kılavuzu hardtools-connect/BASLA-BURADAN.txt içinde.
+# Canlı log kolaylıktır; bağlantı için job özeti gerekmez.
 # Tek kullanımlık davet ve bearer token herkese açık değildir: hardtools-connect içinde
 # teslim edilir. Public repoda alıcının açık anahtarı gerekir; özel anahtar yüklenmez.
 # Private repoda alıcı belirtilmezse artifact açıktır (repo okuyucuları okuyabilir).
@@ -91,6 +92,7 @@ jobs:
           name: hardtools-bundle
           path: |
             bundle/
+            scripts/connect-guide.mjs
             package.json
             README.md
             LICENSE
@@ -203,6 +205,8 @@ jobs:
 
       - name: Start tunnel + MCP server (arka planda)
         id: start_mcp
+        env:
+          RUN_MODE: ${{ inputs.action }}
         run: |
           set -euo pipefail
           umask 077
@@ -291,13 +295,30 @@ jobs:
           fi
 
           printf '::add-mask::%s\n' "${invite_url##*/}"
-          plain="$(printf 'A) claude.ai web / Claude app  (Settings > Connectors > Add custom connector)\n   1. Git: %s\n      Bu invite linkini aç (tek seferlik, 24 saat geçerli).\n   2. Sonra connector ekle:\n      URL: %s\n      OAuth client ID/secret bırak boş. Yetkilendirme otomatik tamamlanır.\n\nB) Claude Code / Desktop (header gönderebilir, invite gerekmez)\n   URL: %s\n   Header name: Authorization\n   Header value: Bearer %s\n\nLOCAL_TOOLS: %s\n' \
-            "$invite_url" "$endpoint" "$endpoint" "$token" "$ALLOW_LOCAL_TOOLS")"
+          # Yalnızca herkese açık alanlar şifresiz rehbere girebilir.
+          run_url="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+          guide="$RUNNER_TEMP/connect/BASLA-BURADAN.txt"
+          node "$GITHUB_WORKSPACE/artifact/scripts/connect-guide.mjs" \
+            "$endpoint" "$run_url" "$GITHUB_RUN_NUMBER" "$RUN_MODE" "$DELIVERY" > "$guide"
+          test -s "$guide"
 
+          # Özel metni public repoda diske düz metin yazmadan age'ye aktar.
+          connection_details() {
+            printf 'HARDTOOLS MCP — ÖZEL BAĞLANTI BİLGİSİ | #%s (%s)\n\n' "$GITHUB_RUN_NUMBER" "$RUN_MODE"
+            if [[ "$RUN_MODE" == check-connection ]]; then
+              echo 'SADECE TEST — Kontrol bitince bu adres kapanır. Claude için yeni bir serve başlat.'
+            fi
+            printf 'Claude web: önce tek kullanımlık daveti Claude ile aynı tarayıcı profilinde aç:\n%s\n\n' "$invite_url"
+            printf 'Settings → Connectors → Add custom connector\nName: hardtools\nMCP Endpoint URL: %s\n' "$endpoint"
+            printf 'OAuth client ID ve secret boş kalsın. Devam edip yetkilendirmeyi tamamla.\n\n'
+            printf 'Header destekleyen istemciler (davet gerekmez)\nURL: %s\nHeader name: Authorization\nHeader value: Bearer %s\n\n' "$endpoint" "$token"
+            printf 'Oturum: %s\nYerel araçlar: %s | Otomatik yenileme: %s\n' "$run_url" "$ALLOW_LOCAL_TOOLS" "$AUTO_RENEW"
+            echo 'Bu bilgiler yalnızca bu job açıkken geçerlidir. Daveti, tokenı ve özel anahtarı paylaşma.'
+          }
           if [[ "$DELIVERY" == plain && "$REPO_PRIVATE" == true ]]; then
-            printf '%s\n' "$plain" > "$conn"
+            connection_details > "$conn"
           else
-            printf '%s\n' "$plain" | "$RUNNER_TEMP/age" -R "$RUNNER_TEMP/recipients.txt" -a > "$conn"
+            connection_details | "$RUNNER_TEMP/age" -R "$RUNNER_TEMP/recipients.txt" -a > "$conn"
           fi
           # /mcp yolu kimlik bilgisi içermez; davet ve bearer step output DEĞİLDİR.
           printf 'endpoint=%s\n' "$endpoint" >> "$GITHUB_OUTPUT"
@@ -307,7 +328,10 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: hardtools-connect
-          path: ${{ runner.temp }}/connect/connect.txt
+          # Dizin veya glob değil: yalnızca bu iki dosya; log/env/anahtar yok.
+          path: |
+            ${{ runner.temp }}/connect/BASLA-BURADAN.txt
+            ${{ runner.temp }}/connect/connect.txt
           retention-days: 1
           if-no-files-found: error
 
@@ -324,16 +348,11 @@ jobs:
             help="Bu test adresini Claude'a ekleme. Kontrol bitince kapanır. Bağlanmak için yeni bir Run workflow aç ve serve seç; Re-run jobs testi tekrarlar."
           else
             title='MCP yayını'
-            help='Claude web: connect.txt içindeki daveti önce tarayıcıda aç. Connector URL alanına MCP endpointini gir; OAuth alanları boş kalır.'
+            help='hardtools-connect ZIP dosyasını indir, çıkar ve BASLA-BURADAN.txt dosyasını aç. Endpoint ve tüm bağlantı adımları orada.'
           fi
           printf '::notice title=%s::%s\n' "$title" "$help"
           printf '::notice title=MCP endpoint::%s\n' "$ENDPOINT"
           printf '::notice title=hardtools-connect::%s\n' "$ARTIFACT_URL"
-          {
-            printf '### %s\n\n%s\n\n' "$title" "$help"
-            printf -- '- MCP endpoint (yalnızca job çalışırken geçerli): <%s>\n' "$ENDPOINT"
-            printf -- '- [hardtools-connect dosyasını indir](%s) — davet ve bearer token burada, logda değil.\n' "$ARTIFACT_URL"
-          } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Kontrol — artifact job sürerken indirilebiliyor mu?
         if: inputs.action == 'check-connection'
@@ -348,8 +367,13 @@ jobs:
           ENDPOINT: ${{ steps.start_mcp.outputs.endpoint }}
         run: |
           set -euo pipefail
-          cmp -s "$RUNNER_TEMP/connect/connect.txt" "$RUNNER_TEMP/check-connect/connect.txt" || {
-            echo '::error::İndirilen bağlantı dosyası yüklenenle aynı değil.'; exit 1;
+          for file in BASLA-BURADAN.txt connect.txt; do
+            cmp -s "$RUNNER_TEMP/connect/$file" "$RUNNER_TEMP/check-connect/$file" || {
+              echo "::error::İndirilen $file eksik veya yüklenenle aynı değil."; exit 1;
+            }
+          done
+          grep -Fxq -- "$ENDPOINT" "$RUNNER_TEMP/check-connect/BASLA-BURADAN.txt" || {
+            echo '::error::Rehberde bu oturumun MCP adresi bulunamadı.'; exit 1;
           }
           # Daveti tüketme; kimlik bilgisi göndermeyen OAuth discovery isteği yeterli.
           for _ in {1..15}; do
