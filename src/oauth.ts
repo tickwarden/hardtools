@@ -1,4 +1,6 @@
 // AI-generated (Claude, Anthropic), 2026-11-13. Requires human security review before production use.
+// 2026-11-17: Invite-code sistemi eklendi. Ham HTTP token artık connect.txt'ye yazılmıyor;
+//             bunun yerine HMAC-imzalı, tek seferlik, 24 saat geçerli davet URL'si kullanılıyor.
 //
 // Minimal, stateless OAuth 2.1 authorization server for the remote (--http) mode.
 //
@@ -8,10 +10,13 @@
 // authorization-server metadata, RFC 7591 dynamic client registration, PKCE). A bare
 // `401 {"error":"unauthorized"}` makes the dialog fail with "could not add connector".
 //
-// Security model: the consent page asks for the SAME secret as HARDTOOLS_HTTP_TOKEN, so only
-// someone who already holds the secret can obtain OAuth tokens. Nothing is stored server-side:
-// client ids, authorization codes, access and refresh tokens are HMAC-signed blobs derived from
-// the secret. Restarting the server with a new secret invalidates everything.
+// Security model:
+//   - HARDTOOLS_HTTP_TOKEN is the master secret; it never leaves the server process.
+//   - Invite codes are HMAC-signed blobs derived from the master secret.
+//     Each code is single-use (jti tracked in memory) and expires in 24 hours.
+//   - Visiting /invite/<code> pre-authorizes that browser session via a short-lived
+//     session cookie, which the consent page then consumes instead of asking for the token.
+//   - Restarting the server invalidates all invite codes and sessions.
 import crypto from "node:crypto";
 import type http from "node:http";
 
@@ -19,11 +24,13 @@ const B64 = (b: Buffer | string) => Buffer.from(b).toString("base64url");
 const sha256 = (s: string | Buffer) => crypto.createHash("sha256").update(s).digest();
 const safeEq = (a: string, b: string) => crypto.timingSafeEqual(sha256(a), sha256(b));
 
-const ACCESS_TTL_S = 60 * 60;          // 1 h
-const REFRESH_TTL_S = 12 * 60 * 60;    // longer than any single `serve` job (<6 h)
-const CODE_TTL_S = 60;
-const CLIENT_TTL_S = 7 * 24 * 60 * 60;
-const MAX_BODY = 16_384;
+const ACCESS_TTL_S  = 60 * 60;           // 1 h
+const REFRESH_TTL_S = 12 * 60 * 60;      // longer than any single `serve` job (<6 h)
+const CODE_TTL_S    = 60;
+const CLIENT_TTL_S  = 7 * 24 * 60 * 60;
+const INVITE_TTL_S  = 24 * 60 * 60;      // 24 h — invite link validity
+const SESSION_TTL_S = 10 * 60;           // 10 min — time to complete OAuth after visiting invite link
+const MAX_BODY      = 16_384;
 
 /** Redirect URIs a client may register: Claude's callbacks plus loopback (native clients, MCP inspector). */
 function redirectAllowed(uri: string, extra: Set<string>): boolean {
@@ -43,8 +50,10 @@ export interface OAuthOptions {
 
 export class OAuth {
   private key: Buffer;
-  private usedCodes = new Map<string, number>(); // jti -> exp (single-use enforcement, in-memory)
-  private failures: number[] = [];                // timestamps of recent failed consent attempts
+  private usedCodes    = new Map<string, number>(); // jti -> exp (authorization code single-use)
+  private usedInvites  = new Map<string, number>(); // jti -> exp (invite single-use)
+  private sessions     = new Map<string, number>(); // sessionId -> exp (invite → consent bridge)
+  private failures: number[] = [];
   private extra: Set<string>;
 
   constructor(private o: OAuthOptions) {
@@ -71,6 +80,61 @@ export class OAuth {
 
   /** True if `bearer` is an access token minted by this server. */
   isAccessToken(bearer: string): boolean { return this.verify(bearer.startsWith("hta.") ? bearer.slice(4) : "", "at") !== null; }
+
+  // ---- invite codes ---------------------------------------------------------------------
+
+  /**
+   * Mint a single-use invite code valid for 24 hours.
+   * Returns the full invite URL to embed in connect.txt.
+   */
+  mintInvite(origin: string): string {
+    const jti = crypto.randomBytes(12).toString("base64url");
+    const code = this.sign({ t: "inv", jti, exp: this.now() + INVITE_TTL_S });
+    return `${origin}/invite/${encodeURIComponent(code)}`;
+  }
+
+  /**
+   * Validate and consume an invite code.
+   * Returns a short-lived session token on success, null on failure.
+   */
+  private redeemInvite(code: string): string | null {
+    const p = this.verify(code, "inv");
+    if (!p) return null;
+    const nowS = this.now();
+    // Purge expired entries
+    for (const [k, e] of this.usedInvites) if (e < nowS) this.usedInvites.delete(k);
+    if (this.usedInvites.has(p.jti)) return null; // already used
+    this.usedInvites.set(p.jti, p.exp);
+    // Mint a short-lived session id
+    const sessionId = crypto.randomBytes(24).toString("base64url");
+    this.sessions.set(sessionId, nowS + SESSION_TTL_S);
+    this.o.audit?.({ ev: "invite_redeemed" });
+    return sessionId;
+  }
+
+  /** Check whether a session cookie is still valid (without consuming it). */
+  private hasValidSession(req: http.IncomingMessage): boolean {
+    const sid = this.parseCookie(req, "ht_session");
+    if (!sid) return false;
+    const exp = this.sessions.get(sid);
+    if (!exp || exp < this.now()) { this.sessions.delete(sid ?? ""); return false; }
+    return true;
+  }
+
+  /** Consume (invalidate) the session after the authorization code is issued. */
+  private consumeSession(req: http.IncomingMessage): void {
+    const sid = this.parseCookie(req, "ht_session");
+    if (sid) this.sessions.delete(sid);
+  }
+
+  private parseCookie(req: http.IncomingMessage, name: string): string | null {
+    const header = req.headers.cookie ?? "";
+    for (const part of header.split(";")) {
+      const [k, ...rest] = part.trim().split("=");
+      if (k.trim() === name) return decodeURIComponent(rest.join("=").trim());
+    }
+    return null;
+  }
 
   // ---- helpers --------------------------------------------------------------------------
   /** Public origin. The Host header was already validated against HARDTOOLS_ALLOWED_HOSTS by the caller. */
@@ -108,7 +172,7 @@ export class OAuth {
   }
 
   // ---- routing --------------------------------------------------------------------------
-  /** Returns true when the request was an OAuth/discovery route and has been fully handled. */
+  /** Returns true when the request was an OAuth/discovery/invite route and has been fully handled. */
   async handle(req: http.IncomingMessage, res: http.ServerResponse): Promise<boolean> {
     const path = (req.url ?? "").split("?")[0];
     const method = req.method ?? "GET";
@@ -133,10 +197,37 @@ export class OAuth {
       });
       return true;
     }
-    if (path === "/register") { await this.register(req, res); return true; }
-    if (path === "/authorize") { await this.authorize(req, res, origin); return true; }
-    if (path === "/token") { await this.tokenEndpoint(req, res); return true; }
+    if (path === "/register")           { await this.register(req, res); return true; }
+    if (path === "/authorize")          { await this.authorize(req, res, origin); return true; }
+    if (path === "/token")              { await this.tokenEndpoint(req, res); return true; }
+    if (path.startsWith("/invite/"))    { await this.handleInvite(req, res, path, origin); return true; }
     return false;
+  }
+
+  // ---- /invite/<code> -------------------------------------------------------------------
+  private async handleInvite(req: http.IncomingMessage, res: http.ServerResponse, path: string, origin: string) {
+    if (req.method !== "GET") { this.oerr(res, 405, "invalid_request", "GET only"); return; }
+    const code = decodeURIComponent(path.slice("/invite/".length));
+    const sessionId = this.redeemInvite(code);
+    if (!sessionId) {
+      this.page(res, 410, "This invite link has already been used or has expired. Ask for a new one.", null, null);
+      return;
+    }
+    // Set session cookie, then redirect to /authorize with no pre-filled params.
+    // The user still needs to complete the OAuth flow (connector dialog drives this).
+    const cookieExp = new Date((this.now() + SESSION_TTL_S) * 1000).toUTCString();
+    res.writeHead(200, {
+      "set-cookie": `ht_session=${encodeURIComponent(sessionId)}; HttpOnly; SameSite=Lax; Path=/; Expires=${cookieExp}${origin.startsWith("https") ? "; Secure" : ""}`,
+      "content-type": "text/html; charset=utf-8",
+      "cache-control": "no-store",
+      "x-frame-options": "DENY",
+      "content-security-policy": "default-src 'none'; style-src 'unsafe-inline'; frame-ancestors 'none'; base-uri 'none'",
+    });
+    res.end(`<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>hardtools</title>
+<style>body{font:16px system-ui,sans-serif;max-width:30rem;margin:4rem auto;padding:0 1rem}button{padding:.6rem 1.2rem}</style>
+<h1>hardtools</h1>
+<p>Invite link accepted. You have <strong>10 minutes</strong> to connect Claude.</p>
+<p>Go to <strong>Settings &rarr; Connectors &rarr; Add custom connector</strong> in Claude and paste the MCP endpoint URL (<code>${origin}/mcp</code>). When prompted to authorize, this session will be recognized automatically.</p>`);
   }
 
   // ---- RFC 7591 dynamic client registration (stateless: client_id is a signed blob) ------
@@ -163,18 +254,18 @@ export class OAuth {
     try { const j = JSON.parse(raw.toString("utf8")); return j && typeof j === "object" && !Array.isArray(j) ? j : null; } catch { return null; }
   }
 
-  // ---- authorization endpoint: consent page that demands the server secret ----------------
+  // ---- authorization endpoint -----------------------------------------------------------
   private async authorize(req: http.IncomingMessage, res: http.ServerResponse, origin: string) {
     let q: Record<string, string>;
     if (req.method === "GET") q = Object.fromEntries(new URL(req.url ?? "/", origin).searchParams);
-    else if (req.method === "POST") { const b = await this.readParams(req); if (!b) return this.page(res, 400, "Request too large or malformed.", null); q = b; }
+    else if (req.method === "POST") { const b = await this.readParams(req); if (!b) return this.page(res, 400, "Request too large or malformed.", null, null); q = b; }
     else return this.oerr(res, 405, "invalid_request", "GET or POST only");
 
     // Validate client + redirect_uri FIRST; on failure never redirect (open-redirect protection).
     const client = this.verify(q.client_id, "c");
-    if (!client) return this.page(res, 400, "Unknown or expired client. Remove the connector and add it again.", null);
+    if (!client) return this.page(res, 400, "Unknown or expired client. Remove the connector and add it again.", null, null);
     if (!q.redirect_uri || !Array.isArray(client.ru) || !client.ru.includes(q.redirect_uri))
-      return this.page(res, 400, "redirect_uri does not match the registered client.", null);
+      return this.page(res, 400, "redirect_uri does not match the registered client.", null, null);
     const back = (params: Record<string, string>) => {
       const u = new URL(q.redirect_uri); for (const [k, v] of Object.entries(params)) u.searchParams.set(k, v);
       if (q.state) u.searchParams.set("state", q.state);
@@ -184,31 +275,41 @@ export class OAuth {
     if (q.code_challenge_method !== "S256" || !/^[A-Za-z0-9_-]{43}$/.test(q.code_challenge ?? ""))
       return back({ error: "invalid_request", error_description: "PKCE with S256 is required" });
 
-    if (req.method === "GET") return this.page(res, 200, "", q);
+    if (req.method === "GET") {
+      // Check for valid invite session — if present, skip the token form
+      if (this.hasValidSession(req)) {
+        // Auto-authorize: issue the code immediately
+        this.consumeSession(req);
+        const jti = crypto.randomBytes(12).toString("base64url");
+        const code = this.sign({ t: "code", jti, cid: q.client_id, ru: q.redirect_uri, cc: q.code_challenge, exp: this.now() + CODE_TTL_S });
+        this.o.audit?.({ ev: "oauth_authorize", ok: true, via: "invite_session" });
+        return back({ code });
+      }
+      return this.page(res, 200, "", q, null);
+    }
 
-    // POST: check the secret, with a global failure throttle (the tunnel hides client IPs).
+    // POST: check the secret (fallback for direct token entry — kept for Claude Code / Desktop)
     const now = Date.now(); this.failures = this.failures.filter(t => now - t < 60_000);
-    if (this.failures.length >= 10) return this.page(res, 429, "Too many failed attempts. Wait a minute.", q);
+    if (this.failures.length >= 10) return this.page(res, 429, "Too many failed attempts. Wait a minute.", q, null);
     if (typeof q.access_token !== "string" || !safeEq(q.access_token.trim(), this.o.token)) {
       this.failures.push(now); this.o.audit?.({ ev: "oauth_authorize", ok: false });
-      return this.page(res, 401, "Wrong access token.", q);
+      return this.page(res, 401, "Wrong access token.", q, null);
     }
     const jti = crypto.randomBytes(12).toString("base64url");
     const code = this.sign({ t: "code", jti, cid: q.client_id, ru: q.redirect_uri, cc: q.code_challenge, exp: this.now() + CODE_TTL_S });
-    this.o.audit?.({ ev: "oauth_authorize", ok: true });
+    this.o.audit?.({ ev: "oauth_authorize", ok: true, via: "direct_token" });
     back({ code });
   }
 
-  private page(res: http.ServerResponse, code: number, error: string, q: Record<string, string> | null) {
+  private page(res: http.ServerResponse, code: number, error: string, q: Record<string, string> | null, _unused: null) {
     const esc = (s: string) => s.replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]!));
     const keep = ["response_type", "client_id", "redirect_uri", "state", "code_challenge", "code_challenge_method", "scope", "resource"];
     const hidden = q ? keep.filter(k => typeof q[k] === "string").map(k => `<input type="hidden" name="${k}" value="${esc(q[k])}">`).join("") : "";
-    const form = q ? `<p>Enter the hardtools access token (the secret from <code>connect.txt</code>) to let Claude connect.</p>
+    // Token form is kept as fallback for Claude Code / Desktop direct use
+    const form = q ? `<p>Enter the hardtools access token to let Claude connect. Alternatively, use an invite link.</p>
 <form method="post" action="/authorize" autocomplete="off">${hidden}<input type="password" name="access_token" autocomplete="off" autofocus required placeholder="access token"><button type="submit">Authorize</button></form>` : "";
     res.writeHead(code, {
       "content-type": "text/html; charset=utf-8", "cache-control": "no-store", "x-frame-options": "DENY",
-      // NOT "no-referrer": with that policy browsers send `Origin: null` on the same-origin form POST,
-      // which index.ts then rejects ("browser origins are not allowed"). "same-origin" still leaks nothing cross-origin.
       "referrer-policy": "same-origin",
       "content-security-policy": "default-src 'none'; style-src 'unsafe-inline'; frame-ancestors 'none'; base-uri 'none'",
     });

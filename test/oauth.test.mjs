@@ -148,15 +148,16 @@ test("oauth: tokens from another server secret are rejected; consent POST allows
   } finally { A.child.kill("SIGKILL"); B.child.kill("SIGKILL"); }
 });
 
-test("oauth: /mcp/<token> path fallback works, wrong path token is refused, and it can be disabled", async () => {
+test("oauth: /mcp/<token> path fallback kaldırıldı — her zaman 404 döner", async () => {
   const token = crypto.randomBytes(32).toString("hex");
-  const on = await start(token);
-  const off = await start(token, { HARDTOOLS_HTTP_PATH_TOKEN: "0" });
+  const srv = await start(token);
   try {
-    const r = await mcp(on.base, {}, `/mcp/${token}`); assert.equal(r.status, 200); assert.match(await r.text(), /hardtools/);
-    assert.equal((await mcp(on.base, {}, `/mcp/${token.slice(0, -1)}0`)).status, 401);
-    assert.equal((await mcp(on.base, {}, "/mcp/")).status, 401);
-    assert.equal((await mcp(off.base, {}, `/mcp/${token}`)).status, 404);
-    assert.equal((await fetch(`${on.base}/nothing`)).status, 404);
-  } finally { on.child.kill("SIGKILL"); off.child.kill("SIGKILL"); }
+    // Path fallback kaldırıldı: token doğru olsa bile 404
+    assert.equal((await mcp(srv.base, {}, `/mcp/${token}`)).status, 404);
+    assert.equal((await mcp(srv.base, {}, "/mcp/")).status, 404);
+    assert.equal((await fetch(`${srv.base}/nothing`)).status, 404);
+    // Bearer token hâlâ çalışmalı
+    const bearer = await mcp(srv.base, { authorization: `Bearer ${token}` });
+    assert.equal(bearer.status, 200);
+  } finally { srv.child.kill("SIGKILL"); }
 });

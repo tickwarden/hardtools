@@ -230,6 +230,9 @@ jobs:
               printf 'export HARDTOOLS_HTTP_ALLOW_LOCAL_TOOLS=%q\n' "$ALLOW_LOCAL_TOOLS"
               printf 'export HARDTOOLS_PROFILE=%q\n' balanced
               printf 'export HARDTOOLS_ROOTS=%q\n' "$sandbox"
+              # HARDTOOLS_INVITE_ORIGIN: sunucu başlarken invite URL üretmek için kullanılır.
+              # Ham token connect.txt'ye yazılmaz; bunun yerine sunucunun ürettiği invite URL yer alır.
+              printf 'export HARDTOOLS_INVITE_ORIGIN=%q\n' "$url"
               printf 'unset HARDTOOLS_CONFIG\n'
             } > "$RUNNER_TEMP/node.env"
           )
@@ -259,11 +262,26 @@ jobs:
           [ "$ready" = 1 ] || { tail -n 20 "$RUNNER_TEMP/node.log"; echo "::error::Sunucu 30 sn içinde hazır olmadı"; exit 1; }
 
           # --- Bağlantı bilgisi: log/özet YERİNE artifact dosyası ---
+          # Invite URL sunucu başlangıcında node.env aracılığıyla üretilir; başlatma logundan okunur.
           endpoint="$url/mcp"
           mkdir -p "$RUNNER_TEMP/connect"
           conn="$RUNNER_TEMP/connect/connect.txt"
-          plain="$(printf 'A) claude.ai web / Claude app  (Settings > Connectors > Add custom connector)\n   URL: %s\n   Leave "OAuth client ID/secret" empty. A browser tab opens; paste this access token when asked:\n   %s\n\nB) Fallback if A fails (URL contains the secret, treat it like a password):\n   URL: %s/%s\n\nC) Claude Code / Desktop (can send headers)\n   URL: %s\n   Header name: Authorization\n   Header value: Bearer %s\n\nLOCAL_TOOLS: %s\n' \
-            "$endpoint" "$token" "$endpoint" "$token" "$endpoint" "$token" "$ALLOW_LOCAL_TOOLS")"
+
+          # Sunucudan invite URL'sini oku (en fazla 15 sn bekle)
+          invite_url=""
+          for _ in $(seq 1 15); do
+            invite_url="$(grep -oE "${url}/invite/[A-Za-z0-9._~%=-]+" "$RUNNER_TEMP/node.log" | head -n1 || true)"
+            [ -n "$invite_url" ] && break
+            sleep 1
+          done
+          if [ -z "$invite_url" ]; then
+            echo "::error::Sunucu invite URL üretemedi. node.log kontrol et."
+            tail -n 20 "$RUNNER_TEMP/node.log"
+            exit 1
+          fi
+
+          plain="$(printf 'A) claude.ai web / Claude app  (Settings > Connectors > Add custom connector)\n   1. Git: %s\n      Bu invite linkini aç (tek seferlik, 24 saat geçerli).\n   2. Sonra connector ekle:\n      URL: %s\n      OAuth client ID/secret bırak boş. Yetkilendirme otomatik tamamlanır.\n\nB) Claude Code / Desktop (header gönderebilir, invite gerekmez)\n   URL: %s\n   Header name: Authorization\n   Header value: Bearer %s\n\nLOCAL_TOOLS: %s\n' \
+            "$invite_url" "$endpoint" "$endpoint" "$token" "$ALLOW_LOCAL_TOOLS")"
           if [ -n "$AGE_RECIPIENT" ]; then
             printf '%s\n' "$plain" | age -r "$AGE_RECIPIENT" -a > "$conn"
             echo "### hardtools MCP yayında (şifreli)" >> "$GITHUB_STEP_SUMMARY"
