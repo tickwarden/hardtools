@@ -1,6 +1,7 @@
 # AI-assisted: Bu dosya Claude (Anthropic) tarafından yeniden düzenlendi; auto_renew zinciri ve
 # unpublish sertleştirmesi de Claude tarafından eklendi. Teslim yolunun private/public ayrımı
 # (public repoda tetikleyenin GitHub SSH key'lerine şifreleme) de Claude tarafından eklendi.
+# Geçersiz age_recipient girdisini yok sayan doğrulama da Claude tarafından eklendi.
 # Merge etmeden önce insan gözden geçirmesi gerekir (Legends11).
 #
 # Bu workflow hiçbir repo secret'ı veya variable'ı GEREKTİRMEZ.
@@ -10,6 +11,7 @@
 #  - Bağlantı bilgisi (endpoint + token) log/özet yerine `hardtools-connect` artifact'ında.
 #    Public repoda her zaman age ile şifrelenir (age_recipient boşsa tetikleyenin GitHub SSH
 #    key'lerine). Private repoda age_recipient vermezsen düz yazı dosyadır.
+#    age_recipient geçerli bir alıcıya benzemiyorsa (komut vb.) boş sayılır.
 #
 # serve davranışı:
 #  - MCP sunucusu çökerse aynı token/host ile yeniden başlatılır (en fazla 5 kez).
@@ -170,6 +172,16 @@ jobs:
           rec="$RUNNER_TEMP/recipients.txt"
           : > "$rec"
           src="$AGE_RECIPIENT"
+
+          # Girdi geçerli bir alıcıya benzemiyorsa (örn. yanlışlıkla komut yazılmışsa) boş say.
+          # Boş sayılan girdi aşağıdaki varsayılan mantığa düşer:
+          #  - public repo: tetikleyenin GitHub SSH key'lerine şifrele (yoksa fail-closed)
+          #  - private repo: düz yazı
+          re='^(age1[a-z0-9]+|github:[A-Za-z0-9-]+|ssh-(ed25519|rsa) +[A-Za-z0-9+/=]+( .*)?)$'
+          if [ -n "$src" ] && ! [[ "$src" =~ $re ]]; then
+            echo "::warning::age_recipient geçerli bir alıcıya benzemiyor (age1..., ssh PUBLIC key veya github:kullanici bekleniyordu), yok sayıldı."
+            src=""
+          fi
 
           # Public repoda boş bırakılırsa: tetikleyenin GitHub SSH key'lerine şifrele.
           if [ -z "$src" ] && [ "$REPO_PRIVATE" != "true" ]; then
