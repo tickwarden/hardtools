@@ -362,6 +362,19 @@ jobs:
               echo "connect.txt şifreli. SSH key: \`age -d -i ~/.ssh/id_ed25519 connect.txt\`; age key: \`age -d -i key.txt connect.txt\`" >> "$GITHUB_STEP_SUMMARY"
             fi
           fi
+
+          # --- URL'leri her zaman summary'ye yaz (token değil) ---
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "### Bağlantı URL'leri (token sadece artifact'ta)" >> "$GITHUB_STEP_SUMMARY"
+          echo "- **MCP Endpoint URL:** \`$endpoint\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- **Invite URL (Claude web için):** \`$invite_url\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "Claude.ai → Settings → Connectors → Add custom connector:" >> "$GITHUB_STEP_SUMMARY"
+          echo "1. Önce Invite URL'yi tarayıcıda aç (tek seferlik)." >> "$GITHUB_STEP_SUMMARY"
+          echo "2. Name: \`hardtools\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "3. URL alanına yukarıdaki **MCP Endpoint URL**'yi yapıştır (\`https://...\` ile başlar)." >> "$GITHUB_STEP_SUMMARY"
+          echo "4. OAuth client ID / secret boş bırak → Devam et." >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
           echo "Local tools: \`$ALLOW_LOCAL_TOOLS\`. Kapatmak için: \`action = unpublish\` ile çalıştır." >> "$GITHUB_STEP_SUMMARY"
           if [ "$AUTO_RENEW" = 1 ]; then
             echo "Otomatik yenileme AÇIK: ~5 sa 30 dk'da yeni bir serve run'ı tetiklenir. Yeni URL+token için o run'ın artifact'larına bak." >> "$GITHUB_STEP_SUMMARY"
