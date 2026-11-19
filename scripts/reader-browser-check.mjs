@@ -1,71 +1,62 @@
-// End to end: production payload writer → artifact-shaped ZIP → local file in Chrome.
-// No real endpoints or secrets. These test packages are not loaded by the reader.
+// All passwords, keys, payloads and URLs are disposable fixtures. No live invite is visited.
 import assert from 'node:assert/strict';
 import { randomBytes } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
-import { mkdtemp, readFile, rm } from 'node:fs/promises';
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { chromium } from 'playwright-core';
-import { armor, Encrypter, generateX25519Identity } from 'age-encryption';
+import { Encrypter, generateX25519Identity, identityToRecipient } from 'age-encryption';
 import { zipSync } from 'fflate';
-import { writePublicFiles } from './connect-guide.mjs';
-import { checkKeyPanel } from './reader-key-check.mjs';
-
+import { makePage } from './connection-card.mjs';
 const root = fileURLToPath(new URL('../', import.meta.url));
-const dir = await mkdtemp(join(tmpdir(), 'ht-reader-'));
-const host = 'offline-reader-test.trycloudflare.com', ep = `https://${host}/mcp`, invite = `https://${host}/invite/example-only`;
-const run = 'https://github.com/example/hardtools/actions/runs/3456', token = randomBytes(32).toString('hex');
+const dir = await mkdtemp(join(tmpdir(), 'ht-card-browser-'));
+const host = 'offline-card-test.trycloudflare.com', endpoint = `https://${host}/mcp`, invite = `https://${host}/invite/example-only`;
+const meta = { v: 2, number: '37', mode: 'serve', endpoint, run: 'https://github.com/example/test/actions/runs/3456' };
+const token = randomBytes(32).toString('hex'), password = randomBytes(24).toString('base64url');
 let browser;
 try {
-  const plain = execFileSync('bash', ['-c', '. scripts/connect-payload.sh; connection_details "$1" "$2" "$3" "$4"', '_', invite, ep, token, run], {
-    cwd: root, env: { PATH: process.env.PATH, GITHUB_RUN_NUMBER: '37', RUN_MODE: 'serve', ALLOW_LOCAL_TOOLS: '0', AUTO_RENEW: '0' },
-  });
-  await writePublicFiles(dir, ep, run, '37', 'serve', 'age');
-  const local = pathToFileURL(join(dir, 'BAGLAN.html')).href;
-  const html = await readFile(join(dir, 'BAGLAN.html')), guide = await readFile(join(dir, 'BASLA-BURADAN.txt'));
-  browser = await chromium.launch({ executablePath: process.env.CHROME_BIN || 'google-chrome', headless: true, args: ['--disable-gpu', '--disable-dev-shm-usage', '--disable-background-networking'] });
-  const context = await browser.newContext(), page = await context.newPage();
-  const requests = [], errors = [];
+  const html = await makePage(meta, { token, invite }, password);
+  await writeFile(join(dir, 'BAGLAN.html'), html);
+  const local = pathToFileURL(join(dir, 'BAGLAN.html')).href, generic = pathToFileURL(join(root, 'bundle/BAGLAN.html')).href;
+  const archive = Buffer.from(zipSync({ 'BAGLAN.html': Buffer.from(html) }));
+  browser = await chromium.launch({ executablePath: process.env.CHROME_BIN || 'google-chrome', headless: true, args: ['--disable-gpu','--disable-dev-shm-usage','--disable-background-networking'] });
+  const context = await browser.newContext(), page = await context.newPage(), requests = [], errors = [];
   context.on('request', r => { if (/^(?:https?|wss?):/i.test(r.url())) requests.push(r.url()); });
-  await context.route(/^https?:\/\//i, r => r.abort());
-  page.on('pageerror', e => errors.push(e.message));
+  await context.route(/^https?:\/\//i, r => r.abort()); page.on('pageerror', e => errors.push(e.message));
   await context.addInitScript(() => Object.defineProperty(navigator, 'clipboard', { value: { writeText: async s => { if (window.denyClipboard) throw Error(); window.testCopied = s; } } }));
-  const $ = id => page.locator('#' + id);
-  const put = (field, name, buffer) => $(field).setInputFiles({ name, buffer, mimeType: 'application/octet-stream' });
-  const status = part => page.waitForFunction(s => document.querySelector('#status').textContent.includes(s), part, { timeout: 5000 });
-  const copied = () => page.evaluate(() => window.testCopied);
-  const { bytes: keyBytes, recipient } = await checkKeyPanel(page, root, dir);
-  const enc = new Encrypter(); enc.addRecipient(recipient);
-  // Optionally exercise the exact Go age/age-keygen CLI in both directions.
-  const cipher = process.env.AGE_BIN ? execFileSync(process.env.AGE_BIN, ['-a', '-r', recipient], { input: plain }) : Buffer.from(armor.encode(await enc.encrypt(plain)));
-  const zip = Buffer.from(zipSync({ 'connect.txt': cipher, 'BASLA-BURADAN.txt': guide, 'BAGLAN.html': html }));
-  const keyZip = Buffer.from(zipSync({ 'hardtools-key.txt': keyBytes }));
-  await page.goto(local);
-  await put('pack', 'hardtools-connect.zip', zip); await status('Paket şifreli');
-  await put('key', 'hardtools-ozel-anahtar.zip', keyZip); await status('Hazır.');
+  const $ = id => page.locator('#' + id), copied = () => page.evaluate(() => window.testCopied);
+  const put = (id,name,buffer) => $(id).setInputFiles({ name, buffer, mimeType:'application/octet-stream' });
+  const status = msg => page.waitForFunction(s => document.querySelector('#status').textContent.includes(s), msg, { timeout: 6000 });
+  async function enter(pw) { await $('password').fill(pw); await $('password').press('Enter'); }
+  await page.goto(local); assert.ok(await $('pack').isHidden()); assert.ok(await $('key').isHidden()); assert.ok(await $('password').isVisible());
+  await $('copyEndpoint').click(); await status('MCP adresi kopyalandı'); assert.equal(await copied(), endpoint);
+  await enter('YWdlLWVuY3J5example'); await status('parolası değil');
+  await enter(password + 'wrong'); await status('Paket açılamadı'); assert.ok(await $('results').isHidden());
+  await enter(password); await status('Bağlantı bilgileri açıldı'); assert.equal(await $('password').inputValue(), '');
   await $('copyInvite').click(); await status('Davet kopyalandı'); assert.equal(await copied(), invite);
-  await $('copyEndpoint').click(); await status('/mcp adresi kopyalandı'); assert.equal(await copied(), ep);
-  await $('formBox').locator('summary').click();
-  await $('target').fill('other-run.trycloudflare.com'); assert.ok(await $('copyRaw').isDisabled());
-  assert.equal(await copied(), ep);
-  await $('target').fill(`https://${host}/authorize?state=example`); await $('copyRaw').click(); await status('Yalın token kopyalandı'); assert.equal(await copied(), token);
+  await $('extra').locator('summary').click(); await $('target').fill('other-run.trycloudflare.com'); assert.ok(await $('copyRaw').isDisabled());
+  await $('target').fill(`https://${host}/authorize?state=example`); await $('copyRaw').click(); await status('Yalın token'); assert.equal(await copied(), token);
   await page.evaluate(() => { window.denyClipboard = true; }); await $('copyRaw').click(); await status('Ctrl+C');
-  assert.equal(await $('manual').inputValue(), token);
-  assert.equal(await $('manual').evaluate(el => el.selectionEnd - el.selectionStart), token.length);
-  await $('target').fill('wrong'); assert.ok(await $('copyRaw').isDisabled()); assert.equal(await $('manual').inputValue(), '');
-  await page.evaluate(() => { window.denyClipboard = false; });
-  await $('headerBox').locator('summary').click(); await $('copyHeader').click(); await status('Header değeri Bearer'); assert.equal(await copied(), 'Bearer ' + token);
-  await put('key', 'other-key.txt', Buffer.from(await generateX25519Identity())); await status('Dosya açılamadı'); assert.ok(await $('results').isHidden());
-  await put('pack', 'connect.txt', cipher); await status('Paket şifreli'); await put('key', 'hardtools-key.txt', keyBytes); await status('Hazır.');
-  await put('pack', 'plain.txt', plain); await status('Hazır.'); assert.ok(await $('key').isHidden());
-  await put('pack', 'other.txt', Buffer.from(plain.toString().replaceAll(host, 'other-run.trycloudflare.com'))); await status('eşleşmiyor'); assert.ok(await $('results').isHidden());
-  await put('pack', 'test.zip', Buffer.from(zipSync({ 'connect.txt': cipher, 'BASLA-BURADAN.txt': Buffer.from('SADECE TEST — örnek') }))); await status('kapalı bir oturum');
-  await $('reset').click(); assert.equal(await $('pack').inputValue(), ''); assert.equal(await $('manual').inputValue(), ''); assert.ok(await $('key').isHidden());
-  await writePublicFiles(dir, ep, run, '37', 'check-connection', 'age'); await page.reload(); await status('kapalı bir oturum'); assert.ok(await $('pack').isDisabled()); assert.ok(await $('makeKey').isEnabled());
-  const preview = await context.newPage(); await preview.setContent(html.toString()); assert.ok(await preview.locator('#pack').isDisabled()); assert.ok(await preview.locator('#makeKey').isDisabled()); assert.ok(await preview.locator('#sourceKey').isDisabled()); assert.match(await preview.locator('#status').textContent(), /Önizlemede/);
+  assert.equal(await $('manual').inputValue(), token); assert.equal(await $('manual').evaluate(e => e.selectionEnd-e.selectionStart), token.length);
+  await $('target').fill('wrong'); assert.equal(await $('manual').inputValue(), ''); await page.evaluate(() => { window.denyClipboard = false; });
+  await $('copyHeader').click(); await status('Authorization değeri'); assert.equal(await copied(), 'Bearer '+token);
+  await $('reset').click(); assert.ok(await $('results').isHidden()); assert.ok(await $('password').isVisible());
+  await page.goto(generic); await put('pack','hardtools-connect.zip', archive); await enter(password); await status('Bağlantı bilgileri açıldı'); await $('reset').click();
+  const id = await generateX25519Identity(), recipient = await identityToRecipient(id);
+  const clear = `HARDTOOLS MCP — ÖZEL BAĞLANTI BİLGİSİ | #37 (serve)\n${invite}\nMCP Endpoint URL: ${endpoint}\nURL: ${endpoint}\nHeader value: Bearer ${token}\n`;
+  const encrypter = new Encrypter(); encrypter.addRecipient(recipient);
+  const binary = process.env.AGE_BIN ? execFileSync(process.env.AGE_BIN, ['-r',recipient], { input:clear }) : Buffer.from(await encrypter.encrypt(clear));
+  const raw = binary.toString('base64').match(/.{1,72}/g).join('\r\n\r\n');
+  await $('oldText').locator('summary').click(); await $('paste').fill(raw); await $('loadText').click(); await status('Şifreli eski paket tanındı');
+  await put('key','other.txt',Buffer.from(await generateX25519Identity())); await status('eski paketi açmadı'); assert.ok(await $('results').isHidden());
+  await put('key','hardtools-key.txt',Buffer.from(id)); await status('Bağlantı bilgileri açıldı'); await $('copyInvite').click(); await status('Davet kopyalandı'); assert.equal(await copied(), invite);
+  await $('reset').click(); await put('pack','old.zip', Buffer.from(zipSync({ 'connect.txt':binary,'BAGLAN.html':Buffer.from('<!doctype html><head></head>') })));
+  await put('key','hardtools-ozel-anahtar.zip',Buffer.from(zipSync({ 'hardtools-key.txt':Buffer.from(id) }))); await status('Bağlantı bilgileri açıldı');
+  await $('reset').click(); await put('pack','old-test.zip',Buffer.from(zipSync({ 'connect.txt':binary, 'BASLA-BURADAN.txt':Buffer.from('SADECE TEST — kapalı') }))); await status('kapalı bir oturum');
+  await writeFile(join(dir,'BAGLAN.html'), await makePage({ ...meta,mode:'check-connection' },{ token, invite }, password)); await page.goto(local); await status('testi bir yayın değil'); assert.ok(await $('password').isDisabled()); assert.ok(await $('results').isHidden());
+  const preview = await context.newPage(); await preview.setContent(html); assert.ok(await preview.locator('#password').isDisabled()); assert.ok(await preview.locator('#pack').isDisabled()); assert.match(await preview.locator('#status').textContent(), /Önizleme/);
   assert.deepEqual(requests, []); assert.deepEqual(errors, []);
-  keyBytes.fill(0);
-  console.log('Browser PASS: local keygen -o/-y, native TXT download, public-only clipboard, workflow payload, encrypted/plain ZIP and TXT, 4 copy targets, origin mismatch, manual copy, wrong key, closed run, preview lock, reset; zero network requests.');
+  console.log('Browser PASS: one HTML → one password → invite; public endpoint, invalid password, raw/header clipboard, Ctrl+C, reset, new ZIP import, legacy Base64/blank lines/age keys, closed run, preview lock; zero network requests.');
 } finally { await browser?.close(); await rm(dir, { recursive: true, force: true }); }

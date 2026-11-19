@@ -40,41 +40,19 @@ Klasörü plugin olarak yükle (`.claude-plugin/plugin.json` + `.mcp.json` hazı
 ### Claude Desktop (stdio)
 `claude_desktop_config.example.json` içeriğini Desktop'un MCP yapılandırmasına ekle. Desktop'ta çalışma dizini proje olmadığı için `HARDTOOLS_ROOTS` **zorunlu** pratikte.
 
-### İlk kullanım: Windows’ta `age-keygen.exe` olmadan anahtar al
+### GitHub Actions: tek dosyayla bağlan
 
-Bir yayına yalnızca davetle katılıyorsan özel anahtara ihtiyacın yok. Kendi şifreli bağlantı paketini alacaksan **`serve` başlatmadan önce** [**BAGLAN.html**](bundle/BAGLAN.html) dosyasını repodan **Download raw file (↓)** ile indir ve bilgisayarında Edge, Chrome veya Firefox ile aç. Bu adım için henüz bir artifact gerekmez.
+**Davet edildiysen:** Yayın sahibinin özelden gönderdiği kullanılmamış daveti Claude ile aynı tarayıcı profilinde bir kez aç. Açılan sayfa hangi `/mcp` adresini kullanacağını gösterir. 10 dakika içinde Claude → Settings → Connectors → Add custom connector: ad `hardtools`, URL bu `/mcp` adresi; OAuth client ID ve secret boş. **Dosya, parola, terminal veya GitHub hesabı gerekmez.**
 
-- **Anahtarın yoksa:** **Anahtar işlemleri → Yeni anahtar oluştur → hardtools-key.txt indir**. Bu, `age-keygen -o hardtools-key.txt` karşılığıdır. TXT’yi güvenli bir yerde sakla; ZIP yapman gerekmez. Önceki bir anahtarın üstüne yazma.
-- **Anahtarın varsa:** **Anahtarım var** altında kendi TXT’ni veya eski `hardtools-ozel-anahtar.zip` dosyanı seç. `age-keygen -y hardtools-key.txt` gibi, mevcut özel anahtardan açık anahtar hesaplanır; dosyan değişmez.
-- **Açık anahtarı kopyala:** `age1…` ile başlayan değeri aşağıdaki `age_recipient` alanına gir. Özel TXT’yi yükleme. Yeni anahtar eski bir paketi açmaz; ayar sonraki çalıştırma içindir.
+**Yayın sahibiysen:**
 
-### GitHub Actions: job bitmeden bağlanma
+1. **Bir kez:** Repo → Settings → Secrets and variables → Actions → **New repository secret**. Adı **`HARDTOOLS_CONNECT_PASSWORD`** olsun. Parola yöneticisinden en az 20 rastgele karakter (en fazla 256; tek satır, başta/sonda boşluk yok) kullan ve kendine sakla. Bu GitHub hesap parolan değildir. Parolayı normal repo variable’a veya workflow girdisine yazma.
+2. **Her yayın:** Actions → hardtools MCP → Run workflow → **`serve`**. Çalışan run’ın **Artifacts → hardtools-connect** ZIP’ini indir. İçinde yalnızca **`BAGLAN.html`** var. Windows’ta *Tümünü ayıkla*, dosyayı Edge, Chrome veya Firefox ile aç, bağlantı parolanı gir. Paket ya da PowerShell kurulmaz. Public ve private repolarda hiçbir düz metin token/davet yayımlanmaz.
+3. **Daveti kopyala** → aynı tarayıcıda bir kez aç (veya bir kişiye özelden gönder). **MCP adresini kopyala** → Claude connector URL alanına yapıştır. Yalnızca yetkilendirme formu ayrıca *Access token* istiyorsa karttaki ilgili bölümü aç, sayfanın alan adını doğrula ve **yalın** token’ı kopyala. Header isteyen istemciler için `Authorization` değeri `Bearer ` önekiyle kopyalanır. Bağlantı parolası yalnızca yerel HTML’ye girilir, tünele değil.
 
-1. **Actions → hardtools MCP → Run workflow** menüsünde varsayılan **`serve`** seçili kalsın.
-   Actions listesinde bu çalıştırma **MCP yayını (serve)** olarak görünür. Elle başlatılan
-   yayın, ilk bağlantıyı beklerken de açık kalır. `auto_renew` varsayılan olarak kapalıdır:
-   normal kapanış yaklaşık 5 saat 45 dakika sonradır. `push` ve PR olayları MCP yayını açmaz.
-   Public repoda
-   `age_recipient` alanına **kendi açık anahtarını** gir (`age1…` veya `.pub` dosyandaki
-   `ssh-ed25519 …` / `ssh-rsa …` satırı). İstersen bir kez `HARDTOOLS_AGE_RECIPIENT`
-   adlı **repository variable** olarak kaydet. Özel anahtarını GitHub'a yükleme.
-   Private repoda hem girdi hem repo değişkeni boşsa repo okuyucuları bağlantı dosyasını düz metin olarak indirebilir.
-2. Çalışan run’dan **Artifacts → hardtools-connect** ZIP’ini indir. Windows’ta **Tümünü ayıkla**, sonra **`BAGLAN.html`** dosyasını bilgisayarında Edge, Chrome veya Firefox ile aç. Aynı klasördeki `connect.txt` dosyasını (veya inen ZIP’i) seç. Şifreliyse **kendi** `hardtools-ozel-anahtar.zip` veya `hardtools-key.txt` dosyanı seç. `age1…` alıcısında kurulum, terminal, Summary veya canlı log gerekmez. Okuyucu ağa bağlanmaz ve dosyaları yüklemez. **SSH alıcısı** için `BASLA-BURADAN.txt` içindeki yerel `age -d` yolunu kullan; düz metin private pakette anahtar istenmez.
-3. İhtiyacına göre doğru değeri kopyala:
+**Önceki sürümden geçiş:** Artık `age_recipient`, özel anahtar üretimi veya ayrı bir `connect.txt` yok. Eski `HARDTOOLS_AGE_RECIPIENT` yeni secret’ın yerini tutmaz. Önceden indirilmiş eski bir paketi açmak için [genel BAGLAN.html](bundle/BAGLAN.html) dosyasını **Download raw file (↓)** ile indir, kendi bilgisayarında aç. Eski ZIP’i seç veya “Eski connect.txt metnini yapıştır” bölümüne tam age metnini ya da yalnız `YWdl…` gövdesini yapıştır. Bu, access token değildir; şifreli eski paketi açmak için yine **o run’ın kendi özel anahtarı** gerekir. Yeni parola eski paketi açmaz. SSH alıcılı eski paketlerde o paketin terminal kılavuzunu kullan.
 
-   | Nereye? | `BAGLAN.html` içinde neyi seçmelisin? |
-   |---|---|
-   | Claude ile aynı tarayıcı profili | **Daveti kopyala**. Adresi bir kez aç, 10 dakika içinde Claude’dan bağlan. |
-   | Claude → Settings → Connectors → Add custom connector → URL | **/mcp adresini kopyala**. Ad: `hardtools`; OAuth client ID ve secret boş. |
-   | Yetkilendirme sayfasındaki **Access token** kutusu | Okuyucuda bu bölümü aç ve sayfanın alan adını veya tam `/authorize` adresini gir. Eşleşirse **Access token’ı kopyala**; kutuya `Bearer` yazmadan yapıştır. |
-   | Header destekleyen istemci → `Authorization` değeri | **Header değerini kopyala**. Burada `Bearer ` öneki dahildir. |
-
-   `BASLA-BURADAN.txt` tam endpointi, durum bağlantısını ve terminal alternatifini içerir. Okuyucu daveti kendiliğinden açmaz, yeni token üretmez ve run’ın canlılığını sorgulamaz. Eski bir run kapandıysa yeni run’ın ZIP’i gerekir. Okuyucusuz eski bir **çalışan** run için repodaki `bundle/BAGLAN.html` dosyasını indirip kendi bilgisayarında açabilir, o run’ın ZIP’ini seçebilirsin. Özel anahtarını, davetini veya token’ını paylaşma.
-
-**Kısa doğrulama bir yayın değildir.** `check-connection`, artifact'ı job sürerken geri
-indirip karşılaştırır ve tünelin MCP adresini doğrular; sonra **bilerek kapanır**.
-Bu testin URL'sini Claude'a ekleme. Eski testte **Re-run jobs** yine test çalıştırır;
-gerçek bir oturum için **Run workflow → serve** kullan.
+Kart canlılığı sorgulamaz. Run iptal edilirse/sonlanırsa eski URL ve token artık çalışmaz. `check-connection` yalnızca kısa bir doğrulamadır, yayın değildir. Manuel yayın ~5 saat 45 dakika açık kalır; `auto_renew` varsayılan olarak kapalıdır. Bir sonraki yayın yeni adres/token üretir. Parola değiştirilirse yeni paketler yeni parolayı, kaydedilmiş eskiler o run sırasındaki parolayı ister. Summary veya canlı log gerekmez.
 
 ### Uzak / HTTP modu (web dahil: **sınırlı**)
 ```bash

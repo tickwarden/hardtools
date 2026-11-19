@@ -1,109 +1,98 @@
-import { connectionFile, MAX_FILE, packetBinding, ReaderError, targetMatches, unlock } from './format.mjs';
-import { enableKeyPanel } from './keys.mjs';
+import { decodeCard, openCard } from './session.mjs';
+import { importConnection } from './import.mjs';
+import { MAX_FILE, pastedPacket, ReaderError, targetMatches, unlock as unlockOld } from './legacy.mjs';
 
-const el = id => document.getElementById(id);
-const meta = document.querySelector('meta[name=hardtools-run]');
-const binding = { number: meta.content, endpoint: meta.dataset.endpoint };
-const pack = el('pack'), key = el('key'), target = el('target');
-let seq = 0, values = null, copyId = 0;
-const say = (s, kind = '') => { el('status').textContent = s; el('status').className = kind; };
-function clearManual() {
-  ++copyId;
-  el('manualBox').hidden = true;
-  el('manual').value = '';
+const $ = id => document.getElementById(id);
+const show = (id, yes = true) => { $(id).hidden = !yes; };
+const note = (msg, bad = false) => { $('status').textContent = msg; $('status').className = bad ? 'bad' : ''; };
+let embedded = null, card = null, old = null, values = null, epoch = 0, copyEpoch = 0;
+function eraseManual() { ++copyEpoch; $('manual').value = ''; show('manualBox', false); }
+function clear() {
+  ++epoch; eraseManual(); old?.cipher?.fill(0); old = card = values = null;
+  for (const id of ['password', 'key', 'pack', 'paste', 'target']) $(id).value = '';
+  for (const id of ['picker', 'locked', 'oldKey', 'results', 'advanced', 'endpointBox', 'runInfo', 'reset']) show(id, false);
+  for (const id of ['password', 'unlock', 'key', 'pack', 'paste', 'loadText', 'copyRaw']) $(id).disabled = true;
+  $('endpoint').textContent = $('match').textContent = ''; $('runInfo').replaceChildren();
+  $('oldText').open = $('extra').open = false;
 }
-function invalidate() {
-  ++seq; values = null; clearManual();
-  target.value = ''; el('copyRaw').disabled = true; el('match').textContent = '';
-  el('ep').textContent = ''; el('which').textContent = ''; el('results').hidden = true;
-  el('formBox').open = el('headerBox').open = false;
+function endpoint(ep, step = false) {
+  $('endpoint').textContent = ep; $('epLabel').textContent = step ? '2 · Claude' : 'Genel bağlantı bilgisi'; show('endpointBox');
 }
-function reset() {
-  invalidate(); pack.value = key.value = ''; key.disabled = el('keyRow').hidden = true;
-  say('Önce bu çalıştırmanın connect.txt veya hardtools-connect.zip dosyasını seç.');
+function useCard(c) {
+  card = c; $('intro').textContent = `Run #${c.number} · Bu sayfa yalnızca bu yayına ait.`;
+  show('picker', false); show('runInfo');
+  const a = document.createElement('a'); a.href = c.run; a.target = '_blank'; a.rel = 'noopener noreferrer'; a.textContent = `GitHub’da #${c.number} durumunu gör`; $('runInfo').replaceChildren(a);
+  if (c.mode !== 'serve') { note('Bu kısa bağlantı testi bir yayın değil. Bağlanmak için bir serve oturumu gerekiyor.', true); show('reset', !embedded); return; }
+  endpoint(c.endpoint); show('locked'); show('reset', !embedded);
+  $('password').disabled = $('unlock').disabled = false;
+  note('Paket hazır. Aşağıya bağlantı parolanı yaz.');
 }
-async function readFile(file) {
-  if (!file || !file.size || file.size > MAX_FILE) throw new ReaderError('Beklenen küçük ZIP veya TXT dosyasını seç.');
+function start() {
+  clear();
+  if (embedded) { useCard(embedded); return; }
+  $('intro').textContent = 'Paketini seç veya ZIP’teki BAGLAN.html dosyasını aç. Yeni yayınlarda yalnızca bağlantı parolası gerekir.';
+  show('picker'); $('pack').disabled = $('paste').disabled = $('loadText').disabled = false;
+  note('Bağlantı verileri başka bir yere gönderilmez.');
+}
+function ready(data) {
+  values = data; $('password').value = $('key').value = ''; $('password').disabled = $('unlock').disabled = $('key').disabled = true;
+  show('picker', false); show('oldKey', false); show('locked', false); show('results'); show('advanced'); show('reset'); endpoint(data.endpoint, true);
+  $('intro').textContent = `${data.number ? 'Run #' + data.number + ' · ' : ''}${new URL(data.endpoint).hostname}`;
+  note('Bağlantı bilgileri açıldı. Daveti kopyalamak onu tüketmez.');
+}
+async function read(file) {
+  if (!file?.size || file.size > MAX_FILE) throw new ReaderError('Beklenen küçük bağlantı veya anahtar dosyasını seç.');
   return new Uint8Array(await file.arrayBuffer());
 }
-async function refresh() {
-  invalidate();
-  const id = seq, file = pack.files[0], keyFile = key.files[0];
-  let bytes, packet, keyBytes;
+async function load(file, pasted) {
+  start(); const n = epoch; let bytes;
   try {
-    if (!file) { reset(); return; }
-    say('Bağlantı dosyası okunuyor…');
-    bytes = await readFile(file); if (id !== seq) return;
-    packet = connectionFile(bytes);
-    packetBinding(packet, binding); // reject a different run before asking for an identity
-    const needsKey = packet.kind === 'age';
-    key.disabled = el('keyRow').hidden = !needsKey;
-    if (needsKey) {
-      if (!keyFile) { say('Paket şifreli. Kendi age özel anahtar dosyanı seç.'); return; }
-      keyBytes = await readFile(keyFile); if (id !== seq) return;
-      say('Şifre bilgisayarında çözülüyor…');
-    }
-    const opened = await unlock(packet, keyBytes, binding); if (id !== seq) return;
-    values = opened;
-    el('ep').textContent = values.endpoint;
-    el('which').textContent = (values.number ? 'Run #' + values.number + ' · ' : '') + new URL(values.endpoint).hostname;
-    el('results').hidden = false;
-    say('Hazır. Kopyalamak istediğin değeri seç.', 'good');
-  } catch (e) {
-    if (id === seq) say(e instanceof ReaderError ? e.message : 'Dosya açılamadı. Paketi ve ona ait özel anahtarı kontrol et.', 'bad');
-  } finally {
-    for (const b of [bytes, packet?.cipher, keyBytes]) b?.fill(0);
-  }
+    let source;
+    if (file) { bytes = await read(file); if (n !== epoch) return; source = importConnection(bytes); }
+    else source = { legacy: pastedPacket(pasted) };
+    if (source.card) { useCard(source.card); return; }
+    old = source.legacy;
+    if (old.kind === 'ssh') throw new ReaderError('Bu eski paket SSH alıcısına şifreli. Eski ZIP’in BASLA-BURADAN.txt dosyasındaki yerel age -d yolunu kullan.');
+    if (old.kind === 'plain') { const data = await unlockOld(old); if (n === epoch) ready(data); return; }
+    if (old.cipher === bytes) old.cipher = bytes.slice();
+    show('picker', false); show('oldKey'); show('reset'); $('key').disabled = false;
+    note('Şifreli eski paket tanındı. Yalnızca o paketin özel anahtarıyla açılır.');
+  } catch (e) { if (n === epoch) { start(); note(e instanceof ReaderError ? e.message : 'Paket okunamadı. Çalışan oturumun ZIP’ini veya tam şifreli metni kullan.', true); } }
+  finally { bytes?.fill(0); }
 }
-function checkTarget() {
-  clearManual();
-  const typed = target.value.trim() !== '', ok = !!values && targetMatches(target.value, values.endpoint);
-  el('copyRaw').disabled = !ok;
-  el('match').textContent = ok ? 'Alan adı bu oturumla eşleşti.' : typed ? 'Adres bu pakete ait değil veya /authorize adresi değil. Token kopyalanmaz.' : '';
-  el('match').className = ok ? 'good' : 'bad';
-  return ok;
+async function passwordUnlock() {
+  if (!card || $('unlock').disabled) return;
+  const p = $('password').value; $('password').value = '';
+  if (/^(?:YWdlLWVuY3J5|-----BEGIN AGE|AGE-SECRET-KEY-)/.test(p.trim())) { note('Bu bir bağlantı parolası değil. Eski şifreli metni genel BAGLAN.html’de “Eski connect.txt metnini yapıştır” ile aç.', true); return; }
+  const n = ++epoch; $('unlock').disabled = $('password').disabled = true; note('Paket bu cihazda açılıyor…');
+  try { const data = await openCard(card, p); if (n === epoch) ready(data); }
+  catch { if (n === epoch) { $('unlock').disabled = $('password').disabled = false; $('password').focus(); note('Paket açılamadı. Bu yayın için belirlenen bağlantı parolasını kontrol et.', true); } }
 }
+async function oldUnlock() {
+  if (!old) return;
+  const n = ++epoch, file = $('key').files[0]; let b;
+  try { b = await read(file); if (n !== epoch) return; const data = await unlockOld(old, b); if (n === epoch) ready(data); }
+  catch (e) { if (n === epoch) { $('key').value = ''; note(e instanceof ReaderError ? e.message : 'Bu özel anahtar eski paketi açmadı. O çalıştırmaya ait anahtarı seç; yeni anahtar üretme.', true); } }
+  finally { b?.fill(0); }
+}
+function matches() { return !!values && targetMatches($('target').value, values.endpoint); }
 async function copy(kind) {
-  if (!values || (kind === 'raw' && !checkTarget())) return;
-  clearManual(); const id = copyId;
-  const [s, msg] = {
-    invite: [values.invite, 'Davet kopyalandı; henüz açılmadı.'],
-    endpoint: [values.endpoint, '/mcp adresi kopyalandı. Claude’da connector URL alanına yapıştır.'],
-    raw: [values.token, 'Yalın token kopyalandı. Eşleşen sayfada Access token kutusuna yapıştır.'],
-    header: ['Bearer ' + values.token, 'Header değeri Bearer önekiyle kopyalandı.'],
-  }[kind];
-  try { await navigator.clipboard.writeText(s); if (id === copyId) say(msg, 'good'); }
-  catch {
-    if (id !== copyId) return;
-    el('manualBox').hidden = false; el('manual').value = s; el('manual').focus(); el('manual').select();
-    say('Seçili değeri Ctrl+C (Mac: ⌘C) ile kopyala.');
-  }
+  eraseManual(); const n = copyEpoch;
+  const s = kind === 'endpoint' ? (values?.endpoint || (card?.mode === 'serve' && card.endpoint)) : kind === 'invite' ? values?.invite : kind === 'raw' && matches() ? values.token : kind === 'header' && values ? 'Bearer ' + values.token : '';
+  if (!s) return;
+  try { await navigator.clipboard.writeText(s); if (n === copyEpoch) note(({ endpoint: 'MCP adresi kopyalandı. Connector URL alanına yapıştır.', invite: 'Davet kopyalandı; henüz açılmadı.', raw: 'Yalın token kopyalandı. Eşleşen Access token kutusuna yapıştır.', header: 'Authorization değeri Bearer önekiyle kopyalandı.' })[kind]); }
+  catch { if (n === copyEpoch) { $('manual').value = s; show('manualBox'); $('manual').focus(); $('manual').select(); note('Seçili metni Ctrl+C (Mac: ⌘C) ile kopyala.'); } }
 }
-
-if (binding.number) {
-  el('context').textContent = `Run #${binding.number} · ${binding.endpoint}`; el('context').hidden = false;
+function init() {
+  if (location.protocol !== 'file:' || self !== top) { note('Önizleme: dosyayı indirip kendi bilgisayarında aç. Burada parola veya dosya istenmez.'); return; }
+  if (!globalThis.crypto?.subtle) { note('Bu tarayıcı yerel şifre çözmeyi desteklemiyor. Güncel Edge, Chrome veya Firefox kullan.', true); return; }
+  const stamp = document.querySelector('meta[name=hardtools-card]').content;
+  if (stamp) { try { embedded = decodeCard(stamp); } catch { note('Bu bağlantı kartı bozuk. Güvenilir run’dan yeniden indir.', true); return; } }
+  $('pack').addEventListener('change', () => { const f = $('pack').files[0]; if (f) void load(f); });
+  $('loadText').addEventListener('click', () => load(null, $('paste').value)); $('key').addEventListener('change', oldUnlock);
+  $('unlock').addEventListener('click', passwordUnlock); $('password').addEventListener('keydown', e => { if (e.key === 'Enter') void passwordUnlock(); });
+  $('target').addEventListener('input', () => { eraseManual(); const ok = matches(); $('copyRaw').disabled = !ok; $('match').textContent = ok ? 'Oturum adresi eşleşti.' : $('target').value ? 'Adres bu oturumla eşleşmedi.' : ''; });
+  for (const [id, kind] of [['copyInvite','invite'],['copyEndpoint','endpoint'],['copyRaw','raw'],['copyHeader','header']]) $(id).addEventListener('click', () => copy(kind));
+  $('reset').addEventListener('click', start); window.addEventListener('pagehide', clear); window.addEventListener('pageshow', e => { if (e.persisted) start(); }); start();
 }
-const local = location.protocol === 'file:' && window.self === window.top;
-const closedRun = Boolean(meta.dataset.mode && meta.dataset.mode !== 'serve');
-el('localNotice').hidden = local; el('keysPanel').open = !binding.number || closedRun;
-if (!local) {
-  say('Önizlemede işlemler kapalı. BAGLAN.html dosyasını indirip kendi bilgisayarında aç.');
-} else if (!globalThis.crypto?.subtle || typeof globalThis.crypto.getRandomValues !== 'function') {
-  el('localNotice').hidden = false; el('localNotice').textContent = 'Güvenli kriptografi kullanılamıyor. Dosyayı güncel Edge, Chrome veya Firefox ile aç.';
-  say(el('localNotice').textContent, 'bad');
-} else {
-  // Preparing a key for a future run is independent of the selected run/packet.
-  const resetKeys = enableKeyPanel(el, readFile);
-  window.addEventListener('pagehide', resetKeys);
-  if (closedRun) {
-    el('localNotice').hidden = false; el('localNotice').textContent = 'Bu kısa test veya kapalı bir oturum. Yeni yayın için anahtar hazırlayabilirsin; bu paketten bağlanamazsın.';
-    say(el('localNotice').textContent, 'bad');
-  } else {
-    pack.disabled = el('reset').disabled = false;
-    pack.addEventListener('change', () => { key.value = ''; key.disabled = el('keyRow').hidden = true; void refresh(); });
-    key.addEventListener('change', refresh);
-    target.addEventListener('input', checkTarget);
-    for (const [id, kind] of [['copyInvite', 'invite'], ['copyEndpoint', 'endpoint'], ['copyRaw', 'raw'], ['copyHeader', 'header']]) el(id).addEventListener('click', () => copy(kind));
-    el('reset').addEventListener('click', () => { resetKeys(); reset(); }); window.addEventListener('pagehide', reset); reset();
-  }
-}
+init();

@@ -1,5 +1,5 @@
-// Shared, DOM-independent format checks. Never include a token, invite or key in an error.
-import { armor, Decrypter } from 'age-encryption';
+// Read-only compatibility for already-issued packages. New runs never write these formats.
+import { Decrypter } from 'age-encryption';
 import { unzipSync } from 'fflate';
 
 const text = bytes => new TextDecoder().decode(bytes);
@@ -43,6 +43,30 @@ function members(bytes, names) {
 const closed = s => /^(?:İPTAL EDİLDİ|SADECE TEST)\s*[—:-]/m.test(s) || /^HARDTOOLS MCP[^\n]*\(check-connection\)/m.test(s);
 const runNo = s => s.match(/^HARDTOOLS MCP[^\n]*#(\d+)\b/m)?.[1] || '';
 
+const signature = 'age-encryption.org/v1\n';
+const basePrefix = 'YWdlLWVuY3J5cHRpb24ub3JnL3Yx';
+function unpackText(s) {
+  const begin = '-----BEGIN AGE ENCRYPTED FILE-----', end = '-----END AGE ENCRYPTED FILE-----';
+  if (s.startsWith(begin)) {
+    if (!s.endsWith(end)) fail('Şifreli metnin sonu eksik. Tam metni veya eski ZIP’i seç.');
+    s = s.slice(begin.length, -end.length);
+  } else if (!s.replace(/[\r\n \t]/g, '').startsWith(basePrefix)) return null;
+  const body = s.replace(/[\r\n \t]/g, '');
+  if (!/^[A-Za-z0-9+/]+={0,2}$/.test(body) || body.length % 4 === 1) fail('Şifreli metin eksik veya bozuk.');
+  let decoded;
+  try { decoded = atob(body); } catch { fail('Şifreli metin eksik veya bozuk.'); }
+  if (decoded.length > MAX_MEMBER || !decoded.startsWith(signature) || !decoded.includes('\n--- ') || btoa(decoded).replace(/=+$/, '') !== body.replace(/=+$/, '')) fail('Geçerli bir eski age paketi değil.');
+  return Uint8Array.from(decoded, c => c.charCodeAt(0));
+}
+export function pastedPacket(value) {
+  if (typeof value !== 'string' || value.length > MAX_MEMBER * 2) fail('Şifreli metin çok büyük.');
+  let s = value.trim();
+  if (s.length > 1 && ["'", '"', '`'].includes(s[0]) && s.at(-1) === s[0]) s = s.slice(1, -1).trim();
+  const cipher = unpackText(s);
+  if (!cipher) fail('Buraya eski connect.txt içindeki şifreli metni yapıştır; token veya özel anahtar değil.');
+  return connectionFile(cipher);
+}
+
 export function connectionFile(bytes) {
   if (!bytes.length || bytes.length > MAX_FILE) fail('Beklenen bağlantı paketini seç.');
   let data = bytes, guide = '';
@@ -56,8 +80,8 @@ export function connectionFile(bytes) {
   if (closed(guide)) fail('Bu kısa test veya kapalı bir oturum. Çalışan serve paketini seç.');
   let cipher;
   const s = text(data).trim();
-  if (s.startsWith('-----BEGIN AGE ENCRYPTED FILE-----')) cipher = armor.decode(s + '\n');
-  else if (s.startsWith('age-encryption.org/v1\n')) cipher = data;
+  if (text(data.subarray(0, signature.length)) === signature) cipher = data;
+  else cipher = unpackText(s);
   const ep = guide.split(/\r?\n/).map(l => l.trim()).find(l => endpointRe.test(l));
   if (!cipher) return { kind: 'plain', plain: s, endpoint: ep, number: runNo(guide) };
   const header = text(cipher.subarray(0, 4096)).split('\n--- ')[0];
@@ -97,7 +121,7 @@ export function packetBinding(packet, binding = {}) {
 
 export async function unlock(packet, keyBytes, binding = {}) {
   const expected = packetBinding(packet, binding);
-  if (packet.kind === 'ssh') fail('SSH alıcısı: kılavuzdaki age -d komutunu kendi bilgisayarında kullan.');
+  if (packet.kind === 'ssh') fail('SSH alıcısı: eski ZIP’teki BASLA-BURADAN.txt içindeki age -d komutunu cihazında kullan.');
   if (packet.kind === 'plain') return parseDetails(packet.plain, expected);
   const d = new Decrypter(); d.addIdentity(getIdentity(keyBytes));
   const plain = await d.decrypt(packet.cipher);

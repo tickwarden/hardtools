@@ -1,13 +1,11 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { randomBytes, createHash } from 'node:crypto';
-import { readFile, mkdtemp, rm } from 'node:fs/promises';
-import { join } from 'node:path';
-import { tmpdir } from 'node:os';
+import { randomBytes } from 'node:crypto';
 import { armor, Encrypter, generateX25519Identity, identityToRecipient } from 'age-encryption';
 import { zipSync } from 'fflate';
-import { connectionFile, getIdentity, MAX_FILE, parseDetails, targetMatches, unlock } from '../reader/format.mjs';
-import { renderGuide, writePublicFiles } from '../scripts/connect-guide.mjs';
+import { connectionFile, getIdentity, MAX_FILE, parseDetails, pastedPacket, targetMatches, unlock } from '../reader/legacy.mjs';
+// Previous artifacts are immutable: keep read-only test fixtures for their public guide.
+const renderGuide = (ep, run, num, mode) => `HARDTOOLS MCP | BAĞLANTI KILAVUZU | #${num}\n${mode === 'cancelled' ? 'İPTAL EDİLDİ — kapalı' : mode === 'check-connection' ? 'SADECE TEST — kapalı' : 'YAYIN (serve)'}\n${ep}\n${run}\n`;
 
 const b = s => new TextEncoder().encode(s);
 const host = 'reader-test.trycloudflare.com', ep = `https://${host}/mcp`, invite = `https://${host}/invite/example-only`;
@@ -67,19 +65,13 @@ test('reader: SSH recipient is routed to local age CLI and does not need an SSH 
   assert.equal(p.kind, 'ssh'); await assert.rejects(unlock(p), /SSH alıcısı/);
 });
 
-test('delivery: stamped page carries only public run coordinates, keeps hashed inline assets intact', async () => {
-  const dir = await mkdtemp(join(tmpdir(), 'ht-stamp-'));
-  try {
-    await writePublicFiles(dir, ep, run, '17', 'serve', 'age');
-    const html = await readFile(join(dir, 'BAGLAN.html'), 'utf8');
-    assert.ok(html.includes(`content="17" data-mode="serve" data-endpoint="${ep}"`));
-    assert.ok(!html.includes(invite) && !html.includes(token));
-    assert.match(html, /default-src 'none'; connect-src 'none'/);
-    for (const [tag, directive] of [['script', 'script'], ['style', 'style']]) {
-      const content = html.match(new RegExp(`<${tag}>([\\s\\S]+?)</${tag}>`))[1];
-      const sum = createHash('sha256').update(content).digest('base64');
-      assert.ok(html.includes(`${directive}-src 'sha256-${sum}'`));
-    }
-    await assert.rejects(writePublicFiles(dir, invite, run, '17', 'serve', 'age'));
-  } finally { await rm(dir, { recursive: true, force: true }); }
+test('legacy paste: standard Base64 body with blank lines, armored text and missing padding need the original identity', async () => {
+  const id = await generateX25519Identity(), enc = new Encrypter(); enc.addRecipient(await identityToRecipient(id));
+  const bin = await enc.encrypt(body), raw = Buffer.from(bin).toString('base64');
+  for (const pasted of [raw.match(/.{1,72}/g).join('\r\n\r\n'), "'" + raw + "'", raw.replace(/=+$/, ''), armor.encode(bin)]) {
+    const p = pastedPacket(pasted); assert.equal(p.kind, 'age');
+    assert.equal((await unlock(p, b(id))).token, token);
+    await assert.rejects(unlock(p, b(await generateX25519Identity())));
+  }
+  for (const bad of ['', token, id, 'YWdlLWVuY3J5cHRpb24ub3JnL3Yx!!', '-----BEGIN AGE ENCRYPTED FILE-----\n' + raw]) assert.throws(() => pastedPacket(bad));
 });

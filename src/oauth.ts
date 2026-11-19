@@ -1,5 +1,5 @@
 // AI-generated (Claude, Anthropic), 2026-11-13. Requires human security review before production use.
-// connect.txt delivers the one-use invite and static token to the recipient (encrypted on public repos).
+// The offline connection card delivers the one-use invite and static token encrypted.
 //
 // Minimal, stateless OAuth 2.1 authorization server for the remote (--http) mode.
 //
@@ -84,7 +84,7 @@ export class OAuth {
 
   /**
    * Mint a single-use invite code valid for 24 hours.
-   * Returns the full invite URL to embed in connect.txt.
+   * Returns the one-use URL for the encrypted connection card.
    */
   mintInvite(origin: string): string {
     const jti = crypto.randomBytes(12).toString("base64url");
@@ -209,10 +209,10 @@ export class OAuth {
     const code = decodeURIComponent(path.slice("/invite/".length));
     const sessionId = this.redeemInvite(code);
     if (!sessionId) {
-      this.page(res, 410, "This invite link has already been used or has expired. Ask for a new one.", null);
+      this.page(res, 410, "Bu davet kullanılmış veya süresi dolmuş. Daveti az önce açtıysan aynı tarayıcı profilinde Claude’dan devam et. Aksi halde yayın sahibiyle iletişime geç.", null);
       return;
     }
-    // Set session cookie, then redirect to /authorize with no pre-filled params.
+    // Establish the guest browser session; Claude initiates its own /authorize request.
     // The user still needs to complete the OAuth flow (connector dialog drives this).
     const cookieExp = new Date((this.now() + SESSION_TTL_S) * 1000).toUTCString();
     res.writeHead(200, {
@@ -222,11 +222,12 @@ export class OAuth {
       "x-frame-options": "DENY",
       "content-security-policy": "default-src 'none'; style-src 'unsafe-inline'; frame-ancestors 'none'; base-uri 'none'",
     });
-    res.end(`<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>hardtools</title>
-<style>body{font:16px system-ui,sans-serif;max-width:30rem;margin:4rem auto;padding:0 1rem}button{padding:.6rem 1.2rem}</style>
-<h1>hardtools</h1>
-<p>Invite link accepted. You have <strong>10 minutes</strong> to connect Claude.</p>
-<p>Go to <strong>Settings &rarr; Connectors &rarr; Add custom connector</strong> in Claude and paste the MCP endpoint URL (<code>${origin}/mcp</code>). When prompted to authorize, this session will be recognized automatically.</p>`);
+    const ep = (origin + "/mcp").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/"/g, "&quot;");
+    res.end(`<!doctype html><html lang="tr"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="referrer" content="no-referrer"><title>hardtools · Davet kabul edildi</title>
+<style>body{font:16px/1.55 system-ui,sans-serif;max-width:34rem;margin:3rem auto;padding:0 1rem;color:#15332c}input{width:100%;box-sizing:border-box;padding:.65rem;font:inherit}</style>
+<h1>Davet kabul edildi</h1><p>Başka dosya veya parola gerekmiyor. <strong>10 dakika içinde</strong> aynı tarayıcı profilinde Claude’u aç. Bu daveti tekrar açma.</p>
+<ol><li><strong>Settings → Connectors → Add custom connector</strong> yolunu aç.</li><li>Ad: <b>hardtools</b>. Aşağıdaki adresi URL alanına kopyala.</li><li>OAuth client ID ve secret boş kalsın. Bağlantıyı Claude’dan tamamla.</li></ol>
+<label for="ep">MCP adresi</label><input id="ep" readonly value="${ep}"></html>`);
   }
 
   // ---- RFC 7591 dynamic client registration (stateless: client_id is a signed blob) ------
@@ -292,7 +293,8 @@ export class OAuth {
     if (this.failures.length >= 10) return this.page(res, 429, "Too many failed attempts. Wait a minute.", q);
     if (typeof q.access_token !== "string" || !safeEq(q.access_token.trim(), this.o.token)) {
       this.failures.push(now); this.o.audit?.({ ev: "oauth_authorize", ok: false });
-      return this.page(res, 401, "Wrong access token.", q);
+      const ciphertext = typeof q.access_token === "string" && /^(?:YWdlLWVuY3J5|-----BEGIN AGE ENCRYPTED FILE-----)/.test(q.access_token.trim());
+      return this.page(res, 401, ciphertext ? "Bu şifreli bağlantı metni, access token değil. Genel BAGLAN.html dosyasında eski paketi açıp yalın token’ı kopyala." : "Wrong access token.", q);
     }
     const jti = crypto.randomBytes(12).toString("base64url");
     const code = this.sign({ t: "code", jti, cid: q.client_id, ru: q.redirect_uri, cc: q.code_challenge, exp: this.now() + CODE_TTL_S });
@@ -304,7 +306,7 @@ export class OAuth {
     const esc = (s: string) => s.replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]!));
     const keep = ["response_type", "client_id", "redirect_uri", "state", "code_challenge", "code_challenge_method", "scope", "resource"];
     const hidden = q ? keep.filter(k => typeof q[k] === "string").map(k => `<input type="hidden" name="${k}" value="${esc(q[k])}">`).join("") : "";
-    const form = q ? `<p>Enter the access token only, without the <code>Bearer</code> prefix. Do not paste an invite URL or a private key.</p>
+    const form = q ? `<p>Enter the access token only, without the <code>Bearer</code> prefix. Do not paste a connection password, encrypted text, invite URL or private key.</p>
 <p>GitHub Actions: open <strong>BAGLAN.html</strong> from this run’s hardtools-connect ZIP on your computer. In the “Access token” section, match this page’s address and copy the token.</p>
 <form method="post" action="/authorize" autocomplete="off">${hidden}<input type="password" name="access_token" autocomplete="off" autofocus required placeholder="access token"><button type="submit">Authorize</button></form>` : "";
     res.writeHead(code, {

@@ -12,15 +12,15 @@ const tmp = (p) => fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), p)));
 const entry = path.resolve(process.env.HT_ENTRY ?? "dist/index.js");
 const CB = "https://claude.ai/api/mcp/auth_callback";
 
-async function start(token, extra = {}) {
+async function start(token, extra = {}, issueInvite = false) {
   const root = tmp("ht-o-"); const audit = tmp("ht-o-audit-");
   const cfg = path.join(audit, "config.json"); fs.writeFileSync(cfg, JSON.stringify({ audit: { dir: path.join(audit, "log") } }));
   const port = 20000 + Math.floor(Math.random() * 20000);
-  const env = { ...process.env, HARDTOOLS_ROOTS: root, HARDTOOLS_CONFIG: cfg, HARDTOOLS_HTTP_TOKEN: token, ...extra }; delete env.HARDTOOLS_PROFILE;
+  const env = { ...process.env, HARDTOOLS_ROOTS: root, HARDTOOLS_CONFIG: cfg, HARDTOOLS_HTTP_TOKEN: token, ...(issueInvite ? { HARDTOOLS_INVITE_ORIGIN: `http://127.0.0.1:${port}` } : {}), ...extra }; delete env.HARDTOOLS_PROFILE;
   const child = spawn(process.execPath, [entry, "--http", "--port", String(port), "--profile", "balanced"], { env, stdio: ["ignore", "ignore", "pipe"] });
   let err = ""; child.stderr.on("data", d => err += d);
   for (let i = 0; i < 50 && !/listening/.test(err) && child.exitCode === null; i++) await new Promise(r => setTimeout(r, 100));
-  return { base: `http://127.0.0.1:${port}`, child };
+  return { base: `http://127.0.0.1:${port}`, child, invite: issueInvite ? err.match(/http:\/\/127\.0\.0\.1:\d+\/invite\/[A-Za-z0-9._~-]+/)?.[0] : undefined };
 }
 const INIT = { jsonrpc: "2.0", id: 1, method: "initialize", params: { protocolVersion: "2025-03-26", capabilities: {}, clientInfo: { name: "t", version: "0" } } };
 const mcp = (base, headers = {}, p = "/mcp") => fetch(base + p, { method: "POST", headers: { "content-type": "application/json", accept: "application/json, text/event-stream", ...headers }, body: JSON.stringify(INIT) });
@@ -62,6 +62,8 @@ test("oauth: anonymous probe gets a discoverable 401, then the full flow yields 
     assert.match(consent, /without the <code>Bearer<\/code> prefix/); assert.ok(!consent.includes(token));
     const wrong = await fetch(`${base}/authorize`, { method: "POST", headers: FORM, body: form({ ...q, access_token: "nope" }), redirect: "manual" });
     assert.equal(wrong.status, 401);
+    const encrypted = await fetch(`${base}/authorize`, { method: "POST", headers: FORM, body: form({ ...q, access_token: "YWdlLWVuY3J5ExampleCiphertext" }), redirect: "manual" });
+    assert.equal(encrypted.status, 401); assert.match(await encrypted.text(), /access token değil/);
     const good = await fetch(`${base}/authorize`, { method: "POST", headers: FORM, body: form({ ...q, access_token: token }), redirect: "manual" });
     assert.equal(good.status, 302);
     const loc = new URL(good.headers.get("location")); assert.equal(loc.origin + loc.pathname, CB); assert.equal(loc.searchParams.get("state"), "xyz");
@@ -162,4 +164,20 @@ test("oauth: /mcp/<token> path fallback kaldırıldı — her zaman 404 döner",
     const bearer = await mcp(srv.base, { authorization: `Bearer ${token}` });
     assert.equal(bearer.status, 200);
   } finally { srv.child.kill("SIGKILL"); }
+});
+
+
+test("guest: one private invite suffices; accepted page gives the endpoint, no password or file, one use only", async () => {
+  const token = crypto.randomBytes(32).toString("hex"), s = await start(token, {}, true);
+  try {
+    assert.ok(s.invite?.startsWith(s.base + '/invite/'));
+    const visit = await fetch(s.invite); assert.equal(visit.status, 200);
+    const html = await visit.text(); assert.match(html, /Davet kabul edildi/); assert.ok(html.includes(s.base + '/mcp') && !html.includes(token));
+    const cookie = visit.headers.get('set-cookie').split(';')[0];
+    const client = await (await register(s.base)).json(); const { challenge } = pkce();
+    const q = { response_type: 'code', client_id: client.client_id, redirect_uri: CB, code_challenge: challenge, code_challenge_method: 'S256' };
+    const consent = () => fetch(`${s.base}/authorize?${form(q)}`, { headers: { cookie }, redirect: 'manual' });
+    assert.equal((await consent()).status, 302); assert.equal((await consent()).status, 200);
+    assert.equal((await fetch(s.invite)).status, 410);
+  } finally { s.child.kill('SIGKILL'); }
 });

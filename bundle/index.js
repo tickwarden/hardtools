@@ -31428,7 +31428,7 @@ var OAuth = class {
   // ---- invite codes ---------------------------------------------------------------------
   /**
    * Mint a single-use invite code valid for 24 hours.
-   * Returns the full invite URL to embed in connect.txt.
+   * Returns the one-use URL for the encrypted connection card.
    */
   mintInvite(origin) {
     const jti = crypto3.randomBytes(12).toString("base64url");
@@ -31579,7 +31579,7 @@ var OAuth = class {
     const code = decodeURIComponent(path8.slice("/invite/".length));
     const sessionId = this.redeemInvite(code);
     if (!sessionId) {
-      this.page(res, 410, "This invite link has already been used or has expired. Ask for a new one.", null);
+      this.page(res, 410, "Bu davet kullan\u0131lm\u0131\u015F veya s\xFCresi dolmu\u015F. Daveti az \xF6nce a\xE7t\u0131ysan ayn\u0131 taray\u0131c\u0131 profilinde Claude\u2019dan devam et. Aksi halde yay\u0131n sahibiyle ileti\u015Fime ge\xE7.", null);
       return;
     }
     const cookieExp = new Date((this.now() + SESSION_TTL_S) * 1e3).toUTCString();
@@ -31590,11 +31590,12 @@ var OAuth = class {
       "x-frame-options": "DENY",
       "content-security-policy": "default-src 'none'; style-src 'unsafe-inline'; frame-ancestors 'none'; base-uri 'none'"
     });
-    res.end(`<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>hardtools</title>
-<style>body{font:16px system-ui,sans-serif;max-width:30rem;margin:4rem auto;padding:0 1rem}button{padding:.6rem 1.2rem}</style>
-<h1>hardtools</h1>
-<p>Invite link accepted. You have <strong>10 minutes</strong> to connect Claude.</p>
-<p>Go to <strong>Settings &rarr; Connectors &rarr; Add custom connector</strong> in Claude and paste the MCP endpoint URL (<code>${origin}/mcp</code>). When prompted to authorize, this session will be recognized automatically.</p>`);
+    const ep = (origin + "/mcp").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/"/g, "&quot;");
+    res.end(`<!doctype html><html lang="tr"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="referrer" content="no-referrer"><title>hardtools \xB7 Davet kabul edildi</title>
+<style>body{font:16px/1.55 system-ui,sans-serif;max-width:34rem;margin:3rem auto;padding:0 1rem;color:#15332c}input{width:100%;box-sizing:border-box;padding:.65rem;font:inherit}</style>
+<h1>Davet kabul edildi</h1><p>Ba\u015Fka dosya veya parola gerekmiyor. <strong>10 dakika i\xE7inde</strong> ayn\u0131 taray\u0131c\u0131 profilinde Claude\u2019u a\xE7. Bu daveti tekrar a\xE7ma.</p>
+<ol><li><strong>Settings \u2192 Connectors \u2192 Add custom connector</strong> yolunu a\xE7.</li><li>Ad: <b>hardtools</b>. A\u015Fa\u011F\u0131daki adresi URL alan\u0131na kopyala.</li><li>OAuth client ID ve secret bo\u015F kals\u0131n. Ba\u011Flant\u0131y\u0131 Claude\u2019dan tamamla.</li></ol>
+<label for="ep">MCP adresi</label><input id="ep" readonly value="${ep}"></html>`);
   }
   // ---- RFC 7591 dynamic client registration (stateless: client_id is a signed blob) ------
   async register(req, res) {
@@ -31669,7 +31670,8 @@ var OAuth = class {
     if (typeof q.access_token !== "string" || !safeEq(q.access_token.trim(), this.o.token)) {
       this.failures.push(now);
       this.o.audit?.({ ev: "oauth_authorize", ok: false });
-      return this.page(res, 401, "Wrong access token.", q);
+      const ciphertext = typeof q.access_token === "string" && /^(?:YWdlLWVuY3J5|-----BEGIN AGE ENCRYPTED FILE-----)/.test(q.access_token.trim());
+      return this.page(res, 401, ciphertext ? "Bu \u015Fifreli ba\u011Flant\u0131 metni, access token de\u011Fil. Genel BAGLAN.html dosyas\u0131nda eski paketi a\xE7\u0131p yal\u0131n token\u2019\u0131 kopyala." : "Wrong access token.", q);
     }
     const jti = crypto3.randomBytes(12).toString("base64url");
     const code = this.sign({ t: "code", jti, cid: q.client_id, ru: q.redirect_uri, cc: q.code_challenge, exp: this.now() + CODE_TTL_S });
@@ -31680,7 +31682,7 @@ var OAuth = class {
     const esc2 = (s) => s.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
     const keep = ["response_type", "client_id", "redirect_uri", "state", "code_challenge", "code_challenge_method", "scope", "resource"];
     const hidden = q ? keep.filter((k) => typeof q[k] === "string").map((k) => `<input type="hidden" name="${k}" value="${esc2(q[k])}">`).join("") : "";
-    const form = q ? `<p>Enter the access token only, without the <code>Bearer</code> prefix. Do not paste an invite URL or a private key.</p>
+    const form = q ? `<p>Enter the access token only, without the <code>Bearer</code> prefix. Do not paste a connection password, encrypted text, invite URL or private key.</p>
 <p>GitHub Actions: open <strong>BAGLAN.html</strong> from this run\u2019s hardtools-connect ZIP on your computer. In the \u201CAccess token\u201D section, match this page\u2019s address and copy the token.</p>
 <form method="post" action="/authorize" autocomplete="off">${hidden}<input type="password" name="access_token" autocomplete="off" autofocus required placeholder="access token"><button type="submit">Authorize</button></form>` : "";
     res.writeHead(code, {

@@ -1,9 +1,7 @@
 # AI yardımıyla düzenlendi; birleştirmeden önce insan incelemesi önerilir.
-# serve: yerel okuyucu BAGLAN.html ve kılavuz BASLA-BURADAN.txt hardtools-connect içinde.
-# Canlı log kolaylıktır; bağlantı için job özeti gerekmez.
-# Tek kullanımlık davet ve bearer token herkese açık değildir: hardtools-connect içinde
-# teslim edilir. Public repoda alıcının açık anahtarı gerekir; özel anahtar yüklenmez.
-# Private repoda alıcı girdisi ve repo değişkeni boşsa artifact açıktır (repo okuyucuları okuyabilir).
+# serve: hardtools-connect tek bir yerel BAGLAN.html taşır. Run’a ait davet/token
+# kartın içinde doğrulanmış şifrelemeyle kapalıdır. Public ve private repoda aynıdır.
+# HARDTOOLS_CONNECT_PASSWORD bir Actions secret’tır, dispatch girdisi değildir.
 # check-connection: aynı teslim yolunu job sürerken doğrular ve tüneli açık bırakmaz.
 #
 # serve davranışı:
@@ -40,10 +38,6 @@ on:
         type: choice
         options: [serve, check-connection, build-only, unpublish]
         default: serve
-      age_recipient:
-        description: 'age/SSH açık anahtarı. İlk kez: önce repodaki bundle/BAGLAN.html ile oluştur. Boşsa HARDTOOLS_AGE_RECIPIENT kullanılır.'
-        type: string
-        default: ''
       allow_local_tools:
         description: 'serve: HARDTOOLS_HTTP_ALLOW_LOCAL_TOOLS açılsın mı? (riskli)'
         type: boolean
@@ -82,6 +76,13 @@ jobs:
           node-version: ${{ env.NODE_VERSION }}
           cache: 'npm'
 
+      # A missing password fails BEFORE entering the serve concurrency group.
+      - name: Yayın parolası yapılandırılmış mı?
+        if: github.event_name == 'workflow_dispatch' && (inputs.action == 'serve' || inputs.action == 'check-connection')
+        env:
+          CONNECT_PASSWORD: ${{ secrets.HARDTOOLS_CONNECT_PASSWORD }}
+        run: node scripts/connection-card.mjs --check-password
+
       - run: npm ci
       - run: npm test
       - run: npm run bundle
@@ -100,8 +101,8 @@ jobs:
           name: hardtools-bundle
           path: |
             bundle/
-            scripts/connect-guide.mjs
-            scripts/connect-payload.sh
+            scripts/connection-card.mjs
+            reader/session.mjs
             package.json
             README.md
             LICENSE
@@ -166,43 +167,9 @@ jobs:
       # (sha256 doğrulandı: release asset'inin gerçek özetiyle eşleşiyor)
       CLOUDFLARED_VERSION: '2026.8.1'
       CLOUDFLARED_SHA256: '98d8eadbfdf8c7ec994e08260599c9be991e7833c746f98692b18bdf71c9b9dc'
-      AGE_RECIPIENT: ${{ inputs.age_recipient || vars.HARDTOOLS_AGE_RECIPIENT }}
       ALLOW_LOCAL_TOOLS: ${{ inputs.action == 'serve' && inputs.allow_local_tools && '1' || '0' }}
       AUTO_RENEW: ${{ inputs.action == 'serve' && inputs.auto_renew && '1' || '0' }}
-      REPO_PRIVATE: ${{ github.event.repository.private }}
     steps:
-      - name: Bağlantı dosyasının alıcısını doğrula
-        run: |
-          set -euo pipefail
-          umask 077
-          if [[ -z "$AGE_RECIPIENT" ]]; then
-            if [[ "$REPO_PRIVATE" != true ]]; then
-              echo '::error::Public repoda age_recipient alanına kendi age veya SSH AÇIK anahtarını gir (veya HARDTOOLS_AGE_RECIPIENT repo variable tanımla).'
-              exit 1
-            fi
-            echo 'DELIVERY=plain' >> "$GITHUB_ENV"
-            exit 0
-          fi
-          if [[ "$AGE_RECIPIENT" == *$'\n'* || "$AGE_RECIPIENT" == *$'\r'* ]]; then
-            echo '::error::Tek satırlık bir açık anahtar gerekiyor.'; exit 1
-          fi
-          case "$AGE_RECIPIENT" in
-            age1*|"ssh-ed25519 "*|"ssh-rsa "*) ;;
-            *) echo '::error::Bir age1…, ssh-ed25519 veya ssh-rsa açık anahtarı gerekiyor.'; exit 1 ;;
-          esac
-          rec="$RUNNER_TEMP/recipients.txt"
-          printf '%s\n' "$AGE_RECIPIENT" > "$rec"
-          archive="$RUNNER_TEMP/age.tgz"
-          curl -fsSL --retry 3 -o "$archive" \
-            https://github.com/FiloSottile/age/releases/download/v1.2.1/age-v1.2.1-linux-amd64.tar.gz
-          echo "7df45a6cc87d4da11cc03a539a7470c15b1041ab2b396af088fe9990f7c79d50  $archive" | sha256sum -c -
-          tar -xzOf "$archive" age/age > "$RUNNER_TEMP/age"
-          chmod 700 "$RUNNER_TEMP/age"
-          if ! "$RUNNER_TEMP/age" -R "$rec" </dev/null >/dev/null 2>&1; then
-            echo '::error::Alıcı anahtarı age ile doğrulanamadı.'; exit 1
-          fi
-          echo 'DELIVERY=age' >> "$GITHUB_ENV"
-
       - uses: actions/download-artifact@v7
         with:
           name: hardtools-bundle
@@ -214,8 +181,6 @@ jobs:
 
       - name: Start tunnel + MCP server (arka planda)
         id: start_mcp
-        env:
-          RUN_MODE: ${{ inputs.action }}
         run: |
           set -euo pipefail
           umask 077
@@ -287,11 +252,21 @@ jobs:
           done
           [ "$ready" = 1 ] || { echo "::error::Sunucu 30 sn içinde hazır olmadı"; exit 1; }
 
-          # --- Bağlantı bilgisi: artifact dosyası ---
-          endpoint="$url/mcp"
-          mkdir -p "$RUNNER_TEMP/connect"
-          conn="$RUNNER_TEMP/connect/connect.txt"
+          # Yalnızca bu herkese açık adres step output olur.
+          printf 'endpoint=%s/mcp\n' "$url" >> "$GITHUB_OUTPUT"
 
+      - name: Tek dosyalık özel bağlantı kartını oluştur
+        env:
+          CONNECT_PASSWORD: ${{ secrets.HARDTOOLS_CONNECT_PASSWORD }}
+          ENDPOINT: ${{ steps.start_mcp.outputs.endpoint }}
+          RUN_MODE: ${{ inputs.action }}
+        run: |
+          set -euo pipefail
+          umask 077
+          # The runner-created mode-0600 env file also supports later node restarts.
+          # shellcheck disable=SC1091
+          source "$RUNNER_TEMP/node.env"
+          url="${ENDPOINT%/mcp}"
           invite_url=""
           for _ in $(seq 1 15); do
             invite_url="$(grep -oE "${url}/invite/[A-Za-z0-9._~%=-]+" "$RUNNER_TEMP/node.log" | head -n1 || true)"
@@ -304,35 +279,20 @@ jobs:
           fi
 
           printf '::add-mask::%s\n' "${invite_url##*/}"
-          # Yalnızca herkese açık alanlar şifresiz rehbere girebilir.
           run_url="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
-          node "$GITHUB_WORKSPACE/artifact/scripts/connect-guide.mjs" "$RUNNER_TEMP/connect" \
-            "$endpoint" "$run_url" "$GITHUB_RUN_NUMBER" "$RUN_MODE" "$DELIVERY"
+          mkdir -p "$RUNNER_TEMP/connect"
+          printf '%s\n%s\n' "$invite_url" "${HARDTOOLS_HTTP_TOKEN:?}" | \
+            node "$GITHUB_WORKSPACE/artifact/scripts/connection-card.mjs" \
+            "$RUNNER_TEMP/connect/BAGLAN.html" "$ENDPOINT" "$run_url" "$GITHUB_RUN_NUMBER" "$RUN_MODE"
           test -s "$RUNNER_TEMP/connect/BAGLAN.html"
-          test -s "$RUNNER_TEMP/connect/BASLA-BURADAN.txt"
-
-          # Özel metni public repoda diske düz metin yazmadan age'ye aktar.
-          # shellcheck source=scripts/connect-payload.sh
-          source "$GITHUB_WORKSPACE/artifact/scripts/connect-payload.sh"
-          if [[ "$DELIVERY" == plain && "$REPO_PRIVATE" == true ]]; then
-            connection_details "$invite_url" "$endpoint" "$token" "$run_url" > "$conn"
-          else
-            connection_details "$invite_url" "$endpoint" "$token" "$run_url" | "$RUNNER_TEMP/age" -R "$RUNNER_TEMP/recipients.txt" -a > "$conn"
-          fi
-          test -s "$conn"
-          # /mcp yolu kimlik bilgisi içermez; davet ve bearer step output DEĞİLDİR.
-          printf 'endpoint=%s\n' "$endpoint" >> "$GITHUB_OUTPUT"
 
       - name: Bağlantı bilgisini artifact olarak yükle
         id: connect_artifact
         uses: actions/upload-artifact@v7
         with:
           name: hardtools-connect
-          # Üç açıkça adlandırılmış dosya; log/env/özel anahtar yükleme.
-          path: |
-            ${{ runner.temp }}/connect/BAGLAN.html
-            ${{ runner.temp }}/connect/BASLA-BURADAN.txt
-            ${{ runner.temp }}/connect/connect.txt
+          # Sadece bu dosya: özel anahtar, parola, log ve düz metin yok.
+          path: ${{ runner.temp }}/connect/BAGLAN.html
           retention-days: 1
           if-no-files-found: error
 
@@ -349,7 +309,7 @@ jobs:
             help="Bu test adresini Claude'a ekleme. Kontrol bitince kapanır. Bağlanmak için yeni bir Run workflow aç ve serve seç; Re-run jobs testi tekrarlar."
           else
             title='MCP yayını'
-            help='hardtools-connect ZIP dosyasını indir, çıkar ve BAGLAN.html dosyasını bilgisayarında aç. Adımlar ve terminal alternatifi BASLA-BURADAN.txt içinde.'
+            help='hardtools-connect ZIP içindeki BAGLAN.html dosyasını bilgisayarında aç ve bağlantı parolanı gir. Başka dosya gerekmez.'
           fi
           printf '::notice title=%s::%s\n' "$title" "$help"
           printf '::notice title=MCP endpoint::%s\n' "$ENDPOINT"
@@ -368,14 +328,13 @@ jobs:
           ENDPOINT: ${{ steps.start_mcp.outputs.endpoint }}
         run: |
           set -euo pipefail
-          for file in BAGLAN.html BASLA-BURADAN.txt connect.txt; do
-            cmp -s "$RUNNER_TEMP/connect/$file" "$RUNNER_TEMP/check-connect/$file" || {
-              echo "::error::İndirilen $file eksik veya yüklenenle aynı değil."; exit 1;
-            }
-          done
-          grep -Fxq -- "$ENDPOINT" "$RUNNER_TEMP/check-connect/BASLA-BURADAN.txt" || {
-            echo '::error::Rehberde bu oturumun MCP adresi bulunamadı.'; exit 1;
+          test "$(find "$RUNNER_TEMP/check-connect" -mindepth 1 -printf '%P\n')" = 'BAGLAN.html'
+          cmp -s "$RUNNER_TEMP/connect/BAGLAN.html" "$RUNNER_TEMP/check-connect/BAGLAN.html" || {
+            echo '::error::İndirilen bağlantı kartı yüklenenle aynı değil.'; exit 1;
           }
+          node "$GITHUB_WORKSPACE/artifact/scripts/connection-card.mjs" --verify-check \
+            "$RUNNER_TEMP/check-connect/BAGLAN.html" "$ENDPOINT" \
+            "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" "$GITHUB_RUN_NUMBER"
           # Daveti tüketme; kimlik bilgisi göndermeyen OAuth discovery isteği yeterli.
           for _ in {1..15}; do
             if curl -fsS --connect-timeout 3 --max-time 6 \
@@ -421,12 +380,12 @@ jobs:
               sleep 3
             fi
 
-            # Yenilemede aynı açık alıcı anahtarını kullan.
+            # Yeni run kendi kartını repo secret’ıyla kapatır; parolayı dispatch girdisine taşıma.
             if [ "$AUTO_RENEW" = 1 ] && [ "$renewed" = 0 ] && [ "$now" -ge "$renew_at" ] \
                && [ $(( now - last_try )) -ge 60 ] && [ "$renew_tries" -lt 5 ]; then
               renew_tries=$((renew_tries + 1)); last_try=$now
               if gh workflow run "$wf" --ref "$GITHUB_REF_NAME" \
-                   -f action=serve -f age_recipient="$AGE_RECIPIENT" \
+                   -f action=serve \
                    -f allow_local_tools="$local_bool" -f auto_renew=true; then
                 renewed=1
                 echo "::notice::Yeni serve run'ı tetiklendi. Yeni URL+token için yeni run'ın artifact'larına bak."
