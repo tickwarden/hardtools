@@ -26,8 +26,18 @@ try {
   context.on('request', r => { if (/^(?:https?|wss?):/i.test(r.url())) requests.push(r.url()); });
   await context.route(/^https?:\/\//i, r => r.abort()); page.on('pageerror', e => errors.push(e.message));
   await context.addInitScript(() => Object.defineProperty(navigator, 'clipboard', { value: { writeText: async s => { if (window.denyClipboard) throw Error(); window.testCopied = s; } } }));
+  await context.addInitScript(() => {
+    const read = File.prototype.arrayBuffer;
+    File.prototype.arrayBuffer = async function () { await new Promise(resolve => setTimeout(resolve, 80)); return read.call(this); };
+  });
   const $ = id => page.locator('#' + id), copied = () => page.evaluate(() => window.testCopied);
-  const put = (id,name,buffer) => $(id).setInputFiles({ name, buffer, mimeType:'application/octet-stream' });
+  // setInputFiles can act on a hidden/disabled input. Wait for the same UI a user sees,
+  // especially when importing a ZIP asynchronously on a slow runner.
+  const put = async (id,name,buffer) => {
+    await $(id).waitFor({ state: 'visible' });
+    await page.waitForFunction(s => !document.getElementById(s).disabled, id);
+    await $(id).setInputFiles({ name, buffer, mimeType:'application/octet-stream' });
+  };
   const status = msg => page.waitForFunction(s => document.querySelector('#status').textContent.includes(s), msg, { timeout: 6000 });
   async function enter(pw) { await $('password').fill(pw); await $('password').press('Enter'); }
   await page.goto(local); assert.ok(await $('pack').isHidden()); assert.ok(await $('key').isHidden()); assert.ok(await $('password').isVisible());
@@ -53,6 +63,7 @@ try {
   await put('key','other.txt',Buffer.from(await generateX25519Identity())); await status('eski paketi açmadı'); assert.ok(await $('results').isHidden());
   await put('key','hardtools-key.txt',Buffer.from(id)); await status('Bağlantı bilgileri açıldı'); await $('copyInvite').click(); await status('Davet kopyalandı'); assert.equal(await copied(), invite);
   await $('reset').click(); await put('pack','old.zip', Buffer.from(zipSync({ 'connect.txt':binary,'BAGLAN.html':Buffer.from('<!doctype html><head></head>') })));
+  await status('Şifreli eski paket tanındı');
   await put('key','hardtools-ozel-anahtar.zip',Buffer.from(zipSync({ 'hardtools-key.txt':Buffer.from(id) }))); await status('Bağlantı bilgileri açıldı');
   await $('reset').click(); await put('pack','old-test.zip',Buffer.from(zipSync({ 'connect.txt':binary, 'BASLA-BURADAN.txt':Buffer.from('SADECE TEST — kapalı') }))); await status('kapalı bir oturum');
   await writeFile(join(dir,'BAGLAN.html'), await makePage({ ...meta,mode:'check-connection' },{ token, invite }, password)); await page.goto(local); await status('testi bir yayın değil'); assert.ok(await $('password').isDisabled()); assert.ok(await $('results').isHidden());
