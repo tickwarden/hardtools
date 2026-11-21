@@ -4,7 +4,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { readBytesNoFollow } from "./fs-tools.js";
 import { Variables } from "./variables.js";
-import { workspaceLaunch, workerEnv } from "./workspace-shell.js";
+import { spawnWorkspaceShell } from "./workspace-shell.js";
 import type { Policy } from "./config.js";
 import { PolicyError, isInside, resolveSafe } from "./guard.js";
 
@@ -126,14 +126,14 @@ export async function runShell(policy: Policy, a: ShellArgs, vars = new Variable
   }
 
   const selected = vars.select(policy, owner, a.inherit_vars);
-  const env = policy.shellWorker ? workerEnv(selected) : Object.assign(buildEnv(policy, policy.roots), selected);
-  if (policy.shellWorker) ({ file, args } = workspaceLaunch(policy, cwdR.abs, file, args));
   const started = Date.now();
   return await new Promise<ShellResult>((resolve, reject) => {
     let child: ChildProcess;
     try {
-      child = spawn(file, args, { cwd: policy.shellWorker ? "/" : cwdR.abs, env, shell: false, detached: process.platform !== "win32", stdio: ["pipe", "pipe", "pipe"], windowsHide: true });
-    } catch (e) { return reject(new Error(`spawn failed: ${(e as Error).message}`)); }
+      child = policy.shellWorker
+        ? spawnWorkspaceShell(policy, cwdR.abs, file, args, selected)
+        : spawn(file, args, { cwd: cwdR.abs, env: Object.assign(buildEnv(policy, policy.roots), selected), shell: false, detached: process.platform !== "win32", stdio: ["pipe", "pipe", "pipe"], windowsHide: true });
+    } catch (e) { return reject(e instanceof PolicyError ? e : new Error(`spawn failed: ${(e as Error).message}`)); }
     active.add(child);
     const stdoutBudget = capture === "both" ? Math.ceil(budget * 0.7) : capture === "stdout" ? budget : 0;
     const out = capture !== "stderr" ? new Capture(stdoutBudget) : null;
@@ -145,7 +145,11 @@ export async function runShell(policy: Policy, a: ShellArgs, vars = new Variable
     child.stdin!.end(input ?? "");
     let timedOut = false;
     const t = setTimeout(() => { timedOut = true; killTree(child, "SIGTERM"); setTimeout(() => killTree(child, "SIGKILL"), 2000).unref(); }, timeout);
-    child.on("error", (e: NodeJS.ErrnoException) => { clearTimeout(t); active.delete(child); reject(e.code === "ENOENT" ? new Error(`command not found: ${file}`) : e); });
+    child.on("error", (e: NodeJS.ErrnoException) => {
+      clearTimeout(t); active.delete(child);
+      if (policy.shellWorker) return reject(new PolicyError("worker_unavailable", `workspace launcher failed: ${e.message}`));
+      reject(e.code === "ENOENT" ? new Error(`command not found: ${file}`) : e);
+    });
     child.on("close", (code, signal) => {
       clearTimeout(t); active.delete(child);
       killTree(child, "SIGKILL"); // reap stragglers in the process group

@@ -9,7 +9,8 @@ install_package() {
 probe() {
   /usr/bin/bwrap --unshare-all --unshare-user --disable-userns --die-with-parent --new-session --cap-drop ALL \
     --clearenv --ro-bind /usr/bin /usr/bin --ro-bind /usr/lib /usr/lib --ro-bind-try /usr/lib64 /usr/lib64 \
-    --symlink usr/lib /lib --symlink usr/lib64 /lib64 --proc /proc --dev /dev -- /usr/bin/true
+    --symlink usr/lib /lib --symlink usr/lib64 /lib64 --proc /proc --dev /dev \
+    --dir /runtime --ro-bind-fd 3 /runtime/probe -- /runtime/probe 3</usr/bin/true
 }
 [[ -x /usr/bin/bwrap ]] || install_package bubblewrap
 /usr/bin/bwrap --version

@@ -26219,7 +26219,7 @@ ${lines.join("\n")}`;
 }
 
 // src/shell.ts
-import { spawn, spawnSync as spawnSync2 } from "node:child_process";
+import { spawn as spawn2, spawnSync as spawnSync2 } from "node:child_process";
 import fs8 from "node:fs";
 import path9 from "node:path";
 
@@ -26285,12 +26285,12 @@ var Variables = class {
 import fs7 from "node:fs";
 import os2 from "node:os";
 import path8 from "node:path";
-import { spawnSync } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 var launcher = "/usr/bin/bwrap";
 function workerEnv(selected = {}) {
   return { PATH: "/runtime:/usr/bin:/bin", HOME: "/tmp", TMPDIR: "/tmp", LANG: "C.UTF-8", GIT_TERMINAL_PROMPT: "0", ...selected };
 }
-function workspaceLaunch(p, cwd, program, args) {
+function workspaceArgs(p, cwd, program, args) {
   if (process.platform !== "linux" || p.roots.length !== 1) throw new PolicyError("worker_unavailable", "workspace shell requires Linux and one dedicated project root");
   const root = p.roots[0];
   if (root === path8.parse(root).root || root === os2.homedir() || !isInside(root, cwd) || p.protectedDirs.some((d) => isInside(root, d) || isInside(d, root)))
@@ -26300,18 +26300,8 @@ function workspaceLaunch(p, cwd, program, args) {
   } catch {
     throw new PolicyError("worker_unavailable", "bubblewrap is not installed at /usr/bin/bwrap; no host-shell fallback");
   }
-  let nodeExec;
-  try {
-    nodeExec = fs7.realpathSync(process.execPath);
-    if (!path8.isAbsolute(nodeExec) || nodeExec.includes("\0") || nodeExec.includes("\n") || nodeExec.includes("\r"))
-      throw new Error("invalid node executable path");
-    if (!fs7.statSync(nodeExec).isFile())
-      throw new Error("node executable path is not a file");
-  } catch {
-    throw new PolicyError("worker_unavailable", "unable to resolve a safe node executable path for workspace shell");
-  }
   const childCwd = path8.posix.join("/work", path8.relative(root, cwd));
-  return { file: launcher, args: [
+  return [
     "--unshare-all",
     "--unshare-user",
     "--disable-userns",
@@ -26344,8 +26334,8 @@ function workspaceLaunch(p, cwd, program, args) {
     "/lib64",
     "--dir",
     "/runtime",
-    "--ro-bind",
-    nodeExec,
+    "--ro-bind-fd",
+    "3",
     "/runtime/node",
     "--size",
     "67108864",
@@ -26367,11 +26357,42 @@ function workspaceLaunch(p, cwd, program, args) {
     "--",
     program,
     ...args
-  ] };
+  ];
+}
+function withRuntimeFd(launch) {
+  let fd;
+  try {
+    fd = fs7.openSync("/proc/self/exe", fs7.constants.O_RDONLY);
+  } catch {
+    throw new PolicyError("worker_unavailable", "cannot open the running Node executable through procfs");
+  }
+  try {
+    if (!fs7.fstatSync(fd).isFile()) throw new PolicyError("worker_unavailable", "the running Node executable is not a regular file");
+    return launch(fd);
+  } finally {
+    fs7.closeSync(fd);
+  }
+}
+function spawnWorkspaceShell(p, cwd, program, args, selected) {
+  const argv = workspaceArgs(p, cwd, program, args);
+  return withRuntimeFd((fd) => spawn(launcher, argv, {
+    cwd: "/",
+    env: workerEnv(selected),
+    shell: false,
+    detached: true,
+    stdio: ["pipe", "pipe", "pipe", fd]
+  }));
 }
 function probeWorkspaceShell(p) {
-  const spec = workspaceLaunch(p, p.roots[0], "/usr/bin/true", []);
-  const child = spawnSync(spec.file, spec.args, { cwd: "/", env: workerEnv(), encoding: "utf8", timeout: 5e3 });
+  const argv = workspaceArgs(p, p.roots[0], "/runtime/node", ["--version"]);
+  const child = withRuntimeFd((fd) => spawnSync(launcher, argv, {
+    cwd: "/",
+    env: workerEnv(),
+    shell: false,
+    stdio: ["ignore", "pipe", "pipe", fd],
+    encoding: "utf8",
+    timeout: 5e3
+  }));
   if (child.status !== 0) throw new PolicyError("worker_unavailable", `isolated workspace probe failed; no fallback: ${child.error?.message ?? child.stderr?.trim() ?? "launch failed"}`);
 }
 
@@ -26511,15 +26532,13 @@ async function runShell(policy, a, vars = new Variables(), owner = "stdio") {
     shown = cmd;
   }
   const selected = vars.select(policy, owner, a.inherit_vars);
-  const env = policy.shellWorker ? workerEnv(selected) : Object.assign(buildEnv(policy, policy.roots), selected);
-  if (policy.shellWorker) ({ file, args } = workspaceLaunch(policy, cwdR.abs, file, args));
   const started = Date.now();
   return await new Promise((resolve, reject) => {
     let child;
     try {
-      child = spawn(file, args, { cwd: policy.shellWorker ? "/" : cwdR.abs, env, shell: false, detached: process.platform !== "win32", stdio: ["pipe", "pipe", "pipe"], windowsHide: true });
+      child = policy.shellWorker ? spawnWorkspaceShell(policy, cwdR.abs, file, args, selected) : spawn2(file, args, { cwd: cwdR.abs, env: Object.assign(buildEnv(policy, policy.roots), selected), shell: false, detached: process.platform !== "win32", stdio: ["pipe", "pipe", "pipe"], windowsHide: true });
     } catch (e) {
-      return reject(new Error(`spawn failed: ${e.message}`));
+      return reject(e instanceof PolicyError ? e : new Error(`spawn failed: ${e.message}`));
     }
     active.add(child);
     const stdoutBudget = capture === "both" ? Math.ceil(budget * 0.7) : capture === "stdout" ? budget : 0;
@@ -26541,6 +26560,7 @@ async function runShell(policy, a, vars = new Variables(), owner = "stdio") {
     child.on("error", (e) => {
       clearTimeout(t);
       active.delete(child);
+      if (policy.shellWorker) return reject(new PolicyError("worker_unavailable", `workspace launcher failed: ${e.message}`));
       reject(e.code === "ENOENT" ? new Error(`command not found: ${file}`) : e);
     });
     child.on("close", (code, signal) => {

@@ -126,10 +126,23 @@ test('e2e/http opt-in: command and argv both run in /work without the host envir
   await call('ht_add_var',{name:'APP_TEST',value:'ekip'});
   const stdout=await sh({cwd:'/work/sub',stdin_file:'input',inherit_vars:['APP_TEST'],command:`test ! -e '${marker}' && cat | tr a-z A-Z > out && pwd && printf '%s' "$APP_TEST"`});
   assert.equal(stdout,'/work/sub\nekip'); assert.equal(fs.readFileSync(path.join(root,'sub','out'),'utf8'),'IKI SATıR\n');
-  const probe = `const fs = require('node:fs'); console.log(JSON.stringify({cwd:process.cwd(), outside:fs.existsSync(${JSON.stringify(marker)}), hostenv:process.env.HT_HOST_FIXTURE ?? null, selected:process.env.APP_TEST ?? null, pid:fs.readlinkSync('/proc/self/ns/pid'), net:fs.readlinkSync('/proc/self/ns/net')}));`;
+  const probe = `
+    const fs = require('node:fs');
+    const runtime = fs.statSync('/runtime/node', {bigint:true});
+    const inherited = fs.readdirSync('/proc/self/fd').some(n => {
+      try { const s = fs.fstatSync(Number(n), {bigint:true}); return s.dev === runtime.dev && s.ino === runtime.ino; }
+      catch (e) { if (e.code === 'EBADF') return false; throw e; }
+    });
+    console.log(JSON.stringify({cwd:process.cwd(), outside:fs.existsSync(${JSON.stringify(marker)}),
+      hostenv:process.env.HT_HOST_FIXTURE ?? null, selected:process.env.APP_TEST ?? null,
+      exec:process.execPath, runtime:[String(runtime.dev),String(runtime.ino)], inherited,
+      pid:fs.readlinkSync('/proc/self/ns/pid'), net:fs.readlinkSync('/proc/self/ns/net')}));`;
   await call('ht_write',{path:'sub/probe.cjs',content:probe});
   const r=JSON.parse(await sh({cwd:'sub',argv:['node','/work/sub/probe.cjs']}));
   assert.equal(r.cwd,'/work/sub'); assert.equal(r.outside,false); assert.equal(r.hostenv,null); assert.equal(r.selected,null);
+  const serverNode = fs.statSync('/proc/self/exe', {bigint:true}); // same binary as the HTTP subprocess
+  assert.equal(r.exec,'/runtime/node'); assert.deepEqual(r.runtime,[String(serverNode.dev),String(serverNode.ino)]);
+  assert.equal(r.inherited,false,'the guest did not inherit the launcher mount descriptor');
   for(const ns of ['pid','net']) assert.notEqual(r[ns],fs.readlinkSync(`/proc/self/ns/${ns}`));
   assert.match(await call('ht_read',{path:'sub/out'}), /IKI SATıR/);
   assert.equal(fs.readFileSync(marker,'utf8'),'host fixture');
