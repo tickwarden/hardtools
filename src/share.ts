@@ -7,14 +7,20 @@ import { readBytesNoFollow } from "./fs-tools.js";
 import { enforceSecrets, PolicyError, resolveSafe } from "./guard.js";
 
 export const SHARE_CWD = "/_tmp/hardtools-share/";
-export const shareTemplate = `hardtools-share://local${SHARE_CWD}{id}`;
+const sharePrefix = `hardtools-share://local${SHARE_CWD}`;
+export const shareTemplate = sharePrefix + "{id}";
 const MAX_FILE = 2 << 20, MAX_TOTAL = 16 << 20, MAX_ITEMS = 32;
 const idPattern = /^[A-Za-z0-9_-]{43}$/;
+export function shareIdFromUri(uri: string): string | null {
+  if (uri.length !== sharePrefix.length + 43 || !uri.startsWith(sharePrefix)) return null;
+  const id = uri.slice(sharePrefix.length);
+  return idPattern.test(id) ? id : null;
+}
 const mime: Record<string, string> = { ".txt": "text/plain", ".csv": "text/csv", ".md": "text/markdown", ".pdf": "application/pdf", ".json": "application/json", ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".webp": "image/webp", ".zip": "application/zip" };
 type Shared = { owner: string; id: string; name: string; bytes: Buffer; mimeType: string; expires: number; sha256: string };
 export interface ShareArgs { action?: "create" | "list" | "revoke"; path?: string; source_path?: string; name?: string; ttl_minutes?: number; id?: string }
-const summary = (s: Shared) => ({ id: s.id, uri: shareTemplate.replace("{id}", s.id), name: s.name, cwd: SHARE_CWD, mime_type: s.mimeType, size: s.bytes.length, sha256: s.sha256, expires_at: new Date(s.expires).toISOString() });
-const resource = (s: Shared) => ({ uri: shareTemplate.replace("{id}", s.id), mimeType: s.mimeType, blob: s.bytes.toString("base64") });
+const summary = (s: Shared) => ({ id: s.id, uri: sharePrefix + s.id, name: s.name, cwd: SHARE_CWD, mime_type: s.mimeType, size: s.bytes.length, sha256: s.sha256, expires_at: new Date(s.expires).toISOString() });
+const resource = (s: Shared) => ({ uri: sharePrefix + s.id, mimeType: s.mimeType, blob: s.bytes.toString("base64") });
 
 function sourceFile(p: Policy, a: ShareArgs) {
   if ((a.path === undefined) === (a.source_path === undefined)) throw new PolicyError("bad_input", "supply path (in the share cwd) OR source_path (in a workspace root)");

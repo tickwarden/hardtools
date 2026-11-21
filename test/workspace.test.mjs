@@ -101,6 +101,9 @@ test('MCP share: virtual cwd, embedded binary, authenticated resources/read, imm
   const dir = path.join(root,SHARE_CWD.slice(1)); fs.mkdirSync(dir,{recursive:true}); fs.writeFileSync(path.join(dir,'rapor.bin'),b);
   const r = await call('ht_share',{path:SHARE_CWD+'rapor.bin',name:'Çıktı.bin'}), m = JSON.parse(ok(r));
   assert.equal(m.cwd, SHARE_CWD); assert.equal(m.name,'Çıktı.bin'); assert.equal(m.size,b.length); assert.equal(r.content[1].type,'resource');
+  const ts = await client.listResourceTemplates();
+  assert.deepEqual(ts.resourceTemplates.map(t=>t.uriTemplate), ['hardtools-share://local/_tmp/hardtools-share/{id}']);
+  assert.deepEqual((await client.listResources()).resources, []); // do not advertise private share IDs
   const res = r.content[1].resource; assert.deepEqual(Buffer.from(res.blob,'base64'),b); fs.writeFileSync(path.join(dir,'rapor.bin'),'modified');
   assert.deepEqual(Buffer.from((await client.readResource({uri:res.uri})).contents[0].blob,'base64'),b);
   assert.deepEqual(JSON.parse(ok(await call('ht_share',{action:'list'}))).files.map(f=>f.id),[m.id]);

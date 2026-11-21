@@ -1,6 +1,7 @@
 // AI-generated (Claude, Anthropic), 2026-11-12. Requires human security review before production use.
-import { McpServer, ResourceTemplate } from "@modelcontextprotocol/sdk/server/mcp.js";
-import { z } from "zod";
+import "./schema-runtime.js";
+import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import * as z from "zod/v4";
 import { Audit, summarize } from "./audit.js";
 import type { Policy } from "./config.js";
 import { htEmptyTrash, htGlob, htMkdir, htMove, htTrash } from "./fs-extra.js";
@@ -10,10 +11,10 @@ import { safeFetch } from "./net.js";
 import { htSearch } from "./search.js";
 import { runShell, type ShellArgs } from "./shell.js";
 import { imageSearch, type ImageArgs } from "./image-search.js";
-import { Shares, SHARE_CWD, shareTemplate, type ShareArgs } from "./share.js";
+import { Shares, SHARE_CWD, shareIdFromUri, shareTemplate, type ShareArgs } from "./share.js";
 import { Variables } from "./variables.js";
 import { VERSION } from "./version.js";
-import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
+import { ErrorCode, ListResourcesRequestSchema, ListResourceTemplatesRequestSchema, McpError, ReadResourceRequestSchema, type CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 
 export const createWorkspace = () => ({ vars: new Variables(), shares: new Shares() });
 const asText = (text: string): CallToolResult => ({ content: [{ type: "text", text }] });
@@ -142,9 +143,18 @@ export function createServer(policy: Policy, audit: Audit, workspace = createWor
     inputSchema: { action: z.enum(["create", "list", "revoke"]).optional(), path: z.string().min(1).optional(), source_path: z.string().min(1).optional(), name: z.string().min(1).max(180).optional(), ttl_minutes: z.number().int().min(1).max(60).optional(), id: z.string().regex(/^[A-Za-z0-9_-]{43}$/).optional() },
     annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
   }, wrap("ht_share", (a: ShareArgs) => workspace.shares.tool(policy, owner, a, origin)));
-  server.registerResource("shared-file", new ResourceTemplate(shareTemplate, { list: undefined }), { description: "Read an unexpired share from this authorization" }, (_uri, v) => {
+  // Only one resource shape exists. Advertise the template, but read by exact prefix and
+  // opaque ID; resource reads do not need a general URI-template/regex engine.
+  server.server.registerCapabilities({ resources: {} });
+  server.server.setRequestHandler(ListResourcesRequestSchema, () => ({ resources: [] }));
+  server.server.setRequestHandler(ListResourceTemplatesRequestSchema, () => ({ resourceTemplates: [
+    { name: "shared-file", uriTemplate: shareTemplate, description: "Read an unexpired share from this authorization" },
+  ] }));
+  server.server.setRequestHandler(ReadResourceRequestSchema, ({ params }) => {
     audit.write({ ev: "resource_read", resource: "shared-file" });
-    return { contents: [workspace.shares.readResource(owner, String(v.id))] };
+    const id = shareIdFromUri(params.uri);
+    if (id === null) throw new McpError(ErrorCode.InvalidParams, "Unknown shared-file URI");
+    return { contents: [workspace.shares.readResource(owner, id)] };
   });
 
   server.registerTool("ht_image_search", {
