@@ -16,13 +16,25 @@ export function workspaceLaunch(p: Policy, cwd: string, program: string, args: s
   if (root === path.parse(root).root || root === os.homedir() || !isInside(root, cwd) || p.protectedDirs.some(d => isInside(root, d) || isInside(d, root)))
     throw new PolicyError("worker_root", "choose a dedicated workspace separate from audit, home and configuration");
   try { fs.accessSync(launcher, fs.constants.X_OK); } catch { throw new PolicyError("worker_unavailable", "bubblewrap is not installed at /usr/bin/bwrap; no host-shell fallback"); }
+
+  let nodeExec: string;
+  try {
+    nodeExec = fs.realpathSync(process.execPath);
+    if (!path.isAbsolute(nodeExec) || nodeExec.includes("\0") || nodeExec.includes("\n") || nodeExec.includes("\r"))
+      throw new Error("invalid node executable path");
+    if (!fs.statSync(nodeExec).isFile())
+      throw new Error("node executable path is not a file");
+  } catch {
+    throw new PolicyError("worker_unavailable", "unable to resolve a safe node executable path for workspace shell");
+  }
+
   const childCwd = path.posix.join("/work", path.relative(root, cwd));
   return { file: launcher, args: [
     "--unshare-all", "--unshare-user", "--disable-userns", "--die-with-parent", "--new-session", "--cap-drop", "ALL",
     "--dir", "/usr", "--ro-bind", "/usr/bin", "/usr/bin", "--ro-bind", "/usr/lib", "/usr/lib",
     "--ro-bind-try", "/usr/lib64", "/usr/lib64", "--ro-bind", "/usr/share", "/usr/share",
     "--symlink", "usr/bin", "/bin", "--symlink", "usr/lib", "/lib", "--symlink", "usr/lib64", "/lib64",
-    "--dir", "/runtime", "--ro-bind", fs.realpathSync(process.execPath), "/runtime/node",
+    "--dir", "/runtime", "--ro-bind", nodeExec, "/runtime/node",
     "--size", "67108864", "--tmpfs", "/tmp", "--dev", "/dev", "--proc", "/proc", "--remount-ro", "/proc",
     p.fs.writeEnabled ? "--bind" : "--ro-bind", root, "/work", "--remount-ro", "/", "--chdir", childCwd,
     "--", program, ...args,
