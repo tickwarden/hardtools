@@ -3869,7 +3869,7 @@ var require_schemes = __commonJS({
       urnComponent.nss = (uuidComponent.uuid || "").toLowerCase();
       return urnComponent;
     }
-    var http3 = (
+    var http4 = (
       /** @type {SchemeHandler} */
       {
         scheme: "http",
@@ -3882,7 +3882,7 @@ var require_schemes = __commonJS({
       /** @type {SchemeHandler} */
       {
         scheme: "https",
-        domainHost: http3.domainHost,
+        domainHost: http4.domainHost,
         parse: httpParse,
         serialize: httpSerialize
       }
@@ -3926,7 +3926,7 @@ var require_schemes = __commonJS({
     var SCHEMES = (
       /** @type {Record<SchemeName, SchemeHandler>} */
       {
-        http: http3,
+        http: http4,
         https: https2,
         ws,
         wss,
@@ -7347,12 +7347,12 @@ var require_dist = __commonJS({
         throw new Error(`Unknown format "${name}"`);
       return f;
     };
-    function addFormats(ajv, list, fs9, exportName) {
+    function addFormats(ajv, list, fs10, exportName) {
       var _a3;
       var _b;
       (_a3 = (_b = ajv.opts.code).formats) !== null && _a3 !== void 0 ? _a3 : _b.formats = (0, codegen_1._)`require("ajv-formats/dist/formats").${exportName}`;
       for (const f of list)
-        ajv.addFormat(f, fs9[f]);
+        ajv.addFormat(f, fs10[f]);
     }
     module.exports = exports = formatsPlugin;
     Object.defineProperty(exports, "__esModule", { value: true });
@@ -12795,7 +12795,7 @@ function equalSecret(candidate, expected) {
 }
 
 // src/index.ts
-import http2 from "node:http";
+import http3 from "node:http";
 
 // node_modules/@modelcontextprotocol/sdk/dist/esm/server/stdio.js
 import process2 from "node:process";
@@ -26220,7 +26220,7 @@ ${lines.join("\n")}`;
 
 // src/shell.ts
 import { spawn as spawn2, spawnSync as spawnSync2 } from "node:child_process";
-import fs8 from "node:fs";
+import fs9 from "node:fs";
 import path9 from "node:path";
 
 // src/variables.ts
@@ -26281,22 +26281,153 @@ var Variables = class {
   }
 };
 
-// src/workspace-shell.ts
+// src/workspace-egress.ts
+import dns2 from "node:dns/promises";
 import fs7 from "node:fs";
+import http2 from "node:http";
+import net2 from "node:net";
 import os2 from "node:os";
+var deny = () => new PolicyError("workspace_https_denied", "destination is not an allowed public HTTPS endpoint");
+var global6 = new net2.BlockList();
+global6.addSubnet("2000::", 3, "ipv6");
+var special = new net2.BlockList();
+special.addAddress("168.63.129.16");
+for (const a of ["192.31.196.0", "192.52.193.0", "192.88.99.0", "192.175.48.0"]) special.addSubnet(a, 24, "ipv4");
+special.addSubnet("2001::", 23, "ipv6");
+special.addSubnet("3fff::", 20, "ipv6");
+special.addSubnet("2620:4f:8000::", 48, "ipv6");
+function requireWorkspaceHttps(p) {
+  if (p.shellWorker !== "workspace" || !p.shell.enabled || !p.workspaceHttps || !p.net.enabled || !p.net.schemes.includes("https") || p.net.ports.length > 0 && !p.net.ports.includes(443) || p.net.requireAllowDomains && !p.net.allowDomains.length)
+    throw new PolicyError("workspace_https_unavailable", "an enabled workspace shell and a policy permitting public HTTPS:443 are required");
+}
+var resolving = 0;
+async function lookupHost(host) {
+  if (resolving >= 16) throw deny();
+  resolving++;
+  try {
+    return await dns2.lookup(host + ".", { all: true, verbatim: true });
+  } finally {
+    resolving--;
+  }
+}
+async function workspacePeer(p, authority) {
+  requireWorkspaceHttps(p);
+  if (authority.length > 260 || !/^(?:[a-z0-9.-]+|\[[a-f0-9:.]+\]):443$/i.test(authority)) throw deny();
+  const url = new URL(`https://${authority}/`);
+  const { host: raw } = checkUrl(p, url);
+  const host = raw.toLowerCase().replace(/\.$/, "");
+  const family = net2.isIP(host);
+  if (!family && (!host.includes(".") || host.split(".").some((s) => !/^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/.test(s)) || /(?:^|\.)(?:localhost|local|localdomain|internal|home\.arpa)$/.test(host))) throw deny();
+  const records = family ? [{ address: host, family }] : await lookupHost(host);
+  const self = new net2.BlockList();
+  for (const a of Object.values(os2.networkInterfaces()).flat()) if (a) {
+    const f = a.family === "IPv6" ? "ipv6" : "ipv4", ip = a.address.split("%")[0];
+    self.addAddress(ip, f);
+    if (a.cidr) self.addSubnet(ip, Number(a.cidr.split("/")[1]), f);
+  }
+  if (!records.length || !records.every((r) => {
+    const f = r.family === 6 ? "ipv6" : "ipv4";
+    return net2.isIP(r.address) === r.family && !r.address.includes("%") && (r.family === 4 || global6.check(r.address, "ipv6")) && !isBlockedIp(r.address) && !special.check(r.address, f) && !self.check(r.address, f);
+  })) throw deny();
+  return records.find((r) => r.family === 4) ?? records[0];
+}
+async function openWorkspaceEgress(p) {
+  requireWorkspaceHttps(p);
+  if (p.roots.some((r) => isInside(r, "/tmp"))) throw new PolicyError("worker_root", "the project cannot contain the egress socket directory");
+  const dir = fs7.mkdtempSync("/tmp/ht-egress-"), socketPath = dir + "/proxy.sock";
+  const peers = /* @__PURE__ */ new Set();
+  let stopped = false, accepted = 0, remaining = 64 * 1024 * 1024;
+  const server = http2.createServer({ maxHeaderSize: 4096, headersTimeout: 5e3, requestTimeout: 1e4 }, (_req, res) => {
+    res.writeHead(405, { connection: "close", "content-length": 0 }).end();
+  });
+  const track = (s) => {
+    peers.add(s);
+    s.once("close", () => peers.delete(s));
+    s.on("error", () => s.destroy());
+    s.setTimeout(15e3, () => s.destroy());
+  };
+  server.maxConnections = 8;
+  server.on("connection", (s) => {
+    track(s);
+    if (stopped || ++accepted > 128 || remaining <= 0) s.destroy();
+  });
+  server.on("clientError", (_e, s) => s.destroy());
+  server.on("upgrade", (_req, s) => s.destroy());
+  const charge = (b) => {
+    remaining -= b.length;
+    if (remaining < 0) for (const s of peers) s.destroy();
+    return remaining >= 0;
+  };
+  server.on("connect", async (req, _stream, head) => {
+    const client = req.socket;
+    try {
+      const { address, family } = await workspacePeer(p, req.url ?? "");
+      if (stopped || client.destroyed || remaining <= 0) return client.destroy();
+      const upstream = net2.createConnection({ host: address, family, port: 443 });
+      track(upstream);
+      client.once("close", () => upstream.destroy());
+      upstream.once("close", () => client.destroy());
+      upstream.once("error", () => client.destroy());
+      upstream.once("connect", () => {
+        if (stopped || client.destroyed || !charge(head)) return upstream.destroy();
+        client.write("HTTP/1.1 200 Connection Established\r\n\r\n");
+        if (head.length) upstream.write(head);
+        client.on("data", charge);
+        upstream.on("data", charge);
+        client.pipe(upstream);
+        upstream.pipe(client);
+      });
+    } catch {
+      if (!client.destroyed) client.end("HTTP/1.1 403 Forbidden\r\nContent-Length: 0\r\nConnection: close\r\n\r\n");
+    }
+  });
+  const close = () => {
+    if (stopped) return;
+    stopped = true;
+    for (const s of peers) s.destroy();
+    server.close();
+    fs7.rmSync(socketPath, { force: true });
+    fs7.rmdirSync(dir);
+  };
+  try {
+    await new Promise((ok, fail) => {
+      server.once("error", fail);
+      server.listen(socketPath, ok);
+    });
+    fs7.chmodSync(socketPath, 384);
+    return { socketPath, close };
+  } catch (e) {
+    close();
+    throw e;
+  }
+}
+
+// src/workspace-shell.ts
+import fs8 from "node:fs";
+import os3 from "node:os";
 import path8 from "node:path";
 import { spawn, spawnSync } from "node:child_process";
 var launcher = "/usr/bin/bwrap";
+var guestStart = `set -eu
+r=$(mktemp -d /tmp/ht-ready.XXXXXXXX)
+mkfifo "$r/port"
+/runtime/node /runtime/https-bridge.mjs </dev/null >"$r/port" &
+IFS= read -r port <"$r/port" || exit 125
+rm -- "$r/port"; rmdir -- "$r"
+case "$port" in ''|*[!0-9]*) exit 125;; esac
+p="http://127.0.0.1:$port"
+export HTTPS_PROXY="$p" https_proxy="$p" HTTP_PROXY="$p" http_proxy="$p" NO_PROXY='' no_proxy=''
+exec "$@"`;
 function workerEnv(selected = {}) {
   return { PATH: "/runtime:/usr/bin:/bin", HOME: "/tmp", TMPDIR: "/tmp", LANG: "C.UTF-8", GIT_TERMINAL_PROMPT: "0", ...selected };
 }
-function workspaceArgs(p, cwd, program, args) {
+function workspaceArgs(p, cwd, program, args, lease) {
   if (process.platform !== "linux" || p.roots.length !== 1) throw new PolicyError("worker_unavailable", "workspace shell requires Linux and one dedicated project root");
   const root = p.roots[0];
-  if (root === path8.parse(root).root || root === os2.homedir() || !isInside(root, cwd) || p.protectedDirs.some((d) => isInside(root, d) || isInside(d, root)))
+  if (root === path8.parse(root).root || root === os3.homedir() || !isInside(root, cwd) || p.protectedDirs.some((d) => isInside(root, d) || isInside(d, root)))
     throw new PolicyError("worker_root", "choose a dedicated workspace separate from audit, home and configuration");
   try {
-    fs7.accessSync(launcher, fs7.constants.X_OK);
+    fs8.accessSync(launcher, fs8.constants.X_OK);
   } catch {
     throw new PolicyError("worker_unavailable", "bubblewrap is not installed at /usr/bin/bwrap; no host-shell fallback");
   }
@@ -26337,6 +26468,17 @@ function workspaceArgs(p, cwd, program, args) {
     "--ro-bind-fd",
     "3",
     "/runtime/node",
+    ...lease ? [
+      "--ro-bind-fd",
+      "4",
+      "/runtime/https-bridge.mjs",
+      "--ro-bind",
+      lease.socketPath,
+      "/runtime/https.sock",
+      "--ro-bind",
+      "/etc/ssl/certs/ca-certificates.crt",
+      "/etc/ssl/certs/ca-certificates.crt"
+    ] : [],
     "--size",
     "67108864",
     "--tmpfs",
@@ -26355,6 +26497,7 @@ function workspaceArgs(p, cwd, program, args) {
     "--chdir",
     childCwd,
     "--",
+    ...lease ? ["/bin/sh", "-c", guestStart, "ht-workspace"] : [],
     program,
     ...args
   ];
@@ -26362,26 +26505,38 @@ function workspaceArgs(p, cwd, program, args) {
 function withRuntimeFd(launch) {
   let fd;
   try {
-    fd = fs7.openSync("/proc/self/exe", fs7.constants.O_RDONLY);
+    fd = fs8.openSync("/proc/self/exe", fs8.constants.O_RDONLY);
   } catch {
     throw new PolicyError("worker_unavailable", "cannot open the running Node executable through procfs");
   }
   try {
-    if (!fs7.fstatSync(fd).isFile()) throw new PolicyError("worker_unavailable", "the running Node executable is not a regular file");
+    if (!fs8.fstatSync(fd).isFile()) throw new PolicyError("worker_unavailable", "the running Node executable is not a regular file");
     return launch(fd);
   } finally {
-    fs7.closeSync(fd);
+    fs8.closeSync(fd);
   }
 }
-function spawnWorkspaceShell(p, cwd, program, args, selected) {
-  const argv = workspaceArgs(p, cwd, program, args);
-  return withRuntimeFd((fd) => spawn(launcher, argv, {
-    cwd: "/",
-    env: workerEnv(selected),
-    shell: false,
-    detached: true,
-    stdio: ["pipe", "pipe", "pipe", fd]
-  }));
+function spawnWorkspaceShell(p, cwd, program, args, selected, lease) {
+  if (Boolean(p.workspaceHttps) !== Boolean(lease)) throw new PolicyError("worker_unavailable", "workspace egress lease mismatch");
+  const argv = workspaceArgs(p, cwd, program, args, lease);
+  return withRuntimeFd((fd) => {
+    let bridge;
+    try {
+      if (lease) {
+        bridge = fs8.openSync(new URL("./workspace-bridge.js", import.meta.url), fs8.constants.O_RDONLY | fs8.constants.O_NOFOLLOW);
+        if (!fs8.fstatSync(bridge).isFile()) throw new PolicyError("worker_unavailable", "invalid guest bridge");
+      }
+      return spawn(launcher, argv, {
+        cwd: "/",
+        env: workerEnv(selected),
+        shell: false,
+        detached: true,
+        stdio: ["pipe", "pipe", "pipe", fd, ...bridge === void 0 ? [] : [bridge]]
+      });
+    } finally {
+      if (bridge !== void 0) fs8.closeSync(bridge);
+    }
+  });
 }
 function probeWorkspaceShell(p) {
   const argv = workspaceArgs(p, p.roots[0], "/runtime/node", ["--version"]);
@@ -26395,9 +26550,42 @@ function probeWorkspaceShell(p) {
   }));
   if (child.status !== 0) throw new PolicyError("worker_unavailable", `isolated workspace probe failed; no fallback: ${child.error?.message ?? child.stderr?.trim() ?? "launch failed"}`);
 }
+async function probeWorkspaceHttps(p) {
+  const lease = await openWorkspaceEgress(p);
+  try {
+    const check = `const http=require('node:http'),u=new URL(process.env.HTTPS_PROXY);
+      const r=http.request({host:u.hostname,port:u.port,method:'CONNECT',path:'127.0.0.1:443'});
+      r.on('connect',(res,s)=>{s.destroy();process.exit(res.statusCode===403?0:1)});
+      r.on('error',()=>process.exit(1));r.end();`;
+    const c = spawnWorkspaceShell(p, p.roots[0], "/runtime/node", ["-e", check], {}, lease);
+    await new Promise((ok, fail) => {
+      const timer = setTimeout(() => {
+        try {
+          if (c.pid) process.kill(-c.pid, "SIGKILL");
+        } catch {
+        }
+      }, 5e3);
+      c.stdout.resume();
+      c.stderr.resume();
+      c.stdin.end();
+      c.once("error", (e) => {
+        clearTimeout(timer);
+        fail(e);
+      });
+      c.once("close", (code) => {
+        clearTimeout(timer);
+        if (code === 0) ok();
+        else fail(new PolicyError("worker_unavailable", "isolated HTTPS proxy probe failed; no fallback"));
+      });
+    });
+  } finally {
+    lease.close();
+  }
+}
 
 // src/shell.ts
 var active = /* @__PURE__ */ new Set();
+var opening = 0;
 process.on("exit", () => {
   for (const c of active) killTree(c, "SIGKILL");
 });
@@ -26449,9 +26637,9 @@ function normalise(argv) {
   const name = path9.basename(argv[0]).replace(/\.(exe|cmd|bat)$/i, "");
   return [name, ...argv.slice(1)].join(" ");
 }
-function matchDeny(argv, deny) {
+function matchDeny(argv, deny2) {
   const line = normalise(argv);
-  return deny.find((rx) => new RegExp(rx, "i").test(line));
+  return deny2.find((rx) => new RegExp(rx, "i").test(line));
 }
 function buildEnv(policy, rootsReal) {
   const env = {};
@@ -26481,10 +26669,10 @@ async function runShell(policy, a, vars = new Variables(), owner = "stdio") {
   const sh = policy.shell;
   if (!sh.enabled) throw new PolicyError("shell_disabled", "shell execution is disabled by policy");
   if (a.argv === void 0 === (a.command === void 0)) throw new PolicyError("bad_input", "provide exactly one of argv or command");
-  if (active.size >= sh.maxConcurrent) throw new PolicyError("busy", `too many concurrent commands (limit ${sh.maxConcurrent})`);
+  if (active.size + opening >= sh.maxConcurrent) throw new PolicyError("busy", `too many concurrent commands (limit ${sh.maxConcurrent})`);
   const checkedPath = (v) => policy.shellWorker && (v === "/work" || v.startsWith("/work/")) ? path9.join(policy.roots[0], v.slice(5)) : v;
   const cwdR = resolveSafe(policy, checkedPath(a.cwd ?? "."), "read");
-  if (!fs8.statSync(cwdR.abs).isDirectory()) throw new PolicyError("bad_cwd", "cwd is not a directory");
+  if (!fs9.statSync(cwdR.abs).isDirectory()) throw new PolicyError("bad_cwd", "cwd is not a directory");
   const timeout = Math.min(a.timeout_ms ?? sh.timeoutMs, sh.maxTimeoutMs);
   if (a.stdin !== void 0 && Buffer.byteLength(a.stdin) > 64 * 1024) throw new PolicyError("stdin_too_large", "stdin limited to 64 KiB");
   if (a.stdin !== void 0 && a.stdin_file !== void 0) throw new PolicyError("bad_input", "stdin and stdin_file are mutually exclusive");
@@ -26533,10 +26721,19 @@ async function runShell(policy, a, vars = new Variables(), owner = "stdio") {
   }
   const selected = vars.select(policy, owner, a.inherit_vars);
   const started = Date.now();
-  return await new Promise((resolve, reject) => {
+  let lease;
+  if (policy.shellWorker && policy.workspaceHttps) {
+    opening++;
+    try {
+      lease = await openWorkspaceEgress(policy);
+    } finally {
+      opening--;
+    }
+  }
+  return new Promise((resolve, reject) => {
     let child;
     try {
-      child = policy.shellWorker ? spawnWorkspaceShell(policy, cwdR.abs, file, args, selected) : spawn2(file, args, { cwd: cwdR.abs, env: Object.assign(buildEnv(policy, policy.roots), selected), shell: false, detached: process.platform !== "win32", stdio: ["pipe", "pipe", "pipe"], windowsHide: true });
+      child = policy.shellWorker ? spawnWorkspaceShell(policy, cwdR.abs, file, args, selected, lease) : spawn2(file, args, { cwd: cwdR.abs, env: Object.assign(buildEnv(policy, policy.roots), selected), shell: false, detached: process.platform !== "win32", stdio: ["pipe", "pipe", "pipe"], windowsHide: true });
     } catch (e) {
       return reject(e instanceof PolicyError ? e : new Error(`spawn failed: ${e.message}`));
     }
@@ -26580,7 +26777,7 @@ ${stderr}` : ""
       ].filter(Boolean).join("\n");
       resolve({ text, isError: a.expected_exit_codes !== void 0 && !ok });
     });
-  });
+  }).finally(() => lease?.close());
 }
 
 // src/image-search.ts
@@ -27036,7 +27233,7 @@ function createServer(policy, audit, workspace = createWorkspace(), owner = "std
       profile: policy.profile,
       roots: policy.roots,
       fs: { writeEnabled: policy.fs.writeEnabled, secretScan: policy.fs.secretScan, requireHashForOverwrite: policy.fs.requireHashForOverwrite, denyWrite: policy.fs.denyWrite },
-      shell: { enabled: policy.shell.enabled, shellSyntax: policy.shell.enabled && policy.shell.allowShellSyntax, execution: policy.shell.enabled ? policy.shellWorker ?? "host" : "disabled", ...policy.shellWorker && { workspaceRoot: "/work" }, denyCommands: policy.shell.denyCommands.length },
+      shell: { enabled: policy.shell.enabled, shellSyntax: policy.shell.enabled && policy.shell.allowShellSyntax, execution: policy.shell.enabled ? policy.shellWorker ?? "host" : "disabled", ...policy.shellWorker && { workspaceRoot: "/work", network: policy.workspaceHttps ? "public-https-proxy" : "isolated" }, denyCommands: policy.shell.denyCommands.length },
       net: { enabled: policy.net.enabled, schemes: policy.net.schemes, allowDomains: policy.net.allowDomains, needsAllowlist: policy.net.requireAllowDomains && policy.net.allowDomains.length === 0 },
       share: { cwd: SHARE_CWD, createEnabled: policy.fs.writeEnabled },
       variables: { enabled: policy.shell.enabled, inheritByDefault: false },
@@ -27073,9 +27270,13 @@ async function main() {
       policy.shellWorker = "workspace";
       probeWorkspaceShell(policy);
     }
+    if (process.env.HARDTOOLS_WORKSPACE_HTTPS === "1") {
+      policy.workspaceHttps = true;
+      await probeWorkspaceHttps(policy);
+    }
   }
   const audit = new Audit(policy.audit.dir, policy.audit.failClosed);
-  audit.write({ ev: "start", version: VERSION, profile: policy.profile, transport: httpMode ? "http" : "stdio", roots: policy.roots, shell: policy.shell.enabled, write: policy.fs.writeEnabled });
+  audit.write({ ev: "start", version: VERSION, profile: policy.profile, transport: httpMode ? "http" : "stdio", roots: policy.roots, shell: policy.shell.enabled, write: policy.fs.writeEnabled, ...policy.shellWorker && { workspaceHttps: Boolean(policy.workspaceHttps) } });
   console.error(`[hardtools] ${VERSION} profile=${policy.profile} roots=${policy.roots.join(",")} transport=${httpMode ? "http" : "stdio"} audit=${audit.file}`);
   if (!httpMode) {
     await createServer(policy, audit).connect(new StdioServerTransport());
@@ -27097,7 +27298,7 @@ async function main() {
     console.error(`[hardtools] invite URL (one use; keep private): ${inviteUrl}`);
   }
   const workspace = createWorkspace();
-  const srv = http2.createServer(async (req, res) => {
+  const srv = http3.createServer(async (req, res) => {
     const send = (code, msg, headers = {}) => {
       res.writeHead(code, { "content-type": "application/json", ...headers });
       res.end(JSON.stringify({ error: msg }));

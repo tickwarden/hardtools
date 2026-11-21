@@ -11,7 +11,7 @@ import { loadPolicy, type Policy, type ProfileName } from "./config.js";
 import { OAuth } from "./oauth.js";
 import { createServer, createWorkspace } from "./server.js";
 import { VERSION } from "./version.js";
-import { probeWorkspaceShell } from "./workspace-shell.js";
+import { probeWorkspaceHttps, probeWorkspaceShell } from "./workspace-shell.js";
 
 function arg(name: string): string | undefined {
   const i = process.argv.indexOf(name); if (i === -1) return undefined;
@@ -33,9 +33,13 @@ async function main() {
       policy.shellWorker = "workspace";
       probeWorkspaceShell(policy);
     }
+    if (process.env.HARDTOOLS_WORKSPACE_HTTPS === "1") {
+      policy.workspaceHttps = true;
+      await probeWorkspaceHttps(policy); // fails closed if shell, net policy or isolation isn't available
+    }
   }
   const audit = new Audit(policy.audit.dir!, policy.audit.failClosed);
-  audit.write({ ev: "start", version: VERSION, profile: policy.profile, transport: httpMode ? "http" : "stdio", roots: policy.roots, shell: policy.shell.enabled, write: policy.fs.writeEnabled });
+  audit.write({ ev: "start", version: VERSION, profile: policy.profile, transport: httpMode ? "http" : "stdio", roots: policy.roots, shell: policy.shell.enabled, write: policy.fs.writeEnabled, ...(policy.shellWorker && { workspaceHttps: Boolean(policy.workspaceHttps) }) });
   console.error(`[hardtools] ${VERSION} profile=${policy.profile} roots=${policy.roots.join(",")} transport=${httpMode ? "http" : "stdio"} audit=${audit.file}`);
 
   if (!httpMode) {

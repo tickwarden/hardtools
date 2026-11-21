@@ -205,7 +205,7 @@ export function createServer(policy: Policy, audit: Audit, workspace = createWor
     return JSON.stringify({
       version: VERSION, profile: policy.profile, roots: policy.roots,
       fs: { writeEnabled: policy.fs.writeEnabled, secretScan: policy.fs.secretScan, requireHashForOverwrite: policy.fs.requireHashForOverwrite, denyWrite: policy.fs.denyWrite },
-      shell: { enabled: policy.shell.enabled, shellSyntax: policy.shell.enabled && policy.shell.allowShellSyntax, execution: policy.shell.enabled ? (policy.shellWorker ?? "host") : "disabled", ...(policy.shellWorker && { workspaceRoot: "/work" }), denyCommands: policy.shell.denyCommands.length },
+      shell: { enabled: policy.shell.enabled, shellSyntax: policy.shell.enabled && policy.shell.allowShellSyntax, execution: policy.shell.enabled ? (policy.shellWorker ?? "host") : "disabled", ...(policy.shellWorker && { workspaceRoot: "/work", network: policy.workspaceHttps ? "public-https-proxy" : "isolated" }), denyCommands: policy.shell.denyCommands.length },
       net: { enabled: policy.net.enabled, schemes: policy.net.schemes, allowDomains: policy.net.allowDomains, needsAllowlist: policy.net.requireAllowDomains && policy.net.allowDomains.length === 0 },
       share: { cwd: SHARE_CWD, createEnabled: policy.fs.writeEnabled },
       variables: { enabled: policy.shell.enabled, inheritByDefault: false },
