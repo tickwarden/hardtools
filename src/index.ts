@@ -7,7 +7,8 @@ import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/
 import { Audit, verifyAuditFile } from "./audit.js";
 import { loadPolicy, type Policy, type ProfileName } from "./config.js";
 import { OAuth } from "./oauth.js";
-import { createServer, VERSION } from "./server.js";
+import { createServer, createWorkspace } from "./server.js";
+import { VERSION } from "./version.js";
 
 function arg(name: string): string | undefined {
   const i = process.argv.indexOf(name); if (i === -1) return undefined;
@@ -53,6 +54,7 @@ async function main() {
     console.error(`[hardtools] invite URL (one use; keep private): ${inviteUrl}`);
   }
 
+  const workspace = createWorkspace(); // survives individual stateless MCP HTTP requests
   const srv = http.createServer(async (req, res) => {
     const send = (code: number, msg: string, headers: Record<string, string> = {}) => { res.writeHead(code, { "content-type": "application/json", ...headers }); res.end(JSON.stringify({ error: msg })); };
     try {
@@ -65,19 +67,21 @@ async function main() {
       if (now > b.reset) { b.n = 0; b.reset = now + 60_000; } b.n++; hits.set(ip, b);
       if (b.n > 120) return send(429, "rate limited");
 
+      if (workspace.shares.download(req, res, path)) return;
+
       // OAuth discovery / registration / consent / invite / token routes are public by design.
       if (await oauth.handle(req, res)) return;
 
       if (path !== "/mcp") return send(404, "not found");
       const m = /^Bearer (.+)$/.exec(String(req.headers.authorization ?? ""));
       // /mcp accepts either an OAuth-issued access token or the run-specific static bearer.
-      const bearerOk = !!m && (eqTok(m[1], token) || oauth.isAccessToken(m[1]));
-      if (!bearerOk) return send(401, "unauthorized", { "www-authenticate": `Bearer resource_metadata="${oauth.resourceMetadataUrl(req)}"` });
+      const owner = m && (eqTok(m[1], token) ? "static" : oauth.accessScope(m[1]));
+      if (!owner) return send(401, "unauthorized", { "www-authenticate": `Bearer resource_metadata="${oauth.resourceMetadataUrl(req)}"` });
       if (req.method !== "POST") return send(405, "stateless server: POST only", { allow: "POST" });
       const chunks: Buffer[] = []; let size = 0;
       for await (const c of req) { size += (c as Buffer).length; if (size > 1_000_000) return send(413, "body too large"); chunks.push(c as Buffer); }
       let body: unknown; try { body = JSON.parse(Buffer.concat(chunks).toString("utf8")); } catch { return send(400, "invalid JSON"); }
-      const server = createServer(policy, audit);
+      const server = createServer(policy, audit, workspace, owner, oauth.origin(req));
       const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined });
       res.on("close", () => { void transport.close(); void server.close(); });
       await server.connect(transport);

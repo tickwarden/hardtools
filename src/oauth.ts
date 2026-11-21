@@ -78,7 +78,13 @@ export class OAuth {
   private now() { return Math.floor(Date.now() / 1000); }
 
   /** True if `bearer` is an access token minted by this server. */
-  isAccessToken(bearer: string): boolean { return this.verify(bearer.startsWith("hta.") ? bearer.slice(4) : "", "at") !== null; }
+  accessScope(bearer: string): string | null {
+    const at = this.verify(bearer.startsWith("hta.") ? bearer.slice(4) : "", "at");
+    if (!at) return null;
+    // One grant, not one public client_id. Preserve state across refreshes without storing bearer tokens.
+    return typeof at.grant === "string" ? `grant:${at.grant}` : `legacy:${B64(sha256(bearer))}`;
+  }
+  isAccessToken(bearer: string): boolean { return this.accessScope(bearer) !== null; }
 
   // ---- invite codes ---------------------------------------------------------------------
 
@@ -324,11 +330,11 @@ export class OAuth {
     if (req.method !== "POST") return this.oerr(res, 405, "invalid_request", "POST only");
     const p = await this.readParams(req);
     if (!p) return this.oerr(res, 400, "invalid_request", "malformed or oversized body");
-    const mint = (cid: string) => {
+    const mint = (cid: string, grant: string) => {
       const iat = this.now();
       return {
-        access_token: "hta." + this.sign({ t: "at", cid, exp: iat + ACCESS_TTL_S }), token_type: "Bearer", expires_in: ACCESS_TTL_S,
-        refresh_token: this.sign({ t: "rt", cid, exp: iat + REFRESH_TTL_S }),
+        access_token: "hta." + this.sign({ t: "at", cid, grant, exp: iat + ACCESS_TTL_S }), token_type: "Bearer", expires_in: ACCESS_TTL_S,
+        refresh_token: this.sign({ t: "rt", cid, grant, exp: iat + REFRESH_TTL_S }),
       };
     };
     if (p.grant_type === "authorization_code") {
@@ -341,13 +347,13 @@ export class OAuth {
       if (this.usedCodes.has(c.jti)) return this.oerr(res, 400, "invalid_grant", "code already used");
       this.usedCodes.set(c.jti, c.exp);
       this.o.audit?.({ ev: "oauth_token", grant: "authorization_code" });
-      return this.json(res, 200, mint(c.cid));
+      return this.json(res, 200, mint(c.cid, c.jti));
     }
     if (p.grant_type === "refresh_token") {
       const r = this.verify(p.refresh_token, "rt");
       if (!r || (p.client_id && p.client_id !== r.cid)) return this.oerr(res, 400, "invalid_grant", "invalid or expired refresh token");
       this.o.audit?.({ ev: "oauth_token", grant: "refresh_token" });
-      return this.json(res, 200, mint(r.cid));
+      return this.json(res, 200, mint(r.cid, r.grant ?? crypto.randomUUID()));
     }
     this.oerr(res, 400, "unsupported_grant_type", "authorization_code or refresh_token only");
   }

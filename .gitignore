@@ -6,3 +6,8 @@ dist/
 # Locally saved age identities (including browser duplicate-download filenames).
 hardtools-key*.txt
 hardtools-ozel-anahtar*.zip
+
+# Local handoffs, staged exports and reversible deletes are not repository contents.
+hardtools-baglanti-parolasi*.txt
+/_tmp/hardtools-share/
+.ht-trash/

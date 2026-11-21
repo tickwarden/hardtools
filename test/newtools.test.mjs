@@ -84,7 +84,7 @@ test("ht_move: rename/move, never overwrites, mkdirp, dir moves, and all refusal
   } finally { await s.client.close(); }
 });
 
-test("ht_trash: reversible delete with manifest; refuses roots/.git/outside/permanent delete", async () => {
+test("ht_trash: reversible delete with manifest; refuses roots/.git/outside and re-trashing", async () => {
   const s = await session();
   try {
     fs.writeFileSync(R(s, "x.txt"), "KEEP-ME"); fs.mkdirSync(R(s, "dir/in"), { recursive: true }); fs.writeFileSync(R(s, "dir/in/y.txt"), "Y");

@@ -1,6 +1,5 @@
 {
   "profile": "open",
-  "roots": [],
   "fs": {
     "secretScan": "warn",
     "denyWrite": [".git", ".git/**"]
