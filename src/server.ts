@@ -16,15 +16,25 @@ import { Variables } from "./variables.js";
 import { VERSION } from "./version.js";
 import { ErrorCode, ListResourcesRequestSchema, ListResourceTemplatesRequestSchema, McpError, ReadResourceRequestSchema, type CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 
-export const createWorkspace = () => ({ vars: new Variables(), shares: new Shares() });
+// The HTTP worker can change its project tree. Do not race a running child against
+// host-side path checks (including cwd and stdin_file preparation for the next child).
+const usesProject = new Set(["ht_read", "ht_write", "ht_edit", "ht_glob", "ht_search", "ht_move", "ht_mkdir", "ht_trash", "ht_empty_trash", "ht_shell", "ht_share"]);
+export const createWorkspace = () => ({ vars: new Variables(), shares: new Shares(), projectReady: Promise.resolve() });
 const asText = (text: string): CallToolResult => ({ content: [{ type: "text", text }] });
 export function createServer(policy: Policy, audit: Audit, workspace = createWorkspace(), owner = "stdio", origin?: string): McpServer {
   const server = new McpServer({ name: "hardtools", version: VERSION });
 
   /** Audit the operation, never managed env values, share capabilities or resource bodies. */
-  const wrap = <A>(tool: string, fn: (a: A) => string | CallToolResult | Promise<string | CallToolResult>) => async (args: A): Promise<CallToolResult> => {
+  const wrap = <A>(tool: string, fn: (a: A) => string | CallToolResult | Promise<string | CallToolResult>) => async (args: A, extra: { signal: AbortSignal }): Promise<CallToolResult> => {
     const t0 = Date.now();
+    let release: (() => void) | undefined;
     try {
+      if (policy.shellWorker && usesProject.has(tool)) {
+        const previous = workspace.projectReady;
+        workspace.projectReady = new Promise<void>(resolve => { release = resolve; });
+        await previous;
+        if (extra.signal.aborted) throw new PolicyError("cancelled", "request cancelled while waiting for the workspace");
+      }
       const safeArgs = tool === "ht_add_var" ? { name: (args as { name: string }).name } : tool === "ht_share" ? { action: (args as ShareArgs).action ?? "create" } : args;
       audit.write({ ev: "call", tool, profile: policy.profile, args: summarize(safeArgs) });
       const value = await fn(args), result = typeof value === "string" ? asText(value) : value;
@@ -34,7 +44,7 @@ export function createServer(policy: Policy, audit: Audit, workspace = createWor
       const denied = e instanceof PolicyError; const msg = (e as Error).message;
       try { audit.write({ ev: denied ? "deny" : "error", tool, code: denied ? (e as PolicyError).code : undefined, msg: summarize(msg), ms: Date.now() - t0 }); } catch { /* fail-closed audit already surfaced */ }
       return { isError: true, ...asText(denied ? `DENIED [${(e as PolicyError).code}]: ${msg}` : `ERROR: ${msg}`) };
-    }
+    } finally { release?.(); }
   };
 
   server.registerTool("ht_read", {
@@ -88,21 +98,21 @@ export function createServer(policy: Policy, audit: Audit, workspace = createWor
 
   server.registerTool("ht_move", {
     title: "Move / rename a file or directory (never overwrites)",
-    description: "Rename or move a regular file or directory within the allowed roots. `to` is the full new path (not a target directory) and must not exist: moves never overwrite. Refuses symlink sources, roots, anything inside .git, and moving a directory into itself. Use mkdirp=true to create the destination's parent directories.",
+    description: "Rename or move a regular file or directory within the allowed roots. `to` is the full new path (not a target directory) and must not exist: moves never overwrite. Refuses symlink sources, roots, anything inside .git, and moving a directory into itself. Use mkdirp=true for missing parents. Restore an item out of the trash with this tool; use ht_trash, not ht_move, to put an item in the managed trash.",
     inputSchema: { from: z.string(), to: z.string(), mkdirp: z.boolean().optional() },
     annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
   }, wrap("ht_move", (a: any) => htMove(policy, a)));
 
   server.registerTool("ht_trash", {
     title: "Reversible delete: move to .ht-trash",
-    description: "Delete by moving a file or directory into <root>/.ht-trash/ and logging its original path in .ht-trash/index.jsonl; restore with ht_move. Only ht_empty_trash can purge the trash. Directories require recursive=true. Refuses roots, anything inside .git, and items already in the trash.",
+    description: "Delete by moving a file or directory into <root>/.ht-trash/ and logging its original path in .ht-trash/index.jsonl; restore with ht_move, which also removes the restored top-level row. For a managed permanent purge use ht_empty_trash with explicit confirmation. Directories require recursive=true. Refuses roots, anything inside .git, and items already in the trash.",
     inputSchema: { path: z.string(), recursive: z.boolean().optional() },
     annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
   }, wrap("ht_trash", (a: any) => htTrash(policy, a)));
 
   server.registerTool("ht_empty_trash", {
     title: "Preview or permanently empty the trash",
-    description: "Targets only the .ht-trash inside a configured root. With no confirmation it only counts items. Confirming irreversibly removes the contents and index, not the directory itself.",
+    description: "Targets only the .ht-trash inside a configured root. With no confirmation it counts real items and reports index discrepancies without changing anything. Confirming irreversibly removes the contents and index, not the directory itself.",
     inputSchema: { root: z.string().optional(), confirm: z.boolean().optional() },
     annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: false },
   }, wrap("ht_empty_trash", (a: { root?: string; confirm?: boolean }) => htEmptyTrash(policy, a)));
@@ -125,7 +135,7 @@ export function createServer(policy: Policy, audit: Audit, workspace = createWor
 
   server.registerTool("ht_shell", {
     title: "Run a policy-checked command",
-    description: "Use argv by default; shell syntax via command requires allowShellSyntax. denyCommands/denyArgs are blocklists, not a sandbox. Choose input, output streams, structured JSON, output byte budget and optional expected exit codes. Select managed variables by name for this child only.",
+    description: "Use argv for literal arguments, or command for native pipes and redirection where shellSyntax is enabled. In workspace mode both execute under /work, not on the runner host. denyCommands/denyArgs are blocklists, not a sandbox. Choose input, output streams, structured JSON, output byte budget and optional expected exit codes. Select managed variables by name for this child only.",
     inputSchema: {
       argv: z.array(z.string()).min(1).max(64).optional(), command: z.string().optional(), cwd: z.string().optional(), timeout_ms: z.number().int().min(100).optional(), stdin: z.string().optional(),
       stdin_file: z.string().optional().describe("Confined regular file relative to cwd, max 64 KiB; exclusive with stdin"),
@@ -158,8 +168,8 @@ export function createServer(policy: Policy, audit: Audit, workspace = createWor
   });
 
   server.registerTool("ht_image_search", {
-    title: "Find and display Wikimedia Commons images",
-    description: "No API key. Returns source links, dimensions, artist and license when available, plus up to three real image previews. Filters apply to this page of results; use next_offset to continue. Subject to the network policy.",
+    title: "Find images and verified project logos",
+    description: "Commons for general images; official FabricMC asset for Minecraft Fabric logo queries. No unrelated substitutes for an unknown mod logo. Returns sources, dimensions, available rights metadata and up to three real previews. Filters apply to this page of results; use next_offset to continue. Subject to the network policy.",
     inputSchema: { query: z.string().min(1).max(200), limit: z.number().int().min(1).max(8).optional(), offset: z.number().int().min(0).max(1000).optional(),
       file_type: z.enum(["jpeg", "png", "webp"]).optional(), orientation: z.enum(["landscape", "portrait", "square"]).optional(), previews: z.boolean().optional(), thumbnail_width: z.union([z.literal(120), z.literal(250), z.literal(500)]).optional() },
     annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: true },
@@ -181,19 +191,27 @@ export function createServer(policy: Policy, audit: Audit, workspace = createWor
       `<untrusted_web_content url=${JSON.stringify(r.finalUrl)}>`, slice, `</untrusted_web_content>${more}`].join("\n");
   }));
 
+  type StatusArgs = { audit_export?: boolean; audit_snapshot?: string; audit_offset?: number };
   server.registerTool("ht_status", {
     title: "Show active policy and audit-chain status",
-    description: "Returns the active profile, confinement roots, which capabilities are enabled, the number of shell deny rules, and verifies the tamper-evident audit chain for this session.",
-    inputSchema: {}, annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false },
-  }, wrap("ht_status", () => JSON.stringify({
-    version: VERSION, profile: policy.profile, roots: policy.roots,
-    fs: { writeEnabled: policy.fs.writeEnabled, secretScan: policy.fs.secretScan, requireHashForOverwrite: policy.fs.requireHashForOverwrite, denyWrite: policy.fs.denyWrite },
-    shell: { enabled: policy.shell.enabled, shellSyntax: policy.shell.allowShellSyntax, denyCommands: policy.shell.denyCommands.length },
-    net: { enabled: policy.net.enabled, schemes: policy.net.schemes, allowDomains: policy.net.allowDomains, needsAllowlist: policy.net.requireAllowDomains && policy.net.allowDomains.length === 0 },
-    share: { cwd: SHARE_CWD, createEnabled: policy.fs.writeEnabled },
-    variables: { enabled: policy.shell.enabled, inheritByDefault: false },
-    audit: { file: audit.file, chain: audit.verify() },
-  }, null, 2)));
+    description: "Show policy and verify the current audit segment. With audit_export=true return a fixed-prefix JSONL attachment for offline verification (HTTP: this authorization only). For larger files continue with audit_snapshot and audit_offset=next_offset. No public link.",
+    inputSchema: { audit_export: z.boolean().optional(), audit_snapshot: z.string().uuid().optional(), audit_offset: z.number().int().nonnegative().optional() }, annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false },
+  }, wrap("ht_status", (a: StatusArgs) => {
+    if (a.audit_export) {
+      const page = audit.exportPage(a.audit_snapshot, a.audit_offset);
+      return { content: [{ type: "text", text: JSON.stringify(page.info) }, { type: "resource", resource: page.resource }] };
+    }
+    if (a.audit_snapshot !== undefined || a.audit_offset !== undefined) throw new PolicyError("bad_input", "audit cursors require audit_export=true");
+    return JSON.stringify({
+      version: VERSION, profile: policy.profile, roots: policy.roots,
+      fs: { writeEnabled: policy.fs.writeEnabled, secretScan: policy.fs.secretScan, requireHashForOverwrite: policy.fs.requireHashForOverwrite, denyWrite: policy.fs.denyWrite },
+      shell: { enabled: policy.shell.enabled, shellSyntax: policy.shell.enabled && policy.shell.allowShellSyntax, execution: policy.shell.enabled ? (policy.shellWorker ?? "host") : "disabled", ...(policy.shellWorker && { workspaceRoot: "/work" }), denyCommands: policy.shell.denyCommands.length },
+      net: { enabled: policy.net.enabled, schemes: policy.net.schemes, allowDomains: policy.net.allowDomains, needsAllowlist: policy.net.requireAllowDomains && policy.net.allowDomains.length === 0 },
+      share: { cwd: SHARE_CWD, createEnabled: policy.fs.writeEnabled },
+      variables: { enabled: policy.shell.enabled, inheritByDefault: false },
+      audit: { file: audit.file, scope: audit.scope, chain: audit.verify(), export: { audit_export: true } },
+    }, null, 2);
+  }));
 
   return server;
 }

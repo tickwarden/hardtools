@@ -11,6 +11,7 @@ import { loadPolicy, type Policy, type ProfileName } from "./config.js";
 import { OAuth } from "./oauth.js";
 import { createServer, createWorkspace } from "./server.js";
 import { VERSION } from "./version.js";
+import { probeWorkspaceShell } from "./workspace-shell.js";
 
 function arg(name: string): string | undefined {
   const i = process.argv.indexOf(name); if (i === -1) return undefined;
@@ -19,15 +20,19 @@ function arg(name: string): string | undefined {
 
 async function main() {
   if (arg("--version")) { console.log(VERSION); return; }
-  if (arg("--verify")) { const r = verifyAuditFile(arg("--verify")!); console.log(JSON.stringify(r)); process.exit(r.ok ? 0 : 2); }
+  if (arg("--verify")) { const r = verifyAuditFile(arg("--verify")!, arg("--expect-head")); console.log(JSON.stringify(r)); process.exit(r.ok ? 0 : 2); }
 
   const profile = arg("--profile") as ProfileName | undefined;
-  let policy: Policy = loadPolicy({ profile });
   const httpMode = process.argv.includes("--http");
-
-  if (httpMode && process.env.HARDTOOLS_HTTP_ALLOW_LOCAL_TOOLS !== "1") {
-    // A remote MCP server's filesystem/shell is the HOST's, not the caller's. Off unless explicitly enabled.
-    policy = { ...policy, fs: { ...policy.fs, writeEnabled: false }, shell: { ...policy.shell, enabled: false } };
+  let policy: Policy = loadPolicy({ profile });
+  if (httpMode) {
+    if (process.env.HARDTOOLS_HTTP_ALLOW_LOCAL_TOOLS !== "1") {
+      policy = { ...policy, fs: { ...policy.fs, writeEnabled: false }, shell: { ...policy.shell, enabled: false } };
+    } else if (policy.shell.enabled) {
+      // Opt-in enables both shell forms in the dedicated workspace, never on the HTTP host.
+      policy.shellWorker = "workspace";
+      probeWorkspaceShell(policy);
+    }
   }
   const audit = new Audit(policy.audit.dir!, policy.audit.failClosed);
   audit.write({ ev: "start", version: VERSION, profile: policy.profile, transport: httpMode ? "http" : "stdio", roots: policy.roots, shell: policy.shell.enabled, write: policy.fs.writeEnabled });
@@ -84,7 +89,7 @@ async function main() {
       // We have already authenticated, routed and bounded the POST. Use the SDK's Web transport
       // directly instead of reparsing an arbitrary incoming URL with a second HTTP framework.
       const origin = oauth.origin(req);
-      const server = createServer(policy, audit, workspace, owner, origin);
+      const server = createServer(policy, audit.forGrant(owner), workspace, owner, origin);
       const transport = new WebStandardStreamableHTTPServerTransport({ sessionIdGenerator: undefined });
       const abort = new AbortController();
       res.once("close", () => { if (!res.writableFinished) abort.abort(); void server.close(); });

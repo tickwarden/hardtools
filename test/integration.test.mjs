@@ -8,6 +8,7 @@ import http from "node:http";
 import { spawn, spawnSync } from "node:child_process";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
+import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 
 const tmp = (p) => fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), p)));
 const entry = path.resolve(process.env.HT_ENTRY ?? "dist/index.js");
@@ -104,4 +105,40 @@ test('e2e/http: fixed /mcp Web transport preserves SSE, header negotiation, limi
     assert.equal(notify.status,202); assert.equal(await notify.text(),'');
     assert.equal((await rpc(port,{...list,params:{padding:'x'.repeat(1_000_000)}},headers)).status,413);
   } finally { child.kill('SIGKILL'); fs.rmSync(root,{recursive:true,force:true}); fs.rmSync(audit,{recursive:true,force:true}); }
+});
+
+test('e2e/http opt-in: command and argv both run in /work without the host environment or a sibling mount', {
+  skip: process.env.HT_REQUIRE_WORKER_TEST !== '1' && (process.platform !== 'linux' || !fs.existsSync('/usr/bin/bwrap')) && 'Linux bubblewrap not installed',
+}, async t => {
+  const root = tmp('ht-isolated-'), admin = tmp('ht-management-fixture-'), token = 't'.repeat(48);
+  // Only benign test fixtures; do not read runner credentials to prove they are absent.
+  const marker = path.join(admin,'outside.txt'); fs.writeFileSync(marker,'host fixture');
+  const { port, child, err } = await startHttp(root, admin, { HARDTOOLS_HTTP_TOKEN:token, HARDTOOLS_HTTP_ALLOW_LOCAL_TOOLS:'1', HT_HOST_FIXTURE:'host-only' });
+  t.after(() => { child.kill('SIGKILL'); fs.rmSync(root,{recursive:true,force:true}); fs.rmSync(admin,{recursive:true,force:true}); });
+  assert.match(err(), /HTTP listening/, err());
+  const c = new Client({name:'dedicated-workspace-test',version:'1'});
+  await c.connect(new StreamableHTTPClientTransport(new URL(`http://127.0.0.1:${port}/mcp`), {requestInit:{headers:{authorization:`Bearer ${token}`}}}));
+  t.after(() => c.close());
+  const call = async (name,args={}) => { const r=await c.callTool({ name,arguments:args }); assert.ok(!r.isError,text(r)); return r.content[0].text; };
+  const sh = async args => JSON.parse(await call('ht_shell',{...args, expected_exit_codes:[0],output_format:'json'})).stdout;
+  const st=JSON.parse(await call('ht_status')); assert.equal(st.shell.execution,'workspace'); assert.equal(st.shell.shellSyntax,true);
+  await call('ht_write',{path:'sub/input',content:'iki satır\n',mkdirp:true});
+  await call('ht_add_var',{name:'APP_TEST',value:'ekip'});
+  const stdout=await sh({cwd:'/work/sub',stdin_file:'input',inherit_vars:['APP_TEST'],command:`test ! -e '${marker}' && cat | tr a-z A-Z > out && pwd && printf '%s' "$APP_TEST"`});
+  assert.equal(stdout,'/work/sub\nekip'); assert.equal(fs.readFileSync(path.join(root,'sub','out'),'utf8'),'IKI SATıR\n');
+  const probe = `const fs = require('node:fs'); console.log(JSON.stringify({cwd:process.cwd(), outside:fs.existsSync(${JSON.stringify(marker)}), hostenv:process.env.HT_HOST_FIXTURE ?? null, selected:process.env.APP_TEST ?? null, pid:fs.readlinkSync('/proc/self/ns/pid'), net:fs.readlinkSync('/proc/self/ns/net')}));`;
+  await call('ht_write',{path:'sub/probe.cjs',content:probe});
+  const r=JSON.parse(await sh({cwd:'sub',argv:['node','/work/sub/probe.cjs']}));
+  assert.equal(r.cwd,'/work/sub'); assert.equal(r.outside,false); assert.equal(r.hostenv,null); assert.equal(r.selected,null);
+  for(const ns of ['pid','net']) assert.notEqual(r[ns],fs.readlinkSync(`/proc/self/ns/${ns}`));
+  assert.match(await call('ht_read',{path:'sub/out'}), /IKI SATıR/);
+  assert.equal(fs.readFileSync(marker,'utf8'),'host fixture');
+});
+
+test('e2e/http opt-in: unsuitable dedicated roots fail startup instead of falling back to the host shell', () => {
+  const root=tmp('ht-invalid-worker-'), token='x'.repeat(48);
+  try {
+    const r=spawnSync(process.execPath,[entry,'--http','--port','0'],{encoding:'utf8',timeout:6000,env:envFor(root, root,{HARDTOOLS_HTTP_TOKEN:token,HARDTOOLS_HTTP_ALLOW_LOCAL_TOOLS:'1'})});
+    assert.equal(r.status,1); assert.doesNotMatch(r.stderr,/HTTP listening/); assert.match(r.stderr,/dedicated workspace|requires Linux/);
+  } finally { fs.rmSync(root,{recursive:true,force:true}); }
 });

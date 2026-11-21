@@ -7,7 +7,7 @@ const API = "https://commons.wikimedia.org/w/api.php";
 const thumbs = new Set(["thumb.wikimedia.org", "upload.wikimedia.org"]);
 const apiHost = new Set([new URL(API).hostname]);
 function allowHosts(hosts: Set<string>, u: URL) {
-  if (u.protocol !== "https:" || u.port || u.username || u.password || !hosts.has(u.hostname)) throw new PolicyError("image_host", "not an approved Wikimedia origin");
+  if (u.protocol !== "https:" || u.port || u.username || u.password || !hosts.has(u.hostname)) throw new PolicyError("image_host", "not an approved image origin");
 }
 const clean = (v: unknown, n = 240) => typeof v === "string" ? v.slice(0, 6000).replace(/<[^>]*>/g, " ").replace(/&amp;/g, "&").replace(/[\x00-\x1f\x7f\u202a-\u202e\u2066-\u2069]/gu, " ").replace(/\s+/g, " ").trim().slice(0, n) : "";
 const cap = (p: Policy, n: number): Policy => ({ ...p, net: { ...p.net, maxBytes: Math.min(p.net.maxBytes, n) } });
@@ -42,9 +42,54 @@ export interface ImageArgs {
 }
 interface Page { pageid?: number; index?: number; title?: string; imageinfo?: { width?: number; height?: number; mime?: string; thumburl?: string; extmetadata?: Record<string, { value?: unknown }> }[] }
 
+// A general Commons full-text search confuses Minecraft "mod" with the Ministry of Defence.
+// Resolve explicit mod-logo requests by project identity, not by arbitrary search hits. The
+// Fabric home page uses this small raster in its header. This is NOT the Fabric API mod icon.
+const FABRIC = { source: "https://fabricmc.net/", image: "https://fabricmc.net/assets/logo.png", width: 52, height: 56 };
+function modLogoIntent(q: string): "fabric" | "unknown" | null {
+  const words = new Set(q.normalize("NFKC").toLowerCase().match(/[\p{L}\p{N}]+/gu));
+  const logos = ["logo", "logos", "logosu", "icon", "ikonu", "simge"];
+  const context = ["mod", "modu", "modloader", "loader", "minecraft", "fabricmc"];
+  if (!logos.some(w => words.has(w)) || !context.some(w => words.has(w))) return null;
+  const known = new Set([...logos, ...context, "fabric", "official", "resmi", "resmî", "mc"]);
+  return (words.has("fabric") || words.has("fabricmc")) && [...words].every(w => known.has(w)) ? "fabric" : "unknown";
+}
+
+async function modLogo(p: Policy, a: ImageArgs, intent: "fabric" | "unknown", get: typeof fetchBytes): Promise<CallToolResult> {
+  const text = (message: string): CallToolResult => ({ content: [{ type: "text", text: message }] });
+  if (intent === "unknown") return text("No reliable project-logo match. Specify the exact project or consult its official site; unrelated Commons photos were not substituted.");
+  const asset = new URL(FABRIC.image);
+  checkUrl(p, asset); // also respect the operator's policy in metadata-only mode
+  if ((a.offset ?? 0) > 0 || (a.file_type && a.file_type !== "png") || (a.orientation && a.orientation !== "portrait"))
+    return text("No matching project logos on this page with these filters.");
+  const result: CallToolResult = { content: [
+    { type: "text", text: "Official project source: Fabric (Minecraft mod loader). This is the project logo, not a specific mod's icon. Reuse rights are not verified." },
+    { type: "text", text: JSON.stringify({ title: "Fabric — Minecraft mod loader logo", source: FABRIC.source, image_url: FABRIC.image, publisher: "FabricMC", artist: null, license: null, width: FABRIC.width, height: FABRIC.height, mime_type: "image/png" }) },
+  ] };
+  if (a.previews === false) return result;
+  try {
+    const max = Math.min(256 << 10, p.net.maxBytes);
+    const { response: r } = await get(cap(p, max), asset, { accept: "image/png", deadline: Date.now() + Math.min(20_000, p.net.timeoutMs), validateHop: target => {
+      if (target.href !== FABRIC.image) throw new PolicyError("image_host", "project preview must be the official Fabric logo asset");
+    } });
+    const mime = String(r.headers["content-type"]).split(";")[0].trim().toLowerCase();
+    if (r.status === 200 && !r.truncated && r.body.length <= max && mime === "image/png" && thumbnailOK(r.body, mime)
+      && r.body.readUInt32BE(16) === FABRIC.width && r.body.readUInt32BE(20) === FABRIC.height) {
+      result.content.push({ type: "image", mimeType: mime, data: r.body.toString("base64") });
+      return result;
+    }
+  } catch { /* no substitutions or off-origin retries */ }
+  return text(`No reliable preview of the Fabric logo could be retrieved. Official project: ${FABRIC.source} — check the source and its reuse terms.`);
+}
+
 export async function imageSearch(p: Policy, a: ImageArgs, get = fetchBytes): Promise<CallToolResult> {
   const u = new URL(API), q = a.query.trim();
   if (!q || q.length > 200) throw new PolicyError("bad_query", "query must be 1–200 characters");
+  const intent = modLogoIntent(q);
+  if (intent) {
+    if (!p.net.enabled) throw new PolicyError("net_disabled", "network access is disabled by policy");
+    return modLogo(p, a, intent, get);
+  }
   const limit = a.limit ?? 5, offset = a.offset ?? 0;
   u.search = new URLSearchParams({ action: "query", format: "json", formatversion: "2", generator: "search", gsrnamespace: "6", gsrsearch: `filetype:bitmap ${q}`, gsrlimit: String(limit), gsroffset: String(offset), prop: "imageinfo", iiprop: "url|size|mime|extmetadata", iiextmetadatafilter: "LicenseShortName|Artist", iiurlwidth: String(a.thumbnail_width ?? 250) }).toString();
   checkUrl(p, u);
