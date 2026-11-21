@@ -2,6 +2,8 @@
 import { spawn, spawnSync, type ChildProcess } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
+import { readBytesNoFollow } from "./fs-tools.js";
+import { Variables } from "./variables.js";
 import type { Policy } from "./config.js";
 import { PolicyError, isInside, resolveSafe } from "./guard.js";
 
@@ -64,9 +66,14 @@ function buildEnv(policy: Policy, rootsReal: string[]): NodeJS.ProcessEnv {
   return env;
 }
 
-export interface ShellArgs { argv?: string[]; command?: string; cwd?: string; timeout_ms?: number; stdin?: string }
+export interface ShellArgs {
+  argv?: string[]; command?: string; cwd?: string; timeout_ms?: number; stdin?: string;
+  stdin_file?: string; capture?: "both" | "stdout" | "stderr"; output_format?: "text" | "json";
+  expected_exit_codes?: number[]; inherit_vars?: string[]; max_output_bytes?: number;
+}
+export interface ShellResult { text: string; isError: boolean }
 
-export async function htShell(policy: Policy, a: ShellArgs): Promise<string> {
+export async function runShell(policy: Policy, a: ShellArgs, vars = new Variables(), owner = "stdio"): Promise<ShellResult> {
   const sh = policy.shell;
   if (!sh.enabled) throw new PolicyError("shell_disabled", "shell execution is disabled by policy");
   if ((a.argv === undefined) === (a.command === undefined)) throw new PolicyError("bad_input", "provide exactly one of argv or command");
@@ -77,6 +84,11 @@ export async function htShell(policy: Policy, a: ShellArgs): Promise<string> {
   const timeout = Math.min(a.timeout_ms ?? sh.timeoutMs, sh.maxTimeoutMs);
   if (a.stdin !== undefined && Buffer.byteLength(a.stdin) > 64 * 1024) throw new PolicyError("stdin_too_large", "stdin limited to 64 KiB");
 
+  if (a.stdin !== undefined && a.stdin_file !== undefined) throw new PolicyError("bad_input", "stdin and stdin_file are mutually exclusive");
+  const input = a.stdin_file === undefined ? a.stdin : readBytesNoFollow(resolveSafe(policy, a.stdin_file, "read", cwdR.abs).abs, Math.min(64 * 1024, policy.fs.maxReadBytes));
+  const budget = Math.min(a.max_output_bytes ?? sh.maxOutputBytes, sh.maxOutputBytes);
+  const capture = a.capture ?? "both";
+  const expected = a.expected_exit_codes ?? [0];
   let file: string; let args: string[]; let shown: string;
   if (a.argv) {
     const argv = a.argv;
@@ -109,26 +121,41 @@ export async function htShell(policy: Policy, a: ShellArgs): Promise<string> {
     [file, args] = process.platform === "win32" ? ["cmd.exe", ["/d", "/s", "/c", cmd]] : ["/bin/sh", ["-c", cmd]]; shown = cmd;
   }
 
-  const env = buildEnv(policy, policy.roots);
+  const env = Object.assign(buildEnv(policy, policy.roots), vars.select(policy, owner, a.inherit_vars));
   const started = Date.now();
-  return await new Promise<string>((resolve, reject) => {
+  return await new Promise<ShellResult>((resolve, reject) => {
     let child: ChildProcess;
     try {
       child = spawn(file, args, { cwd: cwdR.abs, env, shell: false, detached: process.platform !== "win32", stdio: ["pipe", "pipe", "pipe"], windowsHide: true });
     } catch (e) { return reject(new Error(`spawn failed: ${(e as Error).message}`)); }
     active.add(child);
-    const out = new Capture(Math.floor(sh.maxOutputBytes * 0.7)), err = new Capture(Math.floor(sh.maxOutputBytes * 0.3));
-    child.stdout!.on("data", (b: Buffer) => out.push(b)); child.stderr!.on("data", (b: Buffer) => err.push(b));
+    const stdoutBudget = capture === "both" ? Math.ceil(budget * 0.7) : capture === "stdout" ? budget : 0;
+    const out = capture !== "stderr" ? new Capture(stdoutBudget) : null;
+    const err = capture !== "stdout" ? new Capture(budget - stdoutBudget) : null;
+    // Always drain excluded streams too, or a full pipe could hang the child.
+    if (out) child.stdout!.on("data", (b: Buffer) => out.push(b)); else child.stdout!.resume();
+    if (err) child.stderr!.on("data", (b: Buffer) => err.push(b)); else child.stderr!.resume();
     child.stdin!.on("error", () => { /* child may exit before reading stdin */ });
-    child.stdin!.end(a.stdin ?? "");
+    child.stdin!.end(input ?? "");
     let timedOut = false;
     const t = setTimeout(() => { timedOut = true; killTree(child, "SIGTERM"); setTimeout(() => killTree(child, "SIGKILL"), 2000).unref(); }, timeout);
     child.on("error", (e: NodeJS.ErrnoException) => { clearTimeout(t); active.delete(child); reject(e.code === "ENOENT" ? new Error(`command not found: ${file}`) : e); });
     child.on("close", (code, signal) => {
       clearTimeout(t); active.delete(child);
       killTree(child, "SIGKILL"); // reap stragglers in the process group
-      resolve([`exit_code=${code ?? "null"}${signal ? ` signal=${signal}` : ""}${timedOut ? " TIMED_OUT" : ""} duration_ms=${Date.now() - started} cwd=${path.relative(cwdR.root, cwdR.abs) || "."}`,
-        `$ ${shown}`, out.text() ? `--- stdout ---\n${out.text()}` : "--- stdout (empty) ---", err.text() ? `--- stderr ---\n${err.text()}` : ""].filter(Boolean).join("\n"));
+      const ok = !timedOut && signal === null && code !== null && expected.includes(code);
+      const duration_ms = Date.now() - started, cwd = path.relative(cwdR.root, cwdR.abs) || ".";
+      const stdout = out?.text(), stderr = err?.text();
+      const text = a.output_format === "json"
+        ? JSON.stringify({ ok, exit_code: code, signal, timed_out: timedOut, duration_ms, cwd, stdout, stderr, omitted_bytes: { stdout: out?.dropped, stderr: err?.dropped } })
+        : [`exit_code=${code ?? "null"}${signal ? ` signal=${signal}` : ""}${timedOut ? " TIMED_OUT" : ""} duration_ms=${duration_ms} cwd=${cwd}${a.expected_exit_codes ? ` expected=${ok}` : ""}`,
+          `$ ${shown}`, out ? (stdout ? `--- stdout ---\n${stdout}` : "--- stdout (empty) ---") : "", err && stderr ? `--- stderr ---\n${stderr}` : ""].filter(Boolean).join("\n");
+      // Preserve the historical nonzero-exit behaviour unless the caller opts into exit expectations.
+      resolve({ text, isError: a.expected_exit_codes !== undefined && !ok });
     });
   });
+}
+
+export async function htShell(policy: Policy, a: ShellArgs): Promise<string> {
+  return (await runShell(policy, a)).text;
 }

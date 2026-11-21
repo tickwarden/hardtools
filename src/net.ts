@@ -7,6 +7,7 @@ import zlib from "node:zlib";
 import type { Readable } from "node:stream";
 import { PolicyError } from "./guard.js";
 import type { Policy } from "./config.js";
+import { VERSION } from "./version.js";
 
 const blocked = new net.BlockList();
 for (const [a, bits] of [
@@ -81,8 +82,9 @@ function validatedLookup(policy: Policy, port: number) {
 
 interface RawResponse { status: number; headers: http.IncomingHttpHeaders; body: Buffer; url: URL; truncated: boolean }
 
-function requestOnce(policy: Policy, url: URL, deadline: number): Promise<RawResponse> {
+function requestOnce(policy: Policy, url: URL, deadline: number, accept: string): Promise<RawResponse> {
   const { port } = checkUrl(policy, url);
+  if (Date.now() >= deadline) throw new PolicyError("request_timeout", "network time budget exhausted");
   return new Promise((resolve, reject) => {
     const mod = url.protocol === "https:" ? https : http;
     const remaining = Math.max(1, deadline - Date.now());
@@ -90,10 +92,14 @@ function requestOnce(policy: Policy, url: URL, deadline: number): Promise<RawRes
       protocol: url.protocol, hostname: url.hostname.replace(/^\[|\]$/g, ""), port, path: url.pathname + url.search, method: "GET",
       agent: false, lookup: validatedLookup(policy, port) as any,
       headers: {
-        "User-Agent": "hardtools/0.1 (+mcp)", "Accept": "text/html,application/xhtml+xml,application/json,text/plain,*/*;q=0.5",
+        "User-Agent": `hardtools/${VERSION} (https://github.com/tickwarden/hardtools; MCP)`, "Accept": accept,
         "Accept-Encoding": "gzip, deflate, br", "Connection": "close",
       },
     }, (res) => {
+      if ([301, 302, 303, 307, 308].includes(res.statusCode ?? 0) && res.headers.location) {
+        resolve({ status: res.statusCode!, headers: res.headers, url, truncated: false, body: Buffer.alloc(0) });
+        res.destroy(); return; // do not download intermediate redirect bodies
+      }
       const max = policy.net.maxBytes;
       let stream: Readable = res;
       const enc = String(res.headers["content-encoding"] ?? "identity").toLowerCase();
@@ -115,7 +121,8 @@ function requestOnce(policy: Policy, url: URL, deadline: number): Promise<RawRes
       stream.on("error", (e) => { if (!done) { done = true; reject(e); } });
       res.on("error", (e) => { if (!done) { done = true; reject(e); } });
     });
-    req.setTimeout(remaining, () => req.destroy(new Error("request timed out")));
+    const clock = setTimeout(() => req.destroy(new Error("request timed out")), remaining);
+    req.once("close", () => clearTimeout(clock));
     req.on("error", reject);
     req.end();
   });
@@ -126,7 +133,7 @@ export interface FetchResult {
   bytes: number; truncatedDownload: boolean; redirects: string[]; warnings: string[]; fromCache: boolean;
 }
 
-const cache = new Map<string, { at: number; res: FetchResult }>();
+let caches = new WeakMap<Policy, Map<string, { at: number; res: FetchResult }>>();
 
 const INJECTION_HINTS: [string, RegExp][] = [
   ["instruction-override phrase", /ignore (?:all |any )?(?:the )?(?:previous|prior|above|earlier) (?:instructions|prompts|messages)/i],
@@ -155,18 +162,15 @@ function htmlToText(html: string): { title?: string; text: string } {
 
 const TEXTUAL = /^(text\/|application\/(json|xml|javascript|x-javascript|ecmascript|yaml|x-yaml|xhtml\+xml|toml)|.+\+(json|xml))/i;
 
-export async function safeFetch(policy: Policy, rawUrl: string): Promise<FetchResult> {
-  let url: URL;
-  try { url = new URL(rawUrl); } catch { throw new PolicyError("bad_url", "invalid URL"); }
-  const key = url.toString();
-  const hit = cache.get(key);
-  if (hit && Date.now() - hit.at < policy.net.cacheTtlSec * 1000) { checkUrl(policy, url); return { ...hit.res, fromCache: true }; }
-
-  const deadline = Date.now() + policy.net.timeoutMs;
+/** The same connect-time DNS/IP, redirect, absolute deadline and decoded-byte checks serve text and image callers. */
+export async function fetchBytes(policy: Policy, initialUrl: URL, options: { validateHop?: (u: URL) => void; accept?: string; deadline?: number } = {}) {
+  const deadline = Math.min(options.deadline ?? Infinity, Date.now() + policy.net.timeoutMs);
+  let url = initialUrl;
   const redirects: string[] = [];
   let resp: RawResponse | undefined;
   for (let hop = 0; hop <= policy.net.maxRedirects; hop++) {
-    const r = await requestOnce(policy, url, deadline);
+    options.validateHop?.(url);
+    const r = await requestOnce(policy, url, deadline, options.accept ?? "text/html,application/xhtml+xml,application/json,text/plain,*/*;q=0.5");
     if ([301, 302, 303, 307, 308].includes(r.status) && r.headers.location) {
       let next: URL;
       try { next = new URL(String(r.headers.location), url); } catch { throw new PolicyError("bad_redirect", "invalid redirect target"); }
@@ -178,6 +182,23 @@ export async function safeFetch(policy: Policy, rawUrl: string): Promise<FetchRe
   }
   if (!resp) throw new PolicyError("too_many_redirects", `exceeded ${policy.net.maxRedirects} redirects`);
 
+  return { response: resp, redirects };
+}
+
+export async function safeFetch(policy: Policy, rawUrl: string): Promise<FetchResult> {
+  let url: URL;
+  try { url = new URL(rawUrl); } catch { throw new PolicyError("bad_url", "invalid URL"); }
+  let cache = caches.get(policy);
+  if (!cache) caches.set(policy, cache = new Map());
+  const key = url.toString();
+  const hit = cache.get(key);
+  if (hit && Date.now() - hit.at < policy.net.cacheTtlSec * 1000) {
+    checkUrl(policy, url); for (const hop of hit.res.redirects) checkUrl(policy, new URL(hop));
+    return { ...hit.res, fromCache: true };
+  }
+
+  const { response: resp, redirects } = await fetchBytes(policy, url);
+  url = resp.url;
   const ctype = String(resp.headers["content-type"] ?? "application/octet-stream");
   const mime = ctype.split(";")[0].trim().toLowerCase();
   if (!TEXTUAL.test(mime)) throw new PolicyError("unsupported_content_type", `refusing non-text content-type: ${mime} (${resp.body.length} bytes)`);
@@ -200,4 +221,4 @@ export async function safeFetch(policy: Policy, rawUrl: string): Promise<FetchRe
   return result;
 }
 
-export function clearFetchCache(): void { cache.clear(); }
+export function clearFetchCache(): void { caches = new WeakMap(); }

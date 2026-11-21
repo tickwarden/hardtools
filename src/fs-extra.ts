@@ -4,7 +4,7 @@ import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import type { Policy } from "./config.js";
-import { PolicyError, globToRegExp, isDeniedRead, isInside, resolveSafe, type Resolved } from "./guard.js";
+import { PolicyError, globToRegExp, isDeniedRead, isDeniedWrite, isInside, resolveSafe, type Resolved } from "./guard.js";
 
 export const TRASH_DIR = ".ht-trash";
 const SKIP_DIRS = new Set([".git", "node_modules", ".venv", "venv", "__pycache__", ".gradle", ".idea", ".mypy_cache", ".pytest_cache", TRASH_DIR]);
@@ -15,7 +15,7 @@ const relParts = (r: Resolved) => path.relative(r.root, r.abs).split(path.sep).f
 
 /** Version-control metadata and the trash itself are never moved/trashed/created through these tools. */
 function assertNotProtectedTree(policy: Policy, r: Resolved, what: string): void {
-  if (policy.roots.includes(r.abs)) throw new PolicyError("is_root", `cannot ${what} an allowed root`);
+  if ([...policy.roots, ...policy.protectedDirs].some(d => isInside(r.abs, d))) throw new PolicyError("is_root", `cannot ${what} an allowed root or the parent of a protected directory`);
   const parts = relParts(r);
   if (parts.includes(".git")) throw new PolicyError("vcs_protected", `paths inside .git are protected (${what})`);
   if (parts[0] === TRASH_DIR && parts.length === 1) throw new PolicyError("trash_protected", `the trash directory itself cannot be modified (${what})`);
@@ -116,14 +116,14 @@ export function htMove(policy: Policy, a: { from: string; to: string; mkdirp?: b
 }
 
 /* -------------------------------- ht_trash ------------------------------- */
-/** Reversible "delete": moves the target into <root>/.ht-trash/ and logs the original path. There is deliberately NO permanent-delete tool. */
+/** Reversible "delete": moves the target into <root>/.ht-trash/ and logs the original path. Only ht_empty_trash can purge the trash. */
 export function htTrash(policy: Policy, a: { path: string; recursive?: boolean }): string {
   refuseSymlinkSource(policy, a.path);
   const src = resolveSafe(policy, a.path, "write");
   if (!src.exists) throw new PolicyError("not_found", `does not exist: ${a.path}`);
   assertNotProtectedTree(policy, src, "trash");
   const parts = relParts(src);
-  if (parts[0] === TRASH_DIR) throw new PolicyError("already_in_trash", "item is already in the trash; permanent deletion is intentionally not offered");
+  if (parts[0] === TRASH_DIR) throw new PolicyError("already_in_trash", "item is already in the trash; use ht_empty_trash to purge the trash");
   const st = fs.lstatSync(src.abs);
   if (!st.isFile() && !st.isDirectory()) throw new PolicyError("unsupported_type", "only regular files and directories can be trashed");
   if (st.isDirectory() && !a.recursive) throw new PolicyError("needs_recursive", "target is a directory; pass recursive=true to trash it with all its contents");
@@ -134,9 +134,52 @@ export function htTrash(policy: Policy, a: { path: string; recursive?: boolean }
   const safeName = path.basename(src.abs).replace(/[^A-Za-z0-9._-]/g, "_").slice(0, 100) || "item";
   const name = `${Date.now()}-${crypto.randomBytes(3).toString("hex")}-${safeName}`;
   const dst = resolveSafe(policy, path.join(trashDir, name), "write");
-  try { fs.renameSync(src.abs, dst.abs); }
-  catch (e: any) { if (e.code === "EXDEV") throw new PolicyError("cross_device", "trash is on a different filesystem than the target"); throw e; }
+  const manifest = path.join(trashDir, "index.jsonl");
+  if (resolveSafe(policy, manifest, "write").abs !== manifest) throw new PolicyError("trash_invalid", "invalid trash index");
+  const fd = fs.openSync(manifest, fs.constants.O_WRONLY | fs.constants.O_APPEND | fs.constants.O_CREAT | (fs.constants.O_NOFOLLOW ?? 0) | (fs.constants.O_NONBLOCK ?? 0), 0o600);
   const original = path.relative(src.root, src.abs);
-  fs.appendFileSync(path.join(trashDir, "index.jsonl"), JSON.stringify({ ts: new Date().toISOString(), name, original, kind: st.isDirectory() ? "dir" : "file" }) + "\n", { mode: 0o600 });
+  try {
+    const index = fs.fstatSync(fd);
+    if (!index.isFile() || index.nlink !== 1) throw new PolicyError("trash_invalid", "trash index must be a regular, single-link file");
+    try { fs.renameSync(src.abs, dst.abs); }
+    catch (e: any) { if (e.code === "EXDEV") throw new PolicyError("cross_device", "trash is on a different filesystem than the target"); throw e; }
+    try { fs.writeFileSync(fd, JSON.stringify({ ts: new Date().toISOString(), name, original, kind: st.isDirectory() ? "dir" : "file" }) + "\n"); }
+    catch (err) { fs.renameSync(dst.abs, src.abs); throw err; }
+  } finally { fs.closeSync(fd); }
   return `TRASHED ${original} -> ${TRASH_DIR}/${name}\nRestore with ht_move from=${JSON.stringify(`${TRASH_DIR}/${name}`)} to=${JSON.stringify(original)}`;
+}
+
+/** The caller selects an actual configured root, never the directory to delete. Keep the trash directory. */
+export function htEmptyTrash(policy: Policy, a: { root?: string; confirm?: boolean }): string {
+  const root = resolveSafe(policy, a.root ?? ".", "write").abs;
+  if (!policy.roots.includes(root)) throw new PolicyError("not_a_root", "select a configured root, not an arbitrary directory");
+  const dir = path.join(root, TRASH_DIR);
+  const checked = resolveSafe(policy, dir, "write");
+  if (checked.abs !== dir || [...policy.roots, ...policy.protectedDirs].some(d => isInside(dir, d)))
+    throw new PolicyError("trash_invalid", "trash is a link or overlaps a protected directory");
+  if (!checked.exists) return "EMPTY: no trash directory; nothing deleted";
+  if (!fs.lstatSync(dir).isDirectory()) throw new PolicyError("trash_invalid", "trash is not a real directory");
+  const entries = fs.readdirSync(dir);
+  const names = entries.filter(n => n !== "index.jsonl");
+  if (a.confirm !== true) return `PREVIEW: ${names.length} item(s); nothing deleted. To permanently empty this trash and clear its index, set confirm=true.`;
+  // Preflight the whole deletion before touching anything. Never follow links or cross
+  // devices. Unlink/rmdir explicit entries rather than recursively deleting a supplied path.
+  const device = fs.lstatSync(dir).dev;
+  const pending = [...names, ...entries.filter(n => n === "index.jsonl")].map(n => path.join(dir, n)); // visit index first, delete it last
+  const ordered: { abs: string; dir: boolean }[] = [];
+  while (pending.length) {
+    if (ordered.length + pending.length > 50_000) throw new PolicyError("trash_limit", "too many entries for one purge");
+    const abs = pending.pop()!;
+    if (isDeniedWrite(policy, abs) || fs.realpathSync.native(path.dirname(abs)) !== path.dirname(abs))
+      throw new PolicyError("trash_protected", "trash contains a protected or changed path; nothing deleted");
+    const st = fs.lstatSync(abs);
+    if (st.dev !== device) throw new PolicyError("trash_mount", "refusing to cross a filesystem boundary");
+    ordered.push({ abs, dir: st.isDirectory() });
+    if (st.isDirectory()) for (const name of fs.readdirSync(abs)) pending.push(path.join(abs, name));
+  }
+  for (const item of ordered.reverse()) {
+    if (fs.realpathSync.native(path.dirname(item.abs)) !== path.dirname(item.abs)) throw new PolicyError("trash_changed", "trash changed during purge");
+    if (item.dir) fs.rmdirSync(item.abs); else fs.unlinkSync(item.abs);
+  }
+  return `EMPTIED: ${names.length} item(s); trash directory preserved`;
 }

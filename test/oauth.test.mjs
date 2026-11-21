@@ -181,3 +181,47 @@ test("guest: one private invite suffices; accepted page gives the endpoint, no p
     assert.equal((await fetch(s.invite)).status, 410);
   } finally { s.child.kill('SIGKILL'); }
 });
+
+test('workspace/http: separate consent grants, stable refresh, private share link, download and revocation', async () => {
+  const { Client } = await import('@modelcontextprotocol/sdk/client/index.js');
+  const { StreamableHTTPClientTransport } = await import('@modelcontextprotocol/sdk/client/streamableHttp.js');
+  const secret = crypto.randomBytes(32).toString('hex'), s = await start(secret, { HARDTOOLS_HTTP_ALLOW_LOCAL_TOOLS: '1' });
+  const sessions = [];
+  try {
+    const { client_id } = await (await register(s.base)).json();
+    const exchange = async o => { const r = await fetch(s.base + '/token', { method:'POST', headers:FORM, body:form(o) }); assert.equal(r.status,200); return r.json(); };
+    const grant = async () => {
+      const {verifier, challenge} = pkce();
+      const r = await fetch(s.base + '/authorize', {method:'POST',headers:FORM,redirect:'manual',body:form({client_id, access_token:secret, response_type:'code',redirect_uri:CB,code_challenge_method:'S256',code_challenge:challenge})});
+      assert.equal(r.status,302);
+      return exchange({client_id, grant_type:'authorization_code',redirect_uri:CB, code:new URL(r.headers.get('location')).searchParams.get('code'), code_verifier:verifier});
+    };
+    const as = async token => {
+      const c = new Client({name:'grant-test',version:'1'});
+      await c.connect(new StreamableHTTPClientTransport(new URL(s.base + '/mcp'), {requestInit:{headers:{authorization:`Bearer ${token}`}}}));
+      sessions.push(c); return { client:c, call:(name, args = {})=>c.callTool({name,arguments:args}) };
+    };
+    const one = await grant(), two = await grant(); assert.notEqual(one.access_token,two.access_token);
+    const a = await as(one.access_token), b = await as(two.access_token), master = await as(secret);
+    const text = r => { assert.ok(!r.isError, r.content[0].text); return r.content[0].text; };
+    text(await a.call('ht_add_var',{name:'TEAM',value:'sarı'}));
+    for(const c of [b,master]) assert.deepEqual(JSON.parse(text(await c.call('ht_list_vars'))).names,[]);
+    const rf = await as((await exchange({client_id, grant_type:'refresh_token', refresh_token:one.refresh_token})).access_token);
+    assert.deepEqual(JSON.parse(text(await rf.call('ht_list_vars'))).names,['HT_VAR_TEAM']);
+    text(await a.call('ht_write',{path:'report.txt',content:'merhaba'}));
+    const msg = text(await a.call('ht_share',{source_path:'report.txt',ttl_minutes:2,name:'Çıktı.txt'}));
+    const meta = JSON.parse(msg.split('\n').at(-1)); assert.equal(new URL(meta.url).origin,s.base); assert.ok(!msg.includes(secret));
+    assert.deepEqual(JSON.parse(text(await b.call('ht_share',{action:'list'}))).files,[]);
+    assert.ok((await b.call('ht_share',{action:'revoke',id:meta.id})).isError);
+    const uri = `hardtools-share://local/_tmp/hardtools-share/${meta.id}`;
+    await assert.rejects(b.client.readResource({uri}));
+    assert.equal(Buffer.from((await rf.client.readResource({uri})).contents[0].blob, 'base64').toString(),'merhaba');
+    const head=await fetch(meta.url,{method:'HEAD'}); assert.equal(head.status,200);assert.equal(await head.text(),'');
+    const get=await fetch(meta.url);assert.equal(get.status,200); assert.equal(await get.text(),'merhaba');
+    assert.match(get.headers.get('content-disposition'),/^attachment; filename\*=UTF-8''%/); assert.match(get.headers.get('cache-control'),/no-store/); assert.equal(get.headers.get('x-content-type-options'),'nosniff');
+    assert.equal((await fetch(meta.url,{method:'POST'})).status,405);
+    assert.equal((await fetch(s.base+'/_tmp/hardtools-share/report.txt')).status,404);
+    assert.equal((await fetch(meta.url,{headers:{origin:'https://foreign.example'}})).status,403);
+    text(await rf.call('ht_share',{action:'revoke',id:meta.id})); assert.equal((await fetch(meta.url)).status,404);
+  } finally { await Promise.allSettled(sessions.map(c=>c.close())); s.child.kill('SIGKILL'); }
+});

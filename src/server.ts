@@ -1,34 +1,38 @@
 // AI-generated (Claude, Anthropic), 2026-11-12. Requires human security review before production use.
-import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { McpServer, ResourceTemplate } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { Audit, summarize } from "./audit.js";
 import type { Policy } from "./config.js";
-import { htGlob, htMkdir, htMove, htTrash } from "./fs-extra.js";
+import { htEmptyTrash, htGlob, htMkdir, htMove, htTrash } from "./fs-extra.js";
 import { htEdit, htRead, htWrite } from "./fs-tools.js";
 import { PolicyError } from "./guard.js";
 import { safeFetch } from "./net.js";
 import { htSearch } from "./search.js";
-import { htShell } from "./shell.js";
+import { runShell, type ShellArgs } from "./shell.js";
+import { imageSearch, type ImageArgs } from "./image-search.js";
+import { Shares, SHARE_CWD, shareTemplate, type ShareArgs } from "./share.js";
+import { Variables } from "./variables.js";
+import { VERSION } from "./version.js";
+import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 
-export const VERSION = "0.2.0";
-
-type ToolResult = { content: { type: "text"; text: string }[]; isError?: boolean };
-
-export function createServer(policy: Policy, audit: Audit): McpServer {
+export const createWorkspace = () => ({ vars: new Variables(), shares: new Shares() });
+const asText = (text: string): CallToolResult => ({ content: [{ type: "text", text }] });
+export function createServer(policy: Policy, audit: Audit, workspace = createWorkspace(), owner = "stdio", origin?: string): McpServer {
   const server = new McpServer({ name: "hardtools", version: VERSION });
 
-  /** Every call: audit(before) → policy-checked execution → audit(after). Denials are returned as tool errors, never thrown to the transport. */
-  const wrap = <A>(tool: string, fn: (a: A) => string | Promise<string>) => async (args: A): Promise<ToolResult> => {
+  /** Audit the operation, never managed env values, share capabilities or resource bodies. */
+  const wrap = <A>(tool: string, fn: (a: A) => string | CallToolResult | Promise<string | CallToolResult>) => async (args: A): Promise<CallToolResult> => {
     const t0 = Date.now();
     try {
-      audit.write({ ev: "call", tool, profile: policy.profile, args: summarize(args) });
-      const text = await fn(args);
-      audit.write({ ev: "result", tool, ok: true, ms: Date.now() - t0 });
-      return { content: [{ type: "text", text }] };
+      const safeArgs = tool === "ht_add_var" ? { name: (args as { name: string }).name } : tool === "ht_share" ? { action: (args as ShareArgs).action ?? "create" } : args;
+      audit.write({ ev: "call", tool, profile: policy.profile, args: summarize(safeArgs) });
+      const value = await fn(args), result = typeof value === "string" ? asText(value) : value;
+      audit.write({ ev: "result", tool, ok: !result.isError, ms: Date.now() - t0 });
+      return result;
     } catch (e) {
       const denied = e instanceof PolicyError; const msg = (e as Error).message;
       try { audit.write({ ev: denied ? "deny" : "error", tool, code: denied ? (e as PolicyError).code : undefined, msg: summarize(msg), ms: Date.now() - t0 }); } catch { /* fail-closed audit already surfaced */ }
-      return { isError: true, content: [{ type: "text", text: denied ? `DENIED [${(e as PolicyError).code}]: ${msg}` : `ERROR: ${msg}` }] };
+      return { isError: true, ...asText(denied ? `DENIED [${(e as PolicyError).code}]: ${msg}` : `ERROR: ${msg}`) };
     }
   };
 
@@ -90,17 +94,66 @@ export function createServer(policy: Policy, audit: Audit): McpServer {
 
   server.registerTool("ht_trash", {
     title: "Reversible delete: move to .ht-trash",
-    description: "Delete by moving a file or directory into <root>/.ht-trash/ and logging its original path in .ht-trash/index.jsonl; restore with ht_move. There is intentionally no permanent-delete tool. Directories require recursive=true. Refuses roots, anything inside .git, and items already in the trash.",
+    description: "Delete by moving a file or directory into <root>/.ht-trash/ and logging its original path in .ht-trash/index.jsonl; restore with ht_move. Only ht_empty_trash can purge the trash. Directories require recursive=true. Refuses roots, anything inside .git, and items already in the trash.",
     inputSchema: { path: z.string(), recursive: z.boolean().optional() },
     annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
   }, wrap("ht_trash", (a: any) => htTrash(policy, a)));
 
+  server.registerTool("ht_empty_trash", {
+    title: "Preview or permanently empty the trash",
+    description: "Targets only the .ht-trash inside a configured root. With no confirmation it only counts items. Confirming irreversibly removes the contents and index, not the directory itself.",
+    inputSchema: { root: z.string().optional(), confirm: z.boolean().optional() },
+    annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: false },
+  }, wrap("ht_empty_trash", (a: { root?: string; confirm?: boolean }) => htEmptyTrash(policy, a)));
+
+  const key = z.string().min(1).max(64);
+  server.registerTool("ht_add_var", {
+    title: "Set a session shell variable",
+    description: "Value stays in this authorization's memory, not the host or audit log. Names are uppercased; APP_*, MY_*, PROJECT_* and HT_VAR_* are verbatim, other names get HT_VAR_. The response gives the actual child environment name. Existing values require overwrite=true.",
+    inputSchema: { name: key, value: z.string().max(4096), overwrite: z.boolean().optional() },
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
+  }, wrap("ht_add_var", (a: { name: string; value: string; overwrite?: boolean }) => workspace.vars.add(policy, owner, a)));
+  server.registerTool("ht_list_vars", {
+    title: "List session variable names", description: "Lists only names set with ht_add_var in this scope. Never lists host variables or values.", inputSchema: {},
+    annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false },
+  }, wrap("ht_list_vars", () => workspace.vars.list(policy, owner)));
+  server.registerTool("ht_delete_var", {
+    title: "Remove a session variable", description: "Remove a managed variable in this authorization only. Does not modify the host, or children already running.", inputSchema: { name: key },
+    annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: false },
+  }, wrap("ht_delete_var", (a: { name: string }) => workspace.vars.remove(policy, owner, a.name)));
+
   server.registerTool("ht_shell", {
-    title: "Run a command (argv-only, allowlisted, audited)",
-    description: "Run a command WITHOUT a shell: pass argv as an array (e.g. [\"git\",\"status\"]). Only commands matching the policy allowlist run; arguments are checked against deny rules and (in strict/balanced) path-confined; environment is scrubbed of secrets; output is size-capped; processes are killed as a group on timeout. `command` (shell syntax) exists only in the 'open' profile.",
-    inputSchema: { argv: z.array(z.string()).min(1).max(64).optional(), command: z.string().optional(), cwd: z.string().optional(), timeout_ms: z.number().int().min(100).optional(), stdin: z.string().optional() },
+    title: "Run a policy-checked command",
+    description: "Use argv by default; shell syntax via command requires allowShellSyntax. denyCommands/denyArgs are blocklists, not a sandbox. Choose input, output streams, structured JSON, output byte budget and optional expected exit codes. Select managed variables by name for this child only.",
+    inputSchema: {
+      argv: z.array(z.string()).min(1).max(64).optional(), command: z.string().optional(), cwd: z.string().optional(), timeout_ms: z.number().int().min(100).optional(), stdin: z.string().optional(),
+      stdin_file: z.string().optional().describe("Confined regular file relative to cwd, max 64 KiB; exclusive with stdin"),
+      capture: z.enum(["both", "stdout", "stderr"]).optional(), output_format: z.enum(["text", "json"]).optional(),
+      expected_exit_codes: z.array(z.number().int().min(0).max(255)).min(1).max(32).optional().describe("If provided, unexpected exits, signals or timeouts set the MCP error flag"),
+      inherit_vars: z.array(key).max(32).optional().describe("Names from ht_add_var; none by default"),
+      max_output_bytes: z.number().int().positive().optional().describe("May only lower the profile's captured-output budget (bytes, before formatting)"),
+    },
     annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true },
-  }, wrap("ht_shell", (a: any) => htShell(policy, a)));
+  }, wrap("ht_shell", async (a: ShellArgs) => { const r = await runShell(policy, a, workspace.vars, owner); return { ...asText(r.text), isError: r.isError }; }));
+
+  server.registerTool("ht_share", {
+    title: "Share a file with the user",
+    description: `Create a temporary immutable snapshot. path is relative to ${SHARE_CWD} inside the first root, or use source_path for another allowed workspace file. HTTP returns a private, expiring download link; stdio attaches the bytes. List or revoke only your shares. Do not publish the link.`,
+    inputSchema: { action: z.enum(["create", "list", "revoke"]).optional(), path: z.string().min(1).optional(), source_path: z.string().min(1).optional(), name: z.string().min(1).max(180).optional(), ttl_minutes: z.number().int().min(1).max(60).optional(), id: z.string().regex(/^[A-Za-z0-9_-]{43}$/).optional() },
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
+  }, wrap("ht_share", (a: ShareArgs) => workspace.shares.tool(policy, owner, a, origin)));
+  server.registerResource("shared-file", new ResourceTemplate(shareTemplate, { list: undefined }), { description: "Read an unexpired share from this authorization" }, (_uri, v) => {
+    audit.write({ ev: "resource_read", resource: "shared-file" });
+    return { contents: [workspace.shares.readResource(owner, String(v.id))] };
+  });
+
+  server.registerTool("ht_image_search", {
+    title: "Find and display Wikimedia Commons images",
+    description: "No API key. Returns source links, dimensions, artist and license when available, plus up to three real image previews. Filters apply to this page of results; use next_offset to continue. Subject to the network policy.",
+    inputSchema: { query: z.string().min(1).max(200), limit: z.number().int().min(1).max(8).optional(), offset: z.number().int().min(0).max(1000).optional(),
+      file_type: z.enum(["jpeg", "png", "webp"]).optional(), orientation: z.enum(["landscape", "portrait", "square"]).optional(), previews: z.boolean().optional(), thumbnail_width: z.union([z.literal(120), z.literal(250), z.literal(500)]).optional() },
+    annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: true },
+  }, wrap("ht_image_search", (a: ImageArgs) => imageSearch(policy, a)));
 
   server.registerTool("ht_fetch", {
     title: "Fetch a URL (SSRF-safe, size-capped, untrusted-content wrapped)",
@@ -120,13 +173,15 @@ export function createServer(policy: Policy, audit: Audit): McpServer {
 
   server.registerTool("ht_status", {
     title: "Show active policy and audit-chain status",
-    description: "Returns the active profile, confinement roots, which capabilities are enabled, the shell allowlist, and verifies the tamper-evident audit chain for this session.",
+    description: "Returns the active profile, confinement roots, which capabilities are enabled, the number of shell deny rules, and verifies the tamper-evident audit chain for this session.",
     inputSchema: {}, annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false },
   }, wrap("ht_status", () => JSON.stringify({
     version: VERSION, profile: policy.profile, roots: policy.roots,
     fs: { writeEnabled: policy.fs.writeEnabled, secretScan: policy.fs.secretScan, requireHashForOverwrite: policy.fs.requireHashForOverwrite, denyWrite: policy.fs.denyWrite },
     shell: { enabled: policy.shell.enabled, shellSyntax: policy.shell.allowShellSyntax, denyCommands: policy.shell.denyCommands.length },
     net: { enabled: policy.net.enabled, schemes: policy.net.schemes, allowDomains: policy.net.allowDomains, needsAllowlist: policy.net.requireAllowDomains && policy.net.allowDomains.length === 0 },
+    share: { cwd: SHARE_CWD, createEnabled: policy.fs.writeEnabled },
+    variables: { enabled: policy.shell.enabled, inheritByDefault: false },
     audit: { file: audit.file, chain: audit.verify() },
   }, null, 2)));
 
