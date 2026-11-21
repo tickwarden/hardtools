@@ -12,9 +12,9 @@ const tmp = (p) => fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), p)));
 const entry = path.resolve(process.env.HT_ENTRY ?? "dist/index.js");
 const CB = "https://claude.ai/api/mcp/auth_callback";
 
-async function start(token, extra = {}, issueInvite = false) {
+async function start(token, extra = {}, issueInvite = false, settings = {}) {
   const root = tmp("ht-o-"); const audit = tmp("ht-o-audit-");
-  const cfg = path.join(audit, "config.json"); fs.writeFileSync(cfg, JSON.stringify({ audit: { dir: path.join(audit, "log") } }));
+  const cfg = path.join(audit, "config.json"); fs.writeFileSync(cfg, JSON.stringify({ ...settings, audit: { dir: path.join(audit, "log") } }));
   const port = 20000 + Math.floor(Math.random() * 20000);
   const env = { ...process.env, HARDTOOLS_ROOTS: root, HARDTOOLS_CONFIG: cfg, HARDTOOLS_HTTP_TOKEN: token, ...(issueInvite ? { HARDTOOLS_INVITE_ORIGIN: `http://127.0.0.1:${port}` } : {}), ...extra }; delete env.HARDTOOLS_PROFILE;
   const child = spawn(process.execPath, [entry, "--http", "--port", String(port), "--profile", "balanced"], { env, stdio: ["ignore", "ignore", "pipe"] });
@@ -186,7 +186,8 @@ test("guest: one private invite suffices; accepted page gives the endpoint, no p
 test('workspace/http: separate consent grants, stable refresh, private share link, download and revocation', async () => {
   const { Client } = await import('@modelcontextprotocol/sdk/client/index.js');
   const { StreamableHTTPClientTransport } = await import('@modelcontextprotocol/sdk/client/streamableHttp.js');
-  const secret = crypto.randomBytes(32).toString('hex'), s = await start(secret, { HARDTOOLS_HTTP_ALLOW_LOCAL_TOOLS: '1' });
+  const worker = process.env.HT_REQUIRE_WORKER_TEST === '1' || (process.platform === 'linux' && fs.existsSync('/usr/bin/bwrap'));
+  const secret = crypto.randomBytes(32).toString('hex'), s = await start(secret, { HARDTOOLS_HTTP_ALLOW_LOCAL_TOOLS: '1' }, false, { shell:{enabled:worker} });
   const sessions = [];
   try {
     const { client_id } = await (await register(s.base)).json();
@@ -205,10 +206,12 @@ test('workspace/http: separate consent grants, stable refresh, private share lin
     const one = await grant(), two = await grant(); assert.notEqual(one.access_token,two.access_token);
     const a = await as(one.access_token), b = await as(two.access_token), master = await as(secret);
     const text = r => { assert.ok(!r.isError, r.content[0].text); return r.content[0].text; };
-    text(await a.call('ht_add_var',{name:'TEAM',value:'sarı'}));
-    for(const c of [b,master]) assert.deepEqual(JSON.parse(text(await c.call('ht_list_vars'))).names,[]);
+    if (worker) {
+      text(await a.call('ht_add_var',{name:'TEAM',value:'sarı'}));
+      for(const c of [b,master]) assert.deepEqual(JSON.parse(text(await c.call('ht_list_vars'))).names,[]);
+    }
     const rf = await as((await exchange({client_id, grant_type:'refresh_token', refresh_token:one.refresh_token})).access_token);
-    assert.deepEqual(JSON.parse(text(await rf.call('ht_list_vars'))).names,['HT_VAR_TEAM']);
+    if (worker) assert.deepEqual(JSON.parse(text(await rf.call('ht_list_vars'))).names,['HT_VAR_TEAM']);
     text(await a.call('ht_write',{path:'report.txt',content:'merhaba'}));
     const msg = text(await a.call('ht_share',{source_path:'report.txt',ttl_minutes:2,name:'Çıktı.txt'}));
     const meta = JSON.parse(msg.split('\n').at(-1)); assert.equal(new URL(meta.url).origin,s.base); assert.ok(!msg.includes(secret));
@@ -224,5 +227,20 @@ test('workspace/http: separate consent grants, stable refresh, private share lin
     assert.equal((await fetch(s.base+'/_tmp/hardtools-share/report.txt')).status,404);
     assert.equal((await fetch(meta.url,{headers:{origin:'https://foreign.example'}})).status,403);
     text(await rf.call('ht_share',{action:'revoke',id:meta.id})); assert.equal((await fetch(meta.url)).status,404);
+    // All clients use one public client_id and one workspace. Audit scope is the grant, not either of those.
+    for (const [c, name] of [[a,'audit-marker-one'],[b,'audit-marker-two'],[master,'audit-marker-static']]) text(await c.call('ht_mkdir',{path:name}));
+    const exportFor = async c => {
+      const r=await c.call('ht_status',{audit_export:true}), m=JSON.parse(text(r));
+      assert.equal(m.scope,'authorization'); assert.equal(m.next_offset,null);
+      return {m, bytes:Buffer.from(r.content[1].resource.blob,'base64').toString()};
+    };
+    const own=await exportFor(rf); assert.match(own.bytes,/audit-marker-one/); assert.doesNotMatch(own.bytes,/audit-marker-two|audit-marker-static|invite_redeemed|sarı/);
+    for(const [c,marker] of [[b,'audit-marker-two'],[master,'audit-marker-static']]) {
+      const other=await exportFor(c); assert.ok(other.bytes.includes(marker)); assert.ok(!other.bytes.includes('audit-marker-one'));
+      const wrong=await c.call('ht_status',{audit_export:true,audit_snapshot:own.m.snapshot,audit_offset:0});
+      assert.equal(wrong.isError,true); assert.match(wrong.content[0].text,/audit_snapshot/);
+    }
+    const again=await a.call('ht_status',{audit_export:true,audit_snapshot:own.m.snapshot,audit_offset:0});
+    assert.equal(JSON.parse(text(again)).expected_head,own.m.expected_head); assert.equal(Buffer.from(again.content[1].resource.blob,'base64').toString(),own.bytes);
   } finally { await Promise.allSettled(sessions.map(c=>c.close())); s.child.kill('SIGKILL'); }
 });

@@ -11,3 +11,5 @@ hardtools-ozel-anahtar*.zip
 hardtools-baglanti-parolasi*.txt
 /_tmp/hardtools-share/
 .ht-trash/
+.ht-trash-index.lock
+.ht-trash-index-*.tmp

@@ -4,6 +4,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { readBytesNoFollow } from "./fs-tools.js";
 import { Variables } from "./variables.js";
+import { spawnWorkspaceShell } from "./workspace-shell.js";
 import type { Policy } from "./config.js";
 import { PolicyError, isInside, resolveSafe } from "./guard.js";
 
@@ -79,13 +80,16 @@ export async function runShell(policy: Policy, a: ShellArgs, vars = new Variable
   if ((a.argv === undefined) === (a.command === undefined)) throw new PolicyError("bad_input", "provide exactly one of argv or command");
   if (active.size >= sh.maxConcurrent) throw new PolicyError("busy", `too many concurrent commands (limit ${sh.maxConcurrent})`);
 
-  const cwdR = resolveSafe(policy, a.cwd ?? ".", "read");
+  // The tool accepts relative paths (as before), and the virtual /work prefix reported by pwd.
+  const checkedPath = (v: string) => policy.shellWorker && (v === "/work" || v.startsWith("/work/"))
+    ? path.join(policy.roots[0], v.slice(5)) : v;
+  const cwdR = resolveSafe(policy, checkedPath(a.cwd ?? "."), "read");
   if (!fs.statSync(cwdR.abs).isDirectory()) throw new PolicyError("bad_cwd", "cwd is not a directory");
   const timeout = Math.min(a.timeout_ms ?? sh.timeoutMs, sh.maxTimeoutMs);
   if (a.stdin !== undefined && Buffer.byteLength(a.stdin) > 64 * 1024) throw new PolicyError("stdin_too_large", "stdin limited to 64 KiB");
 
   if (a.stdin !== undefined && a.stdin_file !== undefined) throw new PolicyError("bad_input", "stdin and stdin_file are mutually exclusive");
-  const input = a.stdin_file === undefined ? a.stdin : readBytesNoFollow(resolveSafe(policy, a.stdin_file, "read", cwdR.abs).abs, Math.min(64 * 1024, policy.fs.maxReadBytes));
+  const input = a.stdin_file === undefined ? a.stdin : readBytesNoFollow(resolveSafe(policy, checkedPath(a.stdin_file), "read", cwdR.abs).abs, Math.min(64 * 1024, policy.fs.maxReadBytes));
   const budget = Math.min(a.max_output_bytes ?? sh.maxOutputBytes, sh.maxOutputBytes);
   const capture = a.capture ?? "both";
   const expected = a.expected_exit_codes ?? [0];
@@ -99,7 +103,7 @@ export async function runShell(policy: Policy, a: ShellArgs, vars = new Variable
     }
     if (/[\\/]/.test(argv[0])) {
       if (!sh.allowRelativeExecutables) throw new PolicyError("path_executable", "executables must be plain command names (no path separators)");
-      resolveSafe(policy, argv[0], "read", cwdR.abs);
+      resolveSafe(policy, checkedPath(argv[0]), "read", cwdR.abs);
     }
     if (sh.confineArgPaths) {
       for (const x of argv.slice(1)) {
@@ -107,7 +111,7 @@ export async function runShell(policy: Policy, a: ShellArgs, vars = new Variable
         if (!v) continue;
         if (v.startsWith("~")) throw new PolicyError("arg_path_outside_roots", `argument looks like a home-relative path: ${x}`);
         if (/[\\/]/.test(v) || v === ".." || v.startsWith(".")) {
-          try { resolveSafe(policy, v, "read", cwdR.abs); }
+          try { resolveSafe(policy, checkedPath(v), "read", cwdR.abs); }
           catch (e) { if (e instanceof PolicyError && e.code !== "bad_path") throw new PolicyError("arg_path_outside_roots", `path argument rejected (${e.code}): ${x}`); }
         }
       }
@@ -121,13 +125,15 @@ export async function runShell(policy: Policy, a: ShellArgs, vars = new Variable
     [file, args] = process.platform === "win32" ? ["cmd.exe", ["/d", "/s", "/c", cmd]] : ["/bin/sh", ["-c", cmd]]; shown = cmd;
   }
 
-  const env = Object.assign(buildEnv(policy, policy.roots), vars.select(policy, owner, a.inherit_vars));
+  const selected = vars.select(policy, owner, a.inherit_vars);
   const started = Date.now();
   return await new Promise<ShellResult>((resolve, reject) => {
     let child: ChildProcess;
     try {
-      child = spawn(file, args, { cwd: cwdR.abs, env, shell: false, detached: process.platform !== "win32", stdio: ["pipe", "pipe", "pipe"], windowsHide: true });
-    } catch (e) { return reject(new Error(`spawn failed: ${(e as Error).message}`)); }
+      child = policy.shellWorker
+        ? spawnWorkspaceShell(policy, cwdR.abs, file, args, selected)
+        : spawn(file, args, { cwd: cwdR.abs, env: Object.assign(buildEnv(policy, policy.roots), selected), shell: false, detached: process.platform !== "win32", stdio: ["pipe", "pipe", "pipe"], windowsHide: true });
+    } catch (e) { return reject(e instanceof PolicyError ? e : new Error(`spawn failed: ${(e as Error).message}`)); }
     active.add(child);
     const stdoutBudget = capture === "both" ? Math.ceil(budget * 0.7) : capture === "stdout" ? budget : 0;
     const out = capture !== "stderr" ? new Capture(stdoutBudget) : null;
@@ -139,7 +145,11 @@ export async function runShell(policy: Policy, a: ShellArgs, vars = new Variable
     child.stdin!.end(input ?? "");
     let timedOut = false;
     const t = setTimeout(() => { timedOut = true; killTree(child, "SIGTERM"); setTimeout(() => killTree(child, "SIGKILL"), 2000).unref(); }, timeout);
-    child.on("error", (e: NodeJS.ErrnoException) => { clearTimeout(t); active.delete(child); reject(e.code === "ENOENT" ? new Error(`command not found: ${file}`) : e); });
+    child.on("error", (e: NodeJS.ErrnoException) => {
+      clearTimeout(t); active.delete(child);
+      if (policy.shellWorker) return reject(new PolicyError("worker_unavailable", `workspace launcher failed: ${e.message}`));
+      reject(e.code === "ENOENT" ? new Error(`command not found: ${file}`) : e);
+    });
     child.on("close", (code, signal) => {
       clearTimeout(t); active.delete(child);
       killTree(child, "SIGKILL"); // reap stragglers in the process group

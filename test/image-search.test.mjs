@@ -48,3 +48,32 @@ test('image search: no arbitrary image URLs, redirect destinations, active forma
   const r=await imageSearch({...p,net:{...p.net,allowDomains:['commons.wikimedia.org']}},{query:'x'},fake([make()]).get); assert.ok(!r.content.some(x=>x.type==='image'));
   assert.ok(!thumbnailOK(Buffer.alloc(1),'image/jpeg')); assert.ok(!thumbnailOK(Buffer.from('GIF89a'),'image/gif'));
 });
+
+// Original solid-gray PNG fixture, not a redistributed project logo.
+const portrait = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAADQAAAA4CAAAAACX0YRMAAAAJElEQVR4nO3LMQ0AAAwDoDqv9XpYdsJPehBJkiRJkiRJkj7TAEXgpOxiMm8vAAAAAElFTkSuQmCC','base64');
+test('project logo intent selects the official Fabric asset, respects filters and attributes the project, not a mod', async () => {
+  for(const query of ['Fabric mod logo','Minecraft Fabric Loader LOGO','Fabric mod logosu']) {
+    const c=fake([],{body:portrait});
+    const r=await imageSearch(p,{query},c.get);
+    assert.deepEqual(c.calls.map(c=>c.url.href),['https://fabricmc.net/assets/logo.png']);
+    assert.ok(c.calls[0].max<=256*1024); assert.deepEqual(r.content.map(c=>c.type),['text','text','image']);
+    const m=JSON.parse(r.content[1].text); assert.equal(m.source,'https://fabricmc.net/'); assert.equal(m.publisher,'FabricMC');
+    assert.equal(m.license,null); assert.deepEqual([m.width,m.height],[52,56]); assert.deepEqual(Buffer.from(r.content[2].data,'base64'),portrait);
+  }
+  for(const a of [{offset:1},{orientation:'square'},{file_type:'jpeg'},{previews:false}]) {
+    const c=fake([]);const r=await imageSearch(p,{query:'Fabric mod logo',...a},c.get); assert.equal(c.calls.length,0);assert.ok(!r.content.some(c=>c.type==='image'));
+  }
+  for(const query of ['Different Minecraft mod logo','Fabric API mod logo','Fabric furniture mod icon']) {
+    const c=fake([]);const r=await imageSearch(p,{query},c.get); assert.equal(c.calls.length,0);assert.match(r.content[0].text,/No reliable/);
+  }
+});
+
+test('Fabric logo never substitutes a Commons photo or an unapproved/unbounded preview', async () => {
+  for(const opts of [{redirect:'https://other.example/logo.png'},{redirect:'https://fabricmc.net/user/file.png'},{mime:'text/html'},{body:png},{truncated:true}]) {
+    const c=fake([],{body:portrait,...opts});const result=await imageSearch(p,{query:'Fabric mod logo'},c.get);
+    assert.deepEqual(result.content.map(c=>c.type),['text']); assert.match(result.content[0].text,/No reliable.*Fabric/); assert.equal(c.calls.length,1);
+  }
+  for(const net of [{enabled:false},{allowDomains:['commons.wikimedia.org']},{requireAllowDomains:true}]) {
+    const c=fake([]);await assert.rejects(imageSearch({...p,net:{...p.net,...net}}, {query:'Fabric mod logo',previews:false},c.get)); assert.equal(c.calls.length,0);
+  }
+});

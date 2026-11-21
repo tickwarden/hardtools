@@ -3367,8 +3367,8 @@ var require_utils = __commonJS({
       }
       return ind;
     }
-    function removeDotSegments(path9) {
-      let input = path9;
+    function removeDotSegments(path11) {
+      let input = path11;
       const output = [];
       let nextSlash = -1;
       let len = 0;
@@ -3442,11 +3442,11 @@ var require_utils = __commonJS({
       }
       return output.join("");
     }
-    function removeDotSegmentsRelative(path9) {
-      if (path9 === "" || path9[0] === "/") {
-        return removeDotSegments(path9);
+    function removeDotSegmentsRelative(path11) {
+      if (path11 === "" || path11[0] === "/") {
+        return removeDotSegments(path11);
       }
-      const segments = path9.split("/");
+      const segments = path11.split("/");
       const last = segments.length - 1;
       const output = [];
       let trailingDirectory = false;
@@ -3809,8 +3809,8 @@ var require_schemes = __commonJS({
       }
       if (wsComponent.resourceName) {
         const queryIndex = wsComponent.resourceName.indexOf("?");
-        const path9 = queryIndex === -1 ? wsComponent.resourceName : wsComponent.resourceName.slice(0, queryIndex);
-        wsComponent.path = path9 && path9 !== "/" ? path9 : void 0;
+        const path11 = queryIndex === -1 ? wsComponent.resourceName : wsComponent.resourceName.slice(0, queryIndex);
+        wsComponent.path = path11 && path11 !== "/" ? path11 : void 0;
         wsComponent.query = queryIndex === -1 ? void 0 : wsComponent.resourceName.slice(queryIndex + 1);
         wsComponent.resourceName = void 0;
       }
@@ -7347,12 +7347,12 @@ var require_dist = __commonJS({
         throw new Error(`Unknown format "${name}"`);
       return f;
     };
-    function addFormats(ajv, list, fs7, exportName) {
+    function addFormats(ajv, list, fs9, exportName) {
       var _a3;
       var _b;
       (_a3 = (_b = ajv.opts.code).formats) !== null && _a3 !== void 0 ? _a3 : _b.formats = (0, codegen_1._)`require("ajv-formats/dist/formats").${exportName}`;
       for (const f of list)
-        ajv.addFormat(f, fs7[f]);
+        ajv.addFormat(f, fs9[f]);
     }
     module.exports = exports = formatsPlugin;
     Object.defineProperty(exports, "__esModule", { value: true });
@@ -7597,10 +7597,10 @@ function mergeDefs(...defs) {
 function cloneDef(schema) {
   return mergeDefs(schema._zod.def);
 }
-function getElementAtPath(obj, path9) {
-  if (!path9)
+function getElementAtPath(obj, path11) {
+  if (!path11)
     return obj;
-  return path9.reduce((acc, key) => acc?.[key], obj);
+  return path11.reduce((acc, key) => acc?.[key], obj);
 }
 function promiseAllObject(promisesObj) {
   const keys = Object.keys(promisesObj);
@@ -7940,11 +7940,11 @@ function explicitlyAborted(x, startIndex = 0) {
   }
   return false;
 }
-function prefixIssues(path9, issues) {
+function prefixIssues(path11, issues) {
   return issues.map((iss) => {
     var _a3;
     (_a3 = iss).path ?? (_a3.path = []);
-    iss.path.unshift(path9);
+    iss.path.unshift(path11);
     return iss;
   });
 }
@@ -8402,16 +8402,16 @@ function flattenError(error2, mapper = (issue2) => issue2.message) {
 }
 function formatError(error2, mapper = (issue2) => issue2.message) {
   const fieldErrors = { _errors: [] };
-  const processError = (error3, path9 = []) => {
+  const processError = (error3, path11 = []) => {
     for (const issue2 of error3.issues) {
       if (issue2.code === "invalid_union" && issue2.errors.length) {
-        issue2.errors.map((issues) => processError({ issues }, [...path9, ...issue2.path]));
+        issue2.errors.map((issues) => processError({ issues }, [...path11, ...issue2.path]));
       } else if (issue2.code === "invalid_key") {
-        processError({ issues: issue2.issues }, [...path9, ...issue2.path]);
+        processError({ issues: issue2.issues }, [...path11, ...issue2.path]);
       } else if (issue2.code === "invalid_element") {
-        processError({ issues: issue2.issues }, [...path9, ...issue2.path]);
+        processError({ issues: issue2.issues }, [...path11, ...issue2.path]);
       } else {
-        const fullpath = [...path9, ...issue2.path];
+        const fullpath = [...path11, ...issue2.path];
         if (fullpath.length === 0) {
           fieldErrors._errors.push(mapper(issue2));
         } else {
@@ -16417,28 +16417,77 @@ function enforceSecrets(policy, text, what) {
 
 // src/audit.ts
 var ZERO = "0".repeat(64);
-var Audit = class {
-  constructor(dir, failClosed) {
+var CHUNK = 128 * 1024;
+var sha = (s) => crypto2.createHash("sha256").update(s).digest("hex");
+var Audit = class _Audit {
+  constructor(dir, failClosed, parent) {
+    this.dir = dir;
     this.failClosed = failClosed;
+    this.parent = parent;
     fs2.mkdirSync(dir, { recursive: true, mode: 448 });
     try {
       fs2.chmodSync(dir, 448);
     } catch {
     }
     const stamp = (/* @__PURE__ */ new Date()).toISOString().replace(/[:.]/g, "-");
-    this.file = path2.join(dir, `${stamp}-${process.pid}.jsonl`);
-    fs2.writeFileSync(this.file, "", { mode: 384, flag: "wx" });
+    this.file = path2.join(dir, `${stamp}-${process.pid}-${crypto2.randomUUID()}.jsonl`);
+    const fd = fs2.openSync(this.file, "wx", 384);
+    try {
+      this.identity = fs2.fstatSync(fd);
+    } finally {
+      fs2.closeSync(fd);
+    }
   }
+  dir;
   failClosed;
+  parent;
   file;
   prev = ZERO;
   seq = 0;
-  write(entry) {
+  identity;
+  grants = /* @__PURE__ */ new Map();
+  snapshots = /* @__PURE__ */ new Map();
+  open(flags) {
+    const fd = fs2.openSync(this.file, flags | (fs2.constants.O_NOFOLLOW ?? 0) | (fs2.constants.O_NONBLOCK ?? 0));
     try {
-      const rec = { ts: (/* @__PURE__ */ new Date()).toISOString(), seq: this.seq++, ...entry, prev: this.prev };
-      const body = JSON.stringify(rec);
-      const hash = crypto2.createHash("sha256").update(body).digest("hex");
-      fs2.appendFileSync(this.file, JSON.stringify({ ...rec, hash }) + "\n", { mode: 384 });
+      const st = fs2.fstatSync(fd);
+      if (!st.isFile() || st.nlink !== 1 || st.ino !== this.identity.ino || st.dev !== this.identity.dev)
+        throw new PolicyError("audit_changed", "audit file identity changed");
+      return fd;
+    } catch (e) {
+      fs2.closeSync(fd);
+      throw e;
+    }
+  }
+  get scope() {
+    return this.parent ? "authorization" : "process";
+  }
+  forGrant(owner) {
+    const now = Date.now();
+    for (const [id, grant] of this.grants) if (now - grant.lastUse > 12 * 60 * 6e4) this.grants.delete(id);
+    const hit = this.grants.get(owner);
+    if (hit) {
+      hit.lastUse = now;
+      return hit.chain;
+    }
+    if (this.grants.size >= 256) throw new PolicyError("audit_capacity", "too many active audit scopes");
+    const child = new _Audit(this.dir, this.failClosed, this);
+    child.write({ ev: "scope_start", scope: "authorization" });
+    this.grants.set(owner, { chain: child, lastUse: now });
+    return child;
+  }
+  write(entry) {
+    this.parent?.write({ ...entry, segment: path2.basename(this.file) });
+    try {
+      const rec = { ts: (/* @__PURE__ */ new Date()).toISOString(), seq: this.seq, ...entry, prev: this.prev };
+      const hash = sha(JSON.stringify(rec));
+      const fd = this.open(fs2.constants.O_WRONLY | fs2.constants.O_APPEND);
+      try {
+        fs2.writeFileSync(fd, JSON.stringify({ ...rec, hash }) + "\n");
+      } finally {
+        fs2.closeSync(fd);
+      }
+      this.seq++;
       this.prev = hash;
     } catch (e) {
       if (this.failClosed) throw new Error(`audit log write failed (fail-closed): ${e.message}`);
@@ -16446,26 +16495,83 @@ var Audit = class {
     }
   }
   verify() {
-    return verifyAuditFile(this.file);
+    const fd = this.open(fs2.constants.O_RDONLY);
+    try {
+      return verifyAuditText(fs2.readFileSync(fd, "utf8"), this.prev);
+    } finally {
+      fs2.closeSync(fd);
+    }
+  }
+  /** Pin a prefix before the result event is logged. Further MCP calls append, but never move its end. */
+  exportPage(id, offset = 0) {
+    const now = Date.now();
+    for (const [k, v] of this.snapshots) if (v.expires <= now) this.snapshots.delete(k);
+    const fd = this.open(fs2.constants.O_RDONLY);
+    try {
+      const size = fs2.fstatSync(fd).size;
+      let s;
+      if (id !== void 0) {
+        const existing = this.snapshots.get(id);
+        if (!existing) throw new PolicyError("audit_snapshot", "unknown or expired snapshot for this authorization");
+        s = existing;
+      } else {
+        if (offset !== 0) throw new PolicyError("audit_offset", "begin an export at offset zero");
+        s = { id: crypto2.randomUUID(), size, head: this.prev, entries: this.seq, expires: now + 15 * 6e4 };
+        if (this.snapshots.size >= 4) this.snapshots.delete(this.snapshots.keys().next().value);
+        this.snapshots.set(s.id, s);
+      }
+      if (!Number.isSafeInteger(offset) || offset < 0 || offset > s.size) throw new PolicyError("audit_offset", "invalid byte offset");
+      if (size < s.size) throw new PolicyError("audit_changed", "audit prefix was truncated; discard this export");
+      const buf = Buffer.alloc(Math.min(CHUNK, s.size - offset));
+      for (let n = 0; n < buf.length; ) {
+        const got = fs2.readSync(fd, buf, n, buf.length - n, offset + n);
+        if (!got) throw new PolicyError("audit_changed", "unexpected end of audit file");
+        n += got;
+      }
+      const next = offset + buf.length;
+      const filename = s.size <= CHUNK ? "hardtools-audit.jsonl" : `hardtools-audit.part-${String(offset).padStart(12, "0")}`;
+      return {
+        info: {
+          scope: this.scope,
+          filename,
+          snapshot: s.id,
+          total_bytes: s.size,
+          entries: s.entries,
+          expected_head: s.head,
+          offset,
+          next_offset: next < s.size ? next : null,
+          expires_at: new Date(s.expires).toISOString()
+        },
+        resource: { uri: `hardtools-audit://local/${s.id}/${filename}`, mimeType: s.size <= CHUNK ? "application/x-ndjson" : "application/octet-stream", blob: buf.toString("base64") }
+      };
+    } finally {
+      fs2.closeSync(fd);
+    }
   }
 };
-function verifyAuditFile(file) {
-  const lines = fs2.readFileSync(file, "utf8").split("\n").filter(Boolean);
+function verifyAuditText(text, expectedHead) {
+  const lines = text.split("\n");
+  if (lines.at(-1) === "") lines.pop();
   let prev = ZERO;
   for (let i = 0; i < lines.length; i++) {
+    const bad = (reason) => ({ ok: false, entries: i, brokenAt: i, reason });
     let obj;
     try {
       obj = JSON.parse(lines[i]);
     } catch {
-      return { ok: false, entries: i, brokenAt: i, reason: "unparseable line" };
+      return bad("unparseable line");
     }
+    if (!obj || typeof obj !== "object" || Array.isArray(obj)) return bad("invalid record");
     const { hash, ...rest } = obj;
-    if (rest.prev !== prev) return { ok: false, entries: i, brokenAt: i, reason: "prev-hash mismatch (entry removed or reordered)" };
-    const calc = crypto2.createHash("sha256").update(JSON.stringify(rest)).digest("hex");
-    if (calc !== hash) return { ok: false, entries: i, brokenAt: i, reason: "entry content modified" };
+    if (rest.seq !== i || rest.prev !== prev) return bad("sequence or prev-hash mismatch");
+    if (sha(JSON.stringify(rest)) !== hash) return bad("entry content modified");
     prev = hash;
   }
+  if (expectedHead !== void 0 && prev !== expectedHead) return { ok: false, entries: lines.length, reason: "expected head does not match (wrong snapshot or missing tail)" };
   return { ok: true, entries: lines.length };
+}
+function verifyAuditFile(file, expectedHead) {
+  return verifyAuditText(fs2.readFileSync(file, "utf8"), expectedHead);
 }
 function summarize(v, max = 400) {
   if (typeof v === "string") {
@@ -16645,7 +16751,7 @@ var PROFILES = {
       enabled: true,
       denyCommands: [...DENY_BYPASS, ...DENY_DESTRUCTIVE, ...DENY_GIT],
       denyArgs: DENY_ARGS,
-      allowShellSyntax: false,
+      allowShellSyntax: true,
       shellDenyPatterns: [],
       allowRelativeExecutables: false,
       confineArgPaths: true,
@@ -16751,7 +16857,9 @@ function loadPolicy(opts = {}) {
     roots,
     protectedDirs: [...new Set(protectedDirs.map((d) => safeReal(d)))],
     fs: { ...base.fs, ...o.fs ?? {} },
-    shell: { ...base.shell, ...o.shell ?? {} },
+    // Existing balanced configs with argv-specific rules keep their previous semantics
+    // unless the operator also explicitly opts into shell syntax.
+    shell: { ...base.shell, ...profile === "balanced" && (o.shell?.denyCommands?.length || o.shell?.denyArgs?.length) ? { allowShellSyntax: false } : {}, ...o.shell ?? {} },
     net: { ...base.net, ...o.net ?? {} },
     search: { ...base.search, ...o.search ?? {} },
     audit: { ...base.audit, ...o.audit ?? {}, dir: auditDir }
@@ -16962,10 +17070,10 @@ var OAuth = class {
   // ---- routing --------------------------------------------------------------------------
   /** Returns true when the request was an OAuth/discovery/invite route and has been fully handled. */
   async handle(req, res) {
-    const path9 = (req.url ?? "").split("?")[0];
+    const path11 = (req.url ?? "").split("?")[0];
     const method = req.method ?? "GET";
     const origin = this.origin(req);
-    if (path9 === "/.well-known/oauth-protected-resource" || path9 === "/.well-known/oauth-protected-resource/mcp") {
+    if (path11 === "/.well-known/oauth-protected-resource" || path11 === "/.well-known/oauth-protected-resource/mcp") {
       if (method !== "GET") {
         this.oerr(res, 405, "invalid_request", "GET only");
         return true;
@@ -16973,7 +17081,7 @@ var OAuth = class {
       this.json(res, 200, { resource: `${origin}/mcp`, authorization_servers: [origin], bearer_methods_supported: ["header"] });
       return true;
     }
-    if (path9 === "/.well-known/oauth-authorization-server" || path9 === "/.well-known/oauth-authorization-server/mcp") {
+    if (path11 === "/.well-known/oauth-authorization-server" || path11 === "/.well-known/oauth-authorization-server/mcp") {
       if (method !== "GET") {
         this.oerr(res, 405, "invalid_request", "GET only");
         return true;
@@ -16990,31 +17098,31 @@ var OAuth = class {
       });
       return true;
     }
-    if (path9 === "/register") {
+    if (path11 === "/register") {
       await this.register(req, res);
       return true;
     }
-    if (path9 === "/authorize") {
+    if (path11 === "/authorize") {
       await this.authorize(req, res, origin);
       return true;
     }
-    if (path9 === "/token") {
+    if (path11 === "/token") {
       await this.tokenEndpoint(req, res);
       return true;
     }
-    if (path9.startsWith("/invite/")) {
-      await this.handleInvite(req, res, path9, origin);
+    if (path11.startsWith("/invite/")) {
+      await this.handleInvite(req, res, path11, origin);
       return true;
     }
     return false;
   }
   // ---- /invite/<code> -------------------------------------------------------------------
-  async handleInvite(req, res, path9, origin) {
+  async handleInvite(req, res, path11, origin) {
     if (req.method !== "GET") {
       this.oerr(res, 405, "invalid_request", "GET only");
       return;
     }
-    const code = decodeURIComponent(path9.slice("/invite/".length));
+    const code = decodeURIComponent(path11.slice("/invite/".length));
     const sessionId = this.redeemInvite(code);
     if (!sessionId) {
       this.page(res, 410, "Bu davet kullan\u0131lm\u0131\u015F veya s\xFCresi dolmu\u015F. Daveti az \xF6nce a\xE7t\u0131ysan ayn\u0131 taray\u0131c\u0131 profilinde Claude\u2019dan devam et. Aksi halde yay\u0131n sahibiyle ileti\u015Fime ge\xE7.", null);
@@ -17545,8 +17653,8 @@ function getErrorMap() {
 
 // node_modules/zod/v3/helpers/parseUtil.js
 var makeIssue = (params) => {
-  const { data, path: path9, errorMaps, issueData } = params;
-  const fullPath = [...path9, ...issueData.path || []];
+  const { data, path: path11, errorMaps, issueData } = params;
+  const fullPath = [...path11, ...issueData.path || []];
   const fullIssue = {
     ...issueData,
     path: fullPath
@@ -17661,11 +17769,11 @@ var errorUtil;
 
 // node_modules/zod/v3/types.js
 var ParseInputLazyPath = class {
-  constructor(parent, value, path9, key) {
+  constructor(parent, value, path11, key) {
     this._cachedPath = [];
     this.parent = parent;
     this.data = value;
-    this._path = path9;
+    this._path = path11;
     this._key = key;
   }
   get path() {
@@ -21216,11 +21324,11 @@ function normalizeObjectSchema(schema) {
   }
   return void 0;
 }
-function getDotPath(path9) {
-  if (path9.length === 0) {
+function getDotPath(path11) {
+  if (path11.length === 0) {
     return "object root";
   }
-  return path9.reduce((acc, seg, index) => {
+  return path11.reduce((acc, seg, index) => {
     if (index === 0) {
       return String(seg);
     }
@@ -25216,237 +25324,39 @@ var EMPTY_COMPLETION_RESULT = {
 };
 
 // src/fs-extra.ts
-import crypto4 from "node:crypto";
-import fs4 from "node:fs";
-import path4 from "node:path";
-var TRASH_DIR = ".ht-trash";
-var SKIP_DIRS = /* @__PURE__ */ new Set([".git", "node_modules", ".venv", "venv", "__pycache__", ".gradle", ".idea", ".mypy_cache", ".pytest_cache", TRASH_DIR]);
-var MAX_VISITED = 2e5;
-var MAX_COLLECT = 5e4;
-var relParts = (r) => path4.relative(r.root, r.abs).split(path4.sep).filter(Boolean);
-function assertNotProtectedTree(policy, r, what) {
-  if ([...policy.roots, ...policy.protectedDirs].some((d) => isInside(r.abs, d))) throw new PolicyError("is_root", `cannot ${what} an allowed root or the parent of a protected directory`);
-  const parts = relParts(r);
-  if (parts.includes(".git")) throw new PolicyError("vcs_protected", `paths inside .git are protected (${what})`);
-  if (parts[0] === TRASH_DIR && parts.length === 1) throw new PolicyError("trash_protected", `the trash directory itself cannot be modified (${what})`);
-}
-function refuseSymlinkSource(policy, input) {
-  let st = null;
-  try {
-    st = fs4.lstatSync(path4.resolve(policy.roots[0], input));
-  } catch {
-  }
-  if (st?.isSymbolicLink()) throw new PolicyError("symlink_source", "source is a symlink; refusing (it would be resolved to its target). Operate on the real path.");
-}
-function htGlob(policy, a) {
-  if (typeof a.pattern !== "string" || a.pattern.length < 1 || a.pattern.length > 500) throw new PolicyError("bad_pattern", "pattern must be 1\u2013500 chars");
-  if (a.pattern.startsWith("/") || a.pattern.split("/").includes("..") || a.pattern.includes("\0")) throw new PolicyError("bad_pattern", "pattern must be relative and must not contain '..'");
-  const base = resolveSafe(policy, a.path ?? ".", "read");
-  if (!fs4.lstatSync(base.abs).isDirectory()) throw new PolicyError("not_a_dir", "path is not a directory");
-  const pat = a.pattern.includes("/") ? a.pattern.replace(/^\.\//, "") : "**/" + a.pattern;
-  const rx = globToRegExp(pat);
-  const want = a.type ?? "file";
-  const limit = Math.min(a.max_results ?? 200, 2e3);
-  const deadline = Date.now() + policy.search.timeBudgetMs;
-  const hits = [];
-  let visited = 0, hidden = 0, symlinks = 0;
-  let cut = null;
-  const stack = [base.abs];
-  while (stack.length && !cut) {
-    const dir = stack.pop();
-    if (Date.now() > deadline) {
-      cut = `time budget (${policy.search.timeBudgetMs} ms)`;
-      break;
-    }
-    let ents;
-    try {
-      ents = fs4.readdirSync(dir, { withFileTypes: true });
-    } catch {
-      continue;
-    }
-    for (const d of ents) {
-      if (++visited > MAX_VISITED) {
-        cut = `visit cap (${MAX_VISITED} entries)`;
-        break;
-      }
-      if (d.isSymbolicLink()) {
-        symlinks++;
-        continue;
-      }
-      if (!a.include_hidden && d.name.startsWith(".")) continue;
-      const abs = path4.join(dir, d.name);
-      if (isDeniedRead(policy, abs)) {
-        hidden++;
-        continue;
-      }
-      const rel = path4.relative(base.abs, abs).split(path4.sep).join("/");
-      if (d.isDirectory()) {
-        if (SKIP_DIRS.has(d.name)) continue;
-        stack.push(abs);
-        if ((want === "dir" || want === "any") && rx.test(rel)) {
-          const s = fs4.lstatSync(abs);
-          hits.push({ rel: rel + "/", dir: true, size: 0, mtime: s.mtimeMs });
-        }
-      } else if (d.isFile() && (want === "file" || want === "any") && rx.test(rel)) {
-        const s = fs4.lstatSync(abs);
-        hits.push({ rel, dir: false, size: s.size, mtime: s.mtimeMs });
-      }
-      if (hits.length >= MAX_COLLECT) {
-        cut = `match cap (${MAX_COLLECT})`;
-        break;
-      }
-    }
-  }
-  hits.sort(a.sort === "mtime" ? (x, y) => y.mtime - x.mtime || x.rel.localeCompare(y.rel) : (x, y) => x.rel.localeCompare(y.rel));
-  const shown = hits.slice(0, limit);
-  const head = `GLOB ${JSON.stringify(a.pattern)} in ${path4.relative(base.root, base.abs) || "."} | ${hits.length} match(es)${hits.length > shown.length ? ` (showing ${shown.length})` : ""} | visited=${visited}${hidden ? ` | ${hidden} protected hidden` : ""}${symlinks ? ` | ${symlinks} symlinks skipped` : ""}${cut ? ` | PARTIAL: stopped at ${cut}` : ""}`;
-  return `${head}
-${shown.map((h) => h.dir ? h.rel : `${h.rel}	${h.size} B	${new Date(h.mtime).toISOString()}`).join("\n")}`;
-}
-function htMkdir(policy, a) {
-  const r = resolveSafe(policy, a.path, "write");
-  assertNotProtectedTree(policy, r, "create a directory in");
-  if (r.exists) {
-    if (fs4.lstatSync(r.abs).isDirectory()) return `OK ${path4.relative(r.root, r.abs) || "."} already exists (directory)`;
-    throw new PolicyError("exists", "a non-directory already exists at that path");
-  }
-  fs4.mkdirSync(r.abs, { recursive: true, mode: 493 });
-  return `CREATED ${path4.relative(r.root, r.abs)}/`;
-}
-function htMove(policy, a) {
-  refuseSymlinkSource(policy, a.from);
-  const src = resolveSafe(policy, a.from, "write");
-  if (!src.exists) throw new PolicyError("not_found", `source does not exist: ${a.from}`);
-  assertNotProtectedTree(policy, src, "move");
-  const st = fs4.lstatSync(src.abs);
-  if (!st.isFile() && !st.isDirectory()) throw new PolicyError("unsupported_type", "only regular files and directories can be moved");
-  const dst = resolveSafe(policy, a.to, "write");
-  if (dst.exists) throw new PolicyError("exists", "destination already exists; moves never overwrite (give the full new path, not a target directory)");
-  assertNotProtectedTree(policy, dst, "move into");
-  if (st.isDirectory() && isInside(src.abs, dst.abs)) throw new PolicyError("into_self", "cannot move a directory into itself");
-  const parent = path4.dirname(dst.abs);
-  if (!fs4.existsSync(parent)) {
-    if (!a.mkdirp) throw new PolicyError("no_parent", "destination directory does not exist (set mkdirp=true)");
-    fs4.mkdirSync(parent, { recursive: true });
-  }
-  try {
-    if (st.isFile()) {
-      fs4.linkSync(src.abs, dst.abs);
-      fs4.unlinkSync(src.abs);
-    } else {
-      if (fs4.existsSync(dst.abs)) throw new PolicyError("exists", "destination already exists");
-      fs4.renameSync(src.abs, dst.abs);
-    }
-  } catch (e) {
-    if (e instanceof PolicyError) throw e;
-    if (e.code === "EEXIST") throw new PolicyError("exists", "destination already exists");
-    if (e.code === "EXDEV") throw new PolicyError("cross_device", "source and destination are on different filesystems");
-    throw e;
-  }
-  return `MOVED ${path4.relative(src.root, src.abs)} -> ${path4.relative(dst.root, dst.abs)} (${st.isDirectory() ? "directory" : `file, ${st.size} B`})`;
-}
-function htTrash(policy, a) {
-  refuseSymlinkSource(policy, a.path);
-  const src = resolveSafe(policy, a.path, "write");
-  if (!src.exists) throw new PolicyError("not_found", `does not exist: ${a.path}`);
-  assertNotProtectedTree(policy, src, "trash");
-  const parts = relParts(src);
-  if (parts[0] === TRASH_DIR) throw new PolicyError("already_in_trash", "item is already in the trash; use ht_empty_trash to purge the trash");
-  const st = fs4.lstatSync(src.abs);
-  if (!st.isFile() && !st.isDirectory()) throw new PolicyError("unsupported_type", "only regular files and directories can be trashed");
-  if (st.isDirectory() && !a.recursive) throw new PolicyError("needs_recursive", "target is a directory; pass recursive=true to trash it with all its contents");
-  const trashDir = path4.join(src.root, TRASH_DIR);
-  try {
-    fs4.mkdirSync(trashDir, { mode: 448 });
-  } catch (e) {
-    if (e.code !== "EEXIST") throw e;
-  }
-  if (!fs4.lstatSync(trashDir).isDirectory()) throw new PolicyError("trash_invalid", `${TRASH_DIR} exists but is not a real directory`);
-  const safeName = path4.basename(src.abs).replace(/[^A-Za-z0-9._-]/g, "_").slice(0, 100) || "item";
-  const name = `${Date.now()}-${crypto4.randomBytes(3).toString("hex")}-${safeName}`;
-  const dst = resolveSafe(policy, path4.join(trashDir, name), "write");
-  const manifest = path4.join(trashDir, "index.jsonl");
-  if (resolveSafe(policy, manifest, "write").abs !== manifest) throw new PolicyError("trash_invalid", "invalid trash index");
-  const fd = fs4.openSync(manifest, fs4.constants.O_WRONLY | fs4.constants.O_APPEND | fs4.constants.O_CREAT | (fs4.constants.O_NOFOLLOW ?? 0) | (fs4.constants.O_NONBLOCK ?? 0), 384);
-  const original = path4.relative(src.root, src.abs);
-  try {
-    const index = fs4.fstatSync(fd);
-    if (!index.isFile() || index.nlink !== 1) throw new PolicyError("trash_invalid", "trash index must be a regular, single-link file");
-    try {
-      fs4.renameSync(src.abs, dst.abs);
-    } catch (e) {
-      if (e.code === "EXDEV") throw new PolicyError("cross_device", "trash is on a different filesystem than the target");
-      throw e;
-    }
-    try {
-      fs4.writeFileSync(fd, JSON.stringify({ ts: (/* @__PURE__ */ new Date()).toISOString(), name, original, kind: st.isDirectory() ? "dir" : "file" }) + "\n");
-    } catch (err) {
-      fs4.renameSync(dst.abs, src.abs);
-      throw err;
-    }
-  } finally {
-    fs4.closeSync(fd);
-  }
-  return `TRASHED ${original} -> ${TRASH_DIR}/${name}
-Restore with ht_move from=${JSON.stringify(`${TRASH_DIR}/${name}`)} to=${JSON.stringify(original)}`;
-}
-function htEmptyTrash(policy, a) {
-  const root = resolveSafe(policy, a.root ?? ".", "write").abs;
-  if (!policy.roots.includes(root)) throw new PolicyError("not_a_root", "select a configured root, not an arbitrary directory");
-  const dir = path4.join(root, TRASH_DIR);
-  const checked = resolveSafe(policy, dir, "write");
-  if (checked.abs !== dir || [...policy.roots, ...policy.protectedDirs].some((d) => isInside(dir, d)))
-    throw new PolicyError("trash_invalid", "trash is a link or overlaps a protected directory");
-  if (!checked.exists) return "EMPTY: no trash directory; nothing deleted";
-  if (!fs4.lstatSync(dir).isDirectory()) throw new PolicyError("trash_invalid", "trash is not a real directory");
-  const entries = fs4.readdirSync(dir);
-  const names = entries.filter((n) => n !== "index.jsonl");
-  if (a.confirm !== true) return `PREVIEW: ${names.length} item(s); nothing deleted. To permanently empty this trash and clear its index, set confirm=true.`;
-  const device = fs4.lstatSync(dir).dev;
-  const pending = [...names, ...entries.filter((n) => n === "index.jsonl")].map((n) => path4.join(dir, n));
-  const ordered = [];
-  while (pending.length) {
-    if (ordered.length + pending.length > 5e4) throw new PolicyError("trash_limit", "too many entries for one purge");
-    const abs = pending.pop();
-    if (isDeniedWrite(policy, abs) || fs4.realpathSync.native(path4.dirname(abs)) !== path4.dirname(abs))
-      throw new PolicyError("trash_protected", "trash contains a protected or changed path; nothing deleted");
-    const st = fs4.lstatSync(abs);
-    if (st.dev !== device) throw new PolicyError("trash_mount", "refusing to cross a filesystem boundary");
-    ordered.push({ abs, dir: st.isDirectory() });
-    if (st.isDirectory()) for (const name of fs4.readdirSync(abs)) pending.push(path4.join(abs, name));
-  }
-  for (const item of ordered.reverse()) {
-    if (fs4.realpathSync.native(path4.dirname(item.abs)) !== path4.dirname(item.abs)) throw new PolicyError("trash_changed", "trash changed during purge");
-    if (item.dir) fs4.rmdirSync(item.abs);
-    else fs4.unlinkSync(item.abs);
-  }
-  return `EMPTIED: ${names.length} item(s); trash directory preserved`;
-}
+import crypto6 from "node:crypto";
+import fs6 from "node:fs";
+import path6 from "node:path";
 
-// src/fs-tools.ts
+// src/trash-index.ts
 import crypto5 from "node:crypto";
 import fs5 from "node:fs";
 import path5 from "node:path";
+
+// src/fs-tools.ts
+import crypto4 from "node:crypto";
+import fs4 from "node:fs";
+import path4 from "node:path";
 var testHooks = { failAfterWrites: null, beforeCommit: null };
-var sha = (b) => crypto5.createHash("sha256").update(b).digest("hex");
-var O_NOFOLLOW = fs5.constants.O_NOFOLLOW ?? 0;
+var sha2 = (b) => crypto4.createHash("sha256").update(b).digest("hex");
+var O_NOFOLLOW = fs4.constants.O_NOFOLLOW ?? 0;
 function readBytesNoFollow(abs, max, singleLink = false) {
-  const fd = fs5.openSync(abs, fs5.constants.O_RDONLY | O_NOFOLLOW | (fs5.constants.O_NONBLOCK ?? 0));
+  const fd = fs4.openSync(abs, fs4.constants.O_RDONLY | O_NOFOLLOW | (fs4.constants.O_NONBLOCK ?? 0));
   try {
-    const st = fs5.fstatSync(fd);
+    const st = fs4.fstatSync(fd);
     if (!st.isFile()) throw new PolicyError("not_a_file", "not a regular file");
-    if (singleLink && st.nlink !== 1) throw new PolicyError("linked_file", "only a file with one link may be shared");
+    if (singleLink && st.nlink !== 1) throw new PolicyError("linked_file", "operation requires a regular file with one link");
     if (st.size > max) throw new PolicyError("too_large", `file is ${st.size} bytes; limit is ${max}. Use ht_search or read a smaller file.`);
     const buf = Buffer.alloc(st.size);
     let off = 0;
     while (off < st.size) {
-      const n = fs5.readSync(fd, buf, off, st.size - off, off);
+      const n = fs4.readSync(fd, buf, off, st.size - off, off);
       if (n <= 0) break;
       off += n;
     }
     return buf.subarray(0, off);
   } finally {
-    fs5.closeSync(fd);
+    fs4.closeSync(fd);
   }
 }
 var looksBinary = (b) => b.subarray(0, 8e3).includes(0);
@@ -25457,13 +25367,13 @@ var detectEol = (s) => {
 };
 function htRead(policy, a) {
   const r = resolveSafe(policy, a.path, "read");
-  const lst = fs5.lstatSync(r.abs);
+  const lst = fs4.lstatSync(r.abs);
   if (lst.isDirectory()) {
-    const names = fs5.readdirSync(r.abs, { withFileTypes: true });
+    const names = fs4.readdirSync(r.abs, { withFileTypes: true });
     let hidden = 0;
     const rows = [];
     for (const d of names.sort((x, y) => x.name.localeCompare(y.name))) {
-      const child = path5.join(r.abs, d.name);
+      const child = path4.join(r.abs, d.name);
       if (isDeniedRead(policy, child)) {
         hidden++;
         continue;
@@ -25472,9 +25382,9 @@ function htRead(policy, a) {
         rows.push("\u2026 (truncated at 300 entries)");
         break;
       }
-      rows.push(d.isDirectory() ? `${d.name}/` : d.isSymbolicLink() ? `${d.name}@ (symlink)` : `${d.name}	${fs5.statSync(child).size} B`);
+      rows.push(d.isDirectory() ? `${d.name}/` : d.isSymbolicLink() ? `${d.name}@ (symlink)` : `${d.name}	${fs4.statSync(child).size} B`);
     }
-    return `DIR ${path5.relative(r.root, r.abs) || "."}
+    return `DIR ${path4.relative(r.root, r.abs) || "."}
 ${rows.join("\n")}${hidden ? `
 (${hidden} protected entries hidden)` : ""}`;
   }
@@ -25491,27 +25401,27 @@ ${rows.join("\n")}${hidden ? `
   if (s > lines.length && lines.length) throw new PolicyError("range", `start_line ${s} is beyond end of file (${lines.length} lines)`);
   const numbered = a.numbered ?? true;
   const body = lines.slice(s - 1, e).map((l, i) => numbered ? `${s + i}	${l}` : l).join("\n");
-  const head = `FILE ${path5.relative(r.root, r.abs)} | lines ${lines.length ? s : 0}-${e} of ${lines.length} | eol=${detectEol(text)}${bom ? " | bom" : ""}${lossy ? " | NOT valid UTF-8 (lossy; ht_edit will refuse)" : ""} | sha256=${sha(buf)}`;
+  const head = `FILE ${path4.relative(r.root, r.abs)} | lines ${lines.length ? s : 0}-${e} of ${lines.length} | eol=${detectEol(text)}${bom ? " | bom" : ""}${lossy ? " | NOT valid UTF-8 (lossy; ht_edit will refuse)" : ""} | sha256=${sha2(buf)}`;
   return `${head}
 ${body}${e < lines.length ? `
 \u2026 ${lines.length - e} more lines (use start_line/end_line)` : ""}`;
 }
 function atomicWrite(abs, data, mode, noClobber) {
-  const dir = path5.dirname(abs);
-  const tmp = path5.join(dir, `.${path5.basename(abs)}.ht-${crypto5.randomBytes(6).toString("hex")}.tmp`);
-  const fd = fs5.openSync(tmp, fs5.constants.O_WRONLY | fs5.constants.O_CREAT | fs5.constants.O_EXCL | O_NOFOLLOW, mode & 511);
+  const dir = path4.dirname(abs);
+  const tmp = path4.join(dir, `.${path4.basename(abs)}.ht-${crypto4.randomBytes(6).toString("hex")}.tmp`);
+  const fd = fs4.openSync(tmp, fs4.constants.O_WRONLY | fs4.constants.O_CREAT | fs4.constants.O_EXCL | O_NOFOLLOW, mode & 511);
   try {
-    fs5.writeSync(fd, data);
-    fs5.fsyncSync(fd);
+    fs4.writeSync(fd, data);
+    fs4.fsyncSync(fd);
   } finally {
-    fs5.closeSync(fd);
+    fs4.closeSync(fd);
   }
   try {
-    if (noClobber) fs5.linkSync(tmp, abs);
-    else fs5.renameSync(tmp, abs);
+    if (noClobber) fs4.linkSync(tmp, abs);
+    else fs4.renameSync(tmp, abs);
   } catch (e) {
     try {
-      fs5.unlinkSync(tmp);
+      fs4.unlinkSync(tmp);
     } catch {
     }
     if (e.code === "EEXIST") throw new PolicyError("exists", "file already exists (set overwrite=true and pass if_hash)");
@@ -25519,7 +25429,7 @@ function atomicWrite(abs, data, mode, noClobber) {
   }
   if (noClobber) {
     try {
-      fs5.unlinkSync(tmp);
+      fs4.unlinkSync(tmp);
     } catch {
     }
   }
@@ -25533,25 +25443,25 @@ function htWrite(policy, a) {
   let mode = 420;
   let existed = false;
   if (r.exists) {
-    const st = fs5.lstatSync(r.abs);
+    const st = fs4.lstatSync(r.abs);
     if (!st.isFile()) throw new PolicyError("not_a_file", "target exists and is not a regular file");
     existed = true;
     mode = st.mode;
     if (!a.overwrite) throw new PolicyError("exists", "file exists; set overwrite=true" + (policy.fs.requireHashForOverwrite ? " and pass if_hash from ht_read" : ""));
     if (policy.fs.requireHashForOverwrite && !a.if_hash) throw new PolicyError("hash_required", "overwriting requires if_hash (read the file first with ht_read)");
     if (a.if_hash) {
-      const cur = sha(readBytesNoFollow(r.abs, Math.max(policy.fs.maxReadBytes, st.size)));
+      const cur = sha2(readBytesNoFollow(r.abs, Math.max(policy.fs.maxReadBytes, st.size)));
       if (cur !== a.if_hash) throw new PolicyError("hash_mismatch", "file changed since it was read (if_hash mismatch); re-read it");
     }
   } else {
-    const dir = path5.dirname(r.abs);
-    if (!fs5.existsSync(dir)) {
+    const dir = path4.dirname(r.abs);
+    if (!fs4.existsSync(dir)) {
       if (!a.mkdirp) throw new PolicyError("no_parent", "parent directory does not exist (set mkdirp=true)");
-      fs5.mkdirSync(dir, { recursive: true });
+      fs4.mkdirSync(dir, { recursive: true });
     }
   }
   atomicWrite(r.abs, data, mode, !existed);
-  return `${existed ? "OVERWROTE" : "CREATED"} ${path5.relative(r.root, r.abs)} | ${data.length} bytes | sha256=${sha(data)}${warnings.length ? "\nWARNINGS:\n- " + warnings.join("\n- ") : ""}`;
+  return `${existed ? "OVERWROTE" : "CREATED"} ${path4.relative(r.root, r.abs)} | ${data.length} bytes | sha256=${sha2(data)}${warnings.length ? "\nWARNINGS:\n- " + warnings.join("\n- ") : ""}`;
 }
 function lineOf(text, idx) {
   let n = 1;
@@ -25605,21 +25515,21 @@ function htEdit(policy, a) {
   const staged = [];
   const warnings = [];
   for (const { r, items } of groups.values()) {
-    const st = fs5.lstatSync(r.abs);
-    if (!st.isFile()) throw new PolicyError("not_a_file", `not a regular file: ${path5.relative(r.root, r.abs)}`);
+    const st = fs4.lstatSync(r.abs);
+    if (!st.isFile()) throw new PolicyError("not_a_file", `not a regular file: ${path4.relative(r.root, r.abs)}`);
     const orig = readBytesNoFollow(r.abs, policy.fs.maxWriteBytes);
-    if (looksBinary(orig)) throw new PolicyError("binary_file", `refusing to edit binary file: ${path5.relative(r.root, r.abs)}`);
+    if (looksBinary(orig)) throw new PolicyError("binary_file", `refusing to edit binary file: ${path4.relative(r.root, r.abs)}`);
     let text;
     try {
       text = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(orig);
     } catch {
-      throw new PolicyError("not_utf8", `file is not valid UTF-8; refusing to edit (would corrupt it): ${path5.relative(r.root, r.abs)}`);
+      throw new PolicyError("not_utf8", `file is not valid UTF-8; refusing to edit (would corrupt it): ${path4.relative(r.root, r.abs)}`);
     }
     const bom = text.charCodeAt(0) === 65279;
     if (bom) text = text.slice(1);
-    const origSha = sha(orig);
+    const origSha = sha2(orig);
     const eol = detectEol(text);
-    const rel = path5.relative(r.root, r.abs);
+    const rel = path4.relative(r.root, r.abs);
     for (const it of items) if (it.if_hash && it.if_hash !== origSha) throw new PolicyError("hash_mismatch", `${rel} changed since it was read (if_hash mismatch); re-read it`);
     const before = text;
     items.forEach((it, n) => {
@@ -25655,7 +25565,7 @@ ${summary2}${wtxt}`;
   testHooks.beforeCommit?.();
   for (const s of staged) {
     const now = readBytesNoFollow(s.abs, Math.max(policy.fs.maxWriteBytes, s.orig.length) + 1);
-    if (sha(now) !== s.origSha) throw new PolicyError("changed_on_disk", `${s.rel} was modified by something else while the edit was being prepared; nothing was written`);
+    if (sha2(now) !== s.origSha) throw new PolicyError("changed_on_disk", `${s.rel} was modified by something else while the edit was being prepared; nothing was written`);
   }
   const done = [];
   try {
@@ -25676,9 +25586,308 @@ ${summary2}${wtxt}`;
     throw new Error(`edit failed (${err.message}); ${done.length ? failedRollback.length ? `ROLLBACK INCOMPLETE for: ${failedRollback.join(", ")}` : "all earlier writes rolled back" : "nothing was written"}`);
   }
   return `APPLIED ${staged.length} file(s)
-${staged.map((s) => `${s.rel} | sha256=${sha(s.next)}`).join("\n")}
+${staged.map((s) => `${s.rel} | sha256=${sha2(s.next)}`).join("\n")}
 
 ${summary2}${wtxt}`;
+}
+
+// src/trash-index.ts
+var TRASH_DIR = ".ht-trash";
+var INDEX = "index.jsonl";
+var MAX_INDEX = 16 << 20;
+function readTrashIndex(p, root, entries) {
+  const manifest = path5.join(root, TRASH_DIR, INDEX);
+  const present = new Set(entries), active2 = /* @__PURE__ */ new Map();
+  const idx = resolveSafe(p, manifest, "read");
+  if (idx.abs !== manifest) throw new PolicyError("trash_invalid", "invalid trash index link");
+  let total = 0;
+  if (idx.exists) {
+    const data = readBytesNoFollow(manifest, MAX_INDEX, true).toString("utf8");
+    for (const line of data.split("\n")) {
+      if (!line) continue;
+      let row;
+      try {
+        row = JSON.parse(line);
+      } catch {
+        throw new PolicyError("trash_invalid", "invalid trash index JSONL");
+      }
+      if (!row || typeof row.name !== "string" || typeof row.original !== "string" || !["file", "dir"].includes(row.kind))
+        throw new PolicyError("trash_invalid", "invalid trash index record");
+      total++;
+      if (present.has(row.name)) active2.set(row.name, row);
+    }
+  }
+  return { manifest, active: active2, stale: total - active2.size, untracked: entries.length - active2.size };
+}
+function withTrashLock(p, root, fn) {
+  const lockPath = path5.join(root, ".ht-trash-index.lock");
+  if (resolveSafe(p, lockPath, "write").abs !== lockPath) throw new PolicyError("trash_invalid", "invalid trash lock path");
+  let lock;
+  try {
+    lock = fs5.openSync(lockPath, "wx", 384);
+  } catch (e) {
+    if (e.code === "EEXIST") throw new PolicyError("trash_busy", "another operation holds the trash lock");
+    throw e;
+  }
+  try {
+    return fn();
+  } finally {
+    fs5.closeSync(lock);
+    fs5.unlinkSync(lockPath);
+  }
+}
+function updateTrashIndex(p, root, edit, move, undo) {
+  withTrashLock(p, root, () => {
+    const dir = path5.join(root, TRASH_DIR);
+    if (resolveSafe(p, dir, "write").abs !== dir || !fs5.lstatSync(dir).isDirectory()) throw new PolicyError("trash_invalid", "invalid trash directory");
+    const entries = fs5.readdirSync(dir).filter((n) => n !== INDEX);
+    const { manifest, active: active2 } = readTrashIndex(p, root, entries);
+    resolveSafe(p, manifest, "write");
+    edit(active2);
+    const data = [...active2.values()].map((r) => JSON.stringify(r) + "\n").join("");
+    if (Buffer.byteLength(data) > MAX_INDEX) throw new PolicyError("trash_limit", "trash index size limit reached");
+    const tmp = path5.join(root, `.ht-trash-index-${crypto5.randomUUID()}.tmp`);
+    const fd = fs5.openSync(tmp, "wx", 384);
+    try {
+      try {
+        fs5.writeFileSync(fd, data);
+        fs5.fsyncSync(fd);
+      } finally {
+        fs5.closeSync(fd);
+      }
+      move();
+      try {
+        fs5.renameSync(tmp, manifest);
+      } catch (e) {
+        try {
+          undo();
+        } catch {
+          throw new PolicyError("trash_recovery", "cannot publish index or undo move; inspect source, destination and index");
+        }
+        throw e;
+      }
+    } finally {
+      fs5.rmSync(tmp, { force: true });
+    }
+  });
+}
+
+// src/fs-extra.ts
+var SKIP_DIRS = /* @__PURE__ */ new Set([".git", "node_modules", ".venv", "venv", "__pycache__", ".gradle", ".idea", ".mypy_cache", ".pytest_cache", TRASH_DIR]);
+var MAX_VISITED = 2e5;
+var MAX_COLLECT = 5e4;
+var relParts = (r) => path6.relative(r.root, r.abs).split(path6.sep).filter(Boolean);
+function assertNotProtectedTree(policy, r, what) {
+  if ([...policy.roots, ...policy.protectedDirs].some((d) => isInside(r.abs, d))) throw new PolicyError("is_root", `cannot ${what} an allowed root or the parent of a protected directory`);
+  const parts = relParts(r);
+  if (parts.includes(".git")) throw new PolicyError("vcs_protected", `paths inside .git are protected (${what})`);
+  if (parts[0] === TRASH_DIR && parts.length === 1) throw new PolicyError("trash_protected", `the trash directory itself cannot be modified (${what})`);
+}
+function refuseSymlinkSource(policy, input) {
+  let st = null;
+  try {
+    st = fs6.lstatSync(path6.resolve(policy.roots[0], input));
+  } catch {
+  }
+  if (st?.isSymbolicLink()) throw new PolicyError("symlink_source", "source is a symlink; refusing (it would be resolved to its target). Operate on the real path.");
+}
+function htGlob(policy, a) {
+  if (typeof a.pattern !== "string" || a.pattern.length < 1 || a.pattern.length > 500) throw new PolicyError("bad_pattern", "pattern must be 1\u2013500 chars");
+  if (a.pattern.startsWith("/") || a.pattern.split("/").includes("..") || a.pattern.includes("\0")) throw new PolicyError("bad_pattern", "pattern must be relative and must not contain '..'");
+  const base = resolveSafe(policy, a.path ?? ".", "read");
+  if (!fs6.lstatSync(base.abs).isDirectory()) throw new PolicyError("not_a_dir", "path is not a directory");
+  const pat = a.pattern.includes("/") ? a.pattern.replace(/^\.\//, "") : "**/" + a.pattern;
+  const rx = globToRegExp(pat);
+  const want = a.type ?? "file";
+  const limit = Math.min(a.max_results ?? 200, 2e3);
+  const deadline = Date.now() + policy.search.timeBudgetMs;
+  const hits = [];
+  let visited = 0, hidden = 0, symlinks = 0;
+  let cut = null;
+  const stack = [base.abs];
+  while (stack.length && !cut) {
+    const dir = stack.pop();
+    if (Date.now() > deadline) {
+      cut = `time budget (${policy.search.timeBudgetMs} ms)`;
+      break;
+    }
+    let ents;
+    try {
+      ents = fs6.readdirSync(dir, { withFileTypes: true });
+    } catch {
+      continue;
+    }
+    for (const d of ents) {
+      if (++visited > MAX_VISITED) {
+        cut = `visit cap (${MAX_VISITED} entries)`;
+        break;
+      }
+      if (d.isSymbolicLink()) {
+        symlinks++;
+        continue;
+      }
+      if (!a.include_hidden && d.name.startsWith(".")) continue;
+      const abs = path6.join(dir, d.name);
+      if (isDeniedRead(policy, abs)) {
+        hidden++;
+        continue;
+      }
+      const rel = path6.relative(base.abs, abs).split(path6.sep).join("/");
+      if (d.isDirectory()) {
+        if (SKIP_DIRS.has(d.name)) continue;
+        stack.push(abs);
+        if ((want === "dir" || want === "any") && rx.test(rel)) {
+          const s = fs6.lstatSync(abs);
+          hits.push({ rel: rel + "/", dir: true, size: 0, mtime: s.mtimeMs });
+        }
+      } else if (d.isFile() && (want === "file" || want === "any") && rx.test(rel)) {
+        const s = fs6.lstatSync(abs);
+        hits.push({ rel, dir: false, size: s.size, mtime: s.mtimeMs });
+      }
+      if (hits.length >= MAX_COLLECT) {
+        cut = `match cap (${MAX_COLLECT})`;
+        break;
+      }
+    }
+  }
+  hits.sort(a.sort === "mtime" ? (x, y) => y.mtime - x.mtime || x.rel.localeCompare(y.rel) : (x, y) => x.rel.localeCompare(y.rel));
+  const shown = hits.slice(0, limit);
+  const head = `GLOB ${JSON.stringify(a.pattern)} in ${path6.relative(base.root, base.abs) || "."} | ${hits.length} match(es)${hits.length > shown.length ? ` (showing ${shown.length})` : ""} | visited=${visited}${hidden ? ` | ${hidden} protected hidden` : ""}${symlinks ? ` | ${symlinks} symlinks skipped` : ""}${cut ? ` | PARTIAL: stopped at ${cut}` : ""}`;
+  return `${head}
+${shown.map((h) => h.dir ? h.rel : `${h.rel}	${h.size} B	${new Date(h.mtime).toISOString()}`).join("\n")}`;
+}
+function htMkdir(policy, a) {
+  const r = resolveSafe(policy, a.path, "write");
+  assertNotProtectedTree(policy, r, "create a directory in");
+  if (r.exists) {
+    if (fs6.lstatSync(r.abs).isDirectory()) return `OK ${path6.relative(r.root, r.abs) || "."} already exists (directory)`;
+    throw new PolicyError("exists", "a non-directory already exists at that path");
+  }
+  fs6.mkdirSync(r.abs, { recursive: true, mode: 493 });
+  return `CREATED ${path6.relative(r.root, r.abs)}/`;
+}
+function moveNoClobber(from, to, isFile) {
+  try {
+    if (isFile) {
+      fs6.linkSync(from, to);
+      try {
+        fs6.unlinkSync(from);
+      } catch (e) {
+        fs6.unlinkSync(to);
+        throw e;
+      }
+    } else {
+      if (fs6.lstatSync(to, { throwIfNoEntry: false })) throw new PolicyError("exists", "destination already exists");
+      fs6.renameSync(from, to);
+    }
+  } catch (e) {
+    if (e.code === "EEXIST") throw new PolicyError("exists", "destination already exists");
+    if (e.code === "EXDEV") throw new PolicyError("cross_device", "source and destination are on different filesystems");
+    throw e;
+  }
+}
+function htMove(policy, a) {
+  refuseSymlinkSource(policy, a.from);
+  const src = resolveSafe(policy, a.from, "write");
+  if (!src.exists) throw new PolicyError("not_found", `source does not exist: ${a.from}`);
+  assertNotProtectedTree(policy, src, "move");
+  const st = fs6.lstatSync(src.abs);
+  if (!st.isFile() && !st.isDirectory()) throw new PolicyError("unsupported_type", "only regular files and directories can be moved");
+  const dst = resolveSafe(policy, a.to, "write");
+  if (dst.exists) throw new PolicyError("exists", "destination already exists; moves never overwrite (give the full new path, not a target directory)");
+  assertNotProtectedTree(policy, dst, "move into");
+  if (st.isDirectory() && isInside(src.abs, dst.abs)) throw new PolicyError("into_self", "cannot move a directory into itself");
+  const parts = relParts(src);
+  if (parts[0] === TRASH_DIR && parts[1] === INDEX) throw new PolicyError("trash_protected", "cannot move the trash index");
+  if (relParts(dst)[0] === TRASH_DIR) throw new PolicyError("trash_protected", "use ht_trash to move an item into the trash");
+  const move = () => {
+    const parent = path6.dirname(dst.abs);
+    if (!fs6.existsSync(parent)) {
+      if (!a.mkdirp) throw new PolicyError("no_parent", "destination directory does not exist (set mkdirp=true)");
+      fs6.mkdirSync(parent, { recursive: true });
+    }
+    moveNoClobber(src.abs, dst.abs, st.isFile());
+  };
+  if (parts[0] === TRASH_DIR && parts.length === 2) {
+    updateTrashIndex(policy, src.root, (rows) => rows.delete(parts[1]), move, () => moveNoClobber(dst.abs, src.abs, st.isFile()));
+  } else move();
+  return `MOVED ${path6.relative(src.root, src.abs)} -> ${path6.relative(dst.root, dst.abs)} (${st.isDirectory() ? "directory" : `file, ${st.size} B`})`;
+}
+function htTrash(policy, a) {
+  refuseSymlinkSource(policy, a.path);
+  const src = resolveSafe(policy, a.path, "write");
+  if (!src.exists) throw new PolicyError("not_found", `does not exist: ${a.path}`);
+  assertNotProtectedTree(policy, src, "trash");
+  const parts = relParts(src);
+  if (parts[0] === TRASH_DIR) throw new PolicyError("already_in_trash", "item is already in the trash; use ht_empty_trash to purge the trash");
+  const st = fs6.lstatSync(src.abs);
+  if (!st.isFile() && !st.isDirectory()) throw new PolicyError("unsupported_type", "only regular files and directories can be trashed");
+  if (st.isDirectory() && !a.recursive) throw new PolicyError("needs_recursive", "target is a directory; pass recursive=true to trash it with all its contents");
+  const trashDir = path6.join(src.root, TRASH_DIR);
+  try {
+    fs6.mkdirSync(trashDir, { mode: 448 });
+  } catch (e) {
+    if (e.code !== "EEXIST") throw e;
+  }
+  if (!fs6.lstatSync(trashDir).isDirectory()) throw new PolicyError("trash_invalid", `${TRASH_DIR} exists but is not a real directory`);
+  const safeName = path6.basename(src.abs).replace(/[^A-Za-z0-9._-]/g, "_").slice(0, 100) || "item";
+  const name = `${Date.now()}-${crypto6.randomBytes(3).toString("hex")}-${safeName}`;
+  const dst = resolveSafe(policy, path6.join(trashDir, name), "write");
+  const original = path6.relative(src.root, src.abs);
+  updateTrashIndex(
+    policy,
+    src.root,
+    (rows) => rows.set(name, { ts: (/* @__PURE__ */ new Date()).toISOString(), name, original, kind: st.isDirectory() ? "dir" : "file" }),
+    () => moveNoClobber(src.abs, dst.abs, st.isFile()),
+    () => moveNoClobber(dst.abs, src.abs, st.isFile())
+  );
+  return `TRASHED ${original} -> ${TRASH_DIR}/${name}
+Restore with ht_move from=${JSON.stringify(`${TRASH_DIR}/${name}`)} to=${JSON.stringify(original)}`;
+}
+function htEmptyTrash(policy, a) {
+  const mode = a.confirm === true ? "write" : "read";
+  const root = resolveSafe(policy, a.root ?? ".", mode).abs;
+  if (!policy.roots.includes(root)) throw new PolicyError("not_a_root", "select a configured root, not an arbitrary directory");
+  const dir = path6.join(root, TRASH_DIR);
+  const checked = resolveSafe(policy, dir, mode);
+  if (checked.abs !== dir || [...policy.roots, ...policy.protectedDirs].some((d) => isInside(dir, d)))
+    throw new PolicyError("trash_invalid", "trash is a link or overlaps a protected directory");
+  if (!checked.exists) return "EMPTY: no trash directory; nothing deleted";
+  if (!fs6.lstatSync(dir).isDirectory()) throw new PolicyError("trash_invalid", "trash is not a real directory");
+  if (a.confirm !== true) {
+    const names = fs6.readdirSync(dir).filter((n) => n !== INDEX);
+    let note;
+    try {
+      const { stale, untracked } = readTrashIndex(policy, root, names);
+      note = `stale index rows=${stale}, unindexed items=${untracked}`;
+    } catch {
+      note = "index unavailable; counted directory entries only";
+    }
+    return `PREVIEW: ${names.length} item(s); ${note}; nothing deleted. To permanently empty this trash and clear its index, set confirm=true.`;
+  }
+  return withTrashLock(policy, root, () => purgeTrash(policy, dir));
+}
+function purgeTrash(policy, dir) {
+  const entries = fs6.readdirSync(dir), names = entries.filter((n) => n !== INDEX);
+  const device = fs6.lstatSync(dir).dev;
+  const pending = [...names, ...entries.filter((n) => n === INDEX)].map((n) => path6.join(dir, n));
+  const ordered = [];
+  while (pending.length) {
+    if (ordered.length + pending.length > 5e4) throw new PolicyError("trash_limit", "too many entries for one purge");
+    const abs = pending.pop();
+    if (isDeniedWrite(policy, abs) || fs6.realpathSync.native(path6.dirname(abs)) !== path6.dirname(abs))
+      throw new PolicyError("trash_protected", "trash contains a protected or changed path; nothing deleted");
+    const st = fs6.lstatSync(abs);
+    if (st.dev !== device) throw new PolicyError("trash_mount", "refusing to cross a filesystem boundary");
+    ordered.push({ abs, dir: st.isDirectory() });
+    if (st.isDirectory()) for (const name of fs6.readdirSync(abs)) pending.push(path6.join(abs, name));
+  }
+  for (const item of ordered.reverse()) {
+    if (fs6.realpathSync.native(path6.dirname(item.abs)) !== path6.dirname(item.abs)) throw new PolicyError("trash_changed", "trash changed during purge");
+    if (item.dir) fs6.rmdirSync(item.abs);
+    else fs6.unlinkSync(item.abs);
+  }
+  return `EMPTIED: ${names.length} item(s); trash directory preserved`;
 }
 
 // src/net.ts
@@ -25689,7 +25898,7 @@ import net from "node:net";
 import zlib from "node:zlib";
 
 // src/version.ts
-var VERSION = "0.3.1";
+var VERSION = "0.4.0";
 
 // src/net.ts
 var blocked = new net.BlockList();
@@ -25954,7 +26163,7 @@ async function safeFetch(policy, rawUrl) {
 }
 
 // src/search.ts
-import path6 from "node:path";
+import path7 from "node:path";
 import { Worker } from "node:worker_threads";
 async function htSearch(policy, a) {
   if (!a.pattern || a.pattern.length > 2e3) throw new PolicyError("bad_pattern", "pattern must be 1\u20132000 chars");
@@ -26004,15 +26213,15 @@ async function htSearch(policy, a) {
     for (let i = 0; i < m.after.length; i++) lines.push(`${m.file}-${m.line + 1 + i}-${m.after[i]}`);
     if (q.context) lines.push("--");
   }
-  const rel = path6.relative(r.root, r.abs) || ".";
+  const rel = path7.relative(r.root, r.abs) || ".";
   return `SEARCH ${JSON.stringify(a.pattern)} in ${rel} | ${matches.length} match(es) | files scanned=${meta2.scanned} skipped=${meta2.skipped}${meta2.truncated ? " | RESULT LIMIT REACHED" : ""}${timedOut ? ` | TIME BUDGET (${policy.search.timeBudgetMs} ms) EXCEEDED \u2014 results are partial (pattern may be too expensive)` : ""}
 ${lines.join("\n")}`;
 }
 
 // src/shell.ts
-import { spawn, spawnSync } from "node:child_process";
-import fs6 from "node:fs";
-import path7 from "node:path";
+import { spawn as spawn2, spawnSync as spawnSync2 } from "node:child_process";
+import fs8 from "node:fs";
+import path9 from "node:path";
 
 // src/variables.ts
 function varName(input) {
@@ -26072,6 +26281,121 @@ var Variables = class {
   }
 };
 
+// src/workspace-shell.ts
+import fs7 from "node:fs";
+import os2 from "node:os";
+import path8 from "node:path";
+import { spawn, spawnSync } from "node:child_process";
+var launcher = "/usr/bin/bwrap";
+function workerEnv(selected = {}) {
+  return { PATH: "/runtime:/usr/bin:/bin", HOME: "/tmp", TMPDIR: "/tmp", LANG: "C.UTF-8", GIT_TERMINAL_PROMPT: "0", ...selected };
+}
+function workspaceArgs(p, cwd, program, args) {
+  if (process.platform !== "linux" || p.roots.length !== 1) throw new PolicyError("worker_unavailable", "workspace shell requires Linux and one dedicated project root");
+  const root = p.roots[0];
+  if (root === path8.parse(root).root || root === os2.homedir() || !isInside(root, cwd) || p.protectedDirs.some((d) => isInside(root, d) || isInside(d, root)))
+    throw new PolicyError("worker_root", "choose a dedicated workspace separate from audit, home and configuration");
+  try {
+    fs7.accessSync(launcher, fs7.constants.X_OK);
+  } catch {
+    throw new PolicyError("worker_unavailable", "bubblewrap is not installed at /usr/bin/bwrap; no host-shell fallback");
+  }
+  const childCwd = path8.posix.join("/work", path8.relative(root, cwd));
+  return [
+    "--unshare-all",
+    "--unshare-user",
+    "--disable-userns",
+    "--die-with-parent",
+    "--new-session",
+    "--cap-drop",
+    "ALL",
+    "--dir",
+    "/usr",
+    "--ro-bind",
+    "/usr/bin",
+    "/usr/bin",
+    "--ro-bind",
+    "/usr/lib",
+    "/usr/lib",
+    "--ro-bind-try",
+    "/usr/lib64",
+    "/usr/lib64",
+    "--ro-bind",
+    "/usr/share",
+    "/usr/share",
+    "--symlink",
+    "usr/bin",
+    "/bin",
+    "--symlink",
+    "usr/lib",
+    "/lib",
+    "--symlink",
+    "usr/lib64",
+    "/lib64",
+    "--dir",
+    "/runtime",
+    "--ro-bind-fd",
+    "3",
+    "/runtime/node",
+    "--size",
+    "67108864",
+    "--tmpfs",
+    "/tmp",
+    "--dev",
+    "/dev",
+    "--proc",
+    "/proc",
+    "--remount-ro",
+    "/proc",
+    p.fs.writeEnabled ? "--bind" : "--ro-bind",
+    root,
+    "/work",
+    "--remount-ro",
+    "/",
+    "--chdir",
+    childCwd,
+    "--",
+    program,
+    ...args
+  ];
+}
+function withRuntimeFd(launch) {
+  let fd;
+  try {
+    fd = fs7.openSync("/proc/self/exe", fs7.constants.O_RDONLY);
+  } catch {
+    throw new PolicyError("worker_unavailable", "cannot open the running Node executable through procfs");
+  }
+  try {
+    if (!fs7.fstatSync(fd).isFile()) throw new PolicyError("worker_unavailable", "the running Node executable is not a regular file");
+    return launch(fd);
+  } finally {
+    fs7.closeSync(fd);
+  }
+}
+function spawnWorkspaceShell(p, cwd, program, args, selected) {
+  const argv = workspaceArgs(p, cwd, program, args);
+  return withRuntimeFd((fd) => spawn(launcher, argv, {
+    cwd: "/",
+    env: workerEnv(selected),
+    shell: false,
+    detached: true,
+    stdio: ["pipe", "pipe", "pipe", fd]
+  }));
+}
+function probeWorkspaceShell(p) {
+  const argv = workspaceArgs(p, p.roots[0], "/runtime/node", ["--version"]);
+  const child = withRuntimeFd((fd) => spawnSync(launcher, argv, {
+    cwd: "/",
+    env: workerEnv(),
+    shell: false,
+    stdio: ["ignore", "pipe", "pipe", fd],
+    encoding: "utf8",
+    timeout: 5e3
+  }));
+  if (child.status !== 0) throw new PolicyError("worker_unavailable", `isolated workspace probe failed; no fallback: ${child.error?.message ?? child.stderr?.trim() ?? "launch failed"}`);
+}
+
 // src/shell.ts
 var active = /* @__PURE__ */ new Set();
 process.on("exit", () => {
@@ -26080,7 +26404,7 @@ process.on("exit", () => {
 function killTree(c, sig) {
   if (!c.pid) return;
   try {
-    if (process.platform === "win32") spawnSync("taskkill", ["/pid", String(c.pid), "/t", "/f"], { windowsHide: true });
+    if (process.platform === "win32") spawnSync2("taskkill", ["/pid", String(c.pid), "/t", "/f"], { windowsHide: true });
     else process.kill(-c.pid, sig);
   } catch {
     try {
@@ -26122,7 +26446,7 @@ ${this.tail.toString("utf8")}` : h + this.tail.toString("utf8");
   }
 };
 function normalise(argv) {
-  const name = path7.basename(argv[0]).replace(/\.(exe|cmd|bat)$/i, "");
+  const name = path9.basename(argv[0]).replace(/\.(exe|cmd|bat)$/i, "");
   return [name, ...argv.slice(1)].join(" ");
 }
 function matchDeny(argv, deny) {
@@ -26140,7 +26464,7 @@ function buildEnv(policy, rootsReal) {
     if (exact || wildcard && !secretish.test(k)) env[k] = v;
   }
   if (policy.shell.sanitizePath && env.PATH) {
-    env.PATH = env.PATH.split(path7.delimiter).filter((p) => path7.isAbsolute(p) && !rootsReal.some((r) => isInside(r, p))).join(path7.delimiter);
+    env.PATH = env.PATH.split(path9.delimiter).filter((p) => path9.isAbsolute(p) && !rootsReal.some((r) => isInside(r, p))).join(path9.delimiter);
   }
   Object.assign(env, { GIT_TERMINAL_PROMPT: "0", GIT_PAGER: "cat", PAGER: "cat", GIT_CONFIG_NOSYSTEM: "1", GIT_OPTIONAL_LOCKS: "0" });
   if (policy.profile !== "open") env.GIT_CONFIG_GLOBAL = process.platform === "win32" ? "NUL" : "/dev/null";
@@ -26158,12 +26482,13 @@ async function runShell(policy, a, vars = new Variables(), owner = "stdio") {
   if (!sh.enabled) throw new PolicyError("shell_disabled", "shell execution is disabled by policy");
   if (a.argv === void 0 === (a.command === void 0)) throw new PolicyError("bad_input", "provide exactly one of argv or command");
   if (active.size >= sh.maxConcurrent) throw new PolicyError("busy", `too many concurrent commands (limit ${sh.maxConcurrent})`);
-  const cwdR = resolveSafe(policy, a.cwd ?? ".", "read");
-  if (!fs6.statSync(cwdR.abs).isDirectory()) throw new PolicyError("bad_cwd", "cwd is not a directory");
+  const checkedPath = (v) => policy.shellWorker && (v === "/work" || v.startsWith("/work/")) ? path9.join(policy.roots[0], v.slice(5)) : v;
+  const cwdR = resolveSafe(policy, checkedPath(a.cwd ?? "."), "read");
+  if (!fs8.statSync(cwdR.abs).isDirectory()) throw new PolicyError("bad_cwd", "cwd is not a directory");
   const timeout = Math.min(a.timeout_ms ?? sh.timeoutMs, sh.maxTimeoutMs);
   if (a.stdin !== void 0 && Buffer.byteLength(a.stdin) > 64 * 1024) throw new PolicyError("stdin_too_large", "stdin limited to 64 KiB");
   if (a.stdin !== void 0 && a.stdin_file !== void 0) throw new PolicyError("bad_input", "stdin and stdin_file are mutually exclusive");
-  const input = a.stdin_file === void 0 ? a.stdin : readBytesNoFollow(resolveSafe(policy, a.stdin_file, "read", cwdR.abs).abs, Math.min(64 * 1024, policy.fs.maxReadBytes));
+  const input = a.stdin_file === void 0 ? a.stdin : readBytesNoFollow(resolveSafe(policy, checkedPath(a.stdin_file), "read", cwdR.abs).abs, Math.min(64 * 1024, policy.fs.maxReadBytes));
   const budget = Math.min(a.max_output_bytes ?? sh.maxOutputBytes, sh.maxOutputBytes);
   const capture = a.capture ?? "both";
   const expected = a.expected_exit_codes ?? [0];
@@ -26180,7 +26505,7 @@ async function runShell(policy, a, vars = new Variables(), owner = "stdio") {
     }
     if (/[\\/]/.test(argv[0])) {
       if (!sh.allowRelativeExecutables) throw new PolicyError("path_executable", "executables must be plain command names (no path separators)");
-      resolveSafe(policy, argv[0], "read", cwdR.abs);
+      resolveSafe(policy, checkedPath(argv[0]), "read", cwdR.abs);
     }
     if (sh.confineArgPaths) {
       for (const x of argv.slice(1)) {
@@ -26189,7 +26514,7 @@ async function runShell(policy, a, vars = new Variables(), owner = "stdio") {
         if (v.startsWith("~")) throw new PolicyError("arg_path_outside_roots", `argument looks like a home-relative path: ${x}`);
         if (/[\\/]/.test(v) || v === ".." || v.startsWith(".")) {
           try {
-            resolveSafe(policy, v, "read", cwdR.abs);
+            resolveSafe(policy, checkedPath(v), "read", cwdR.abs);
           } catch (e) {
             if (e instanceof PolicyError && e.code !== "bad_path") throw new PolicyError("arg_path_outside_roots", `path argument rejected (${e.code}): ${x}`);
           }
@@ -26206,14 +26531,14 @@ async function runShell(policy, a, vars = new Variables(), owner = "stdio") {
     [file, args] = process.platform === "win32" ? ["cmd.exe", ["/d", "/s", "/c", cmd]] : ["/bin/sh", ["-c", cmd]];
     shown = cmd;
   }
-  const env = Object.assign(buildEnv(policy, policy.roots), vars.select(policy, owner, a.inherit_vars));
+  const selected = vars.select(policy, owner, a.inherit_vars);
   const started = Date.now();
   return await new Promise((resolve, reject) => {
     let child;
     try {
-      child = spawn(file, args, { cwd: cwdR.abs, env, shell: false, detached: process.platform !== "win32", stdio: ["pipe", "pipe", "pipe"], windowsHide: true });
+      child = policy.shellWorker ? spawnWorkspaceShell(policy, cwdR.abs, file, args, selected) : spawn2(file, args, { cwd: cwdR.abs, env: Object.assign(buildEnv(policy, policy.roots), selected), shell: false, detached: process.platform !== "win32", stdio: ["pipe", "pipe", "pipe"], windowsHide: true });
     } catch (e) {
-      return reject(new Error(`spawn failed: ${e.message}`));
+      return reject(e instanceof PolicyError ? e : new Error(`spawn failed: ${e.message}`));
     }
     active.add(child);
     const stdoutBudget = capture === "both" ? Math.ceil(budget * 0.7) : capture === "stdout" ? budget : 0;
@@ -26235,6 +26560,7 @@ async function runShell(policy, a, vars = new Variables(), owner = "stdio") {
     child.on("error", (e) => {
       clearTimeout(t);
       active.delete(child);
+      if (policy.shellWorker) return reject(new PolicyError("worker_unavailable", `workspace launcher failed: ${e.message}`));
       reject(e.code === "ENOENT" ? new Error(`command not found: ${file}`) : e);
     });
     child.on("close", (code, signal) => {
@@ -26242,7 +26568,7 @@ async function runShell(policy, a, vars = new Variables(), owner = "stdio") {
       active.delete(child);
       killTree(child, "SIGKILL");
       const ok = !timedOut && signal === null && code !== null && expected.includes(code);
-      const duration_ms = Date.now() - started, cwd = path7.relative(cwdR.root, cwdR.abs) || ".";
+      const duration_ms = Date.now() - started, cwd = path9.relative(cwdR.root, cwdR.abs) || ".";
       const stdout = out?.text(), stderr = err?.text();
       const text = a.output_format === "json" ? JSON.stringify({ ok, exit_code: code, signal, timed_out: timedOut, duration_ms, cwd, stdout, stderr, omitted_bytes: { stdout: out?.dropped, stderr: err?.dropped } }) : [
         `exit_code=${code ?? "null"}${signal ? ` signal=${signal}` : ""}${timedOut ? " TIMED_OUT" : ""} duration_ms=${duration_ms} cwd=${cwd}${a.expected_exit_codes ? ` expected=${ok}` : ""}`,
@@ -26262,7 +26588,7 @@ var API = "https://commons.wikimedia.org/w/api.php";
 var thumbs = /* @__PURE__ */ new Set(["thumb.wikimedia.org", "upload.wikimedia.org"]);
 var apiHost = /* @__PURE__ */ new Set([new URL(API).hostname]);
 function allowHosts(hosts, u) {
-  if (u.protocol !== "https:" || u.port || u.username || u.password || !hosts.has(u.hostname)) throw new PolicyError("image_host", "not an approved Wikimedia origin");
+  if (u.protocol !== "https:" || u.port || u.username || u.password || !hosts.has(u.hostname)) throw new PolicyError("image_host", "not an approved image origin");
 }
 var clean = (v, n = 240) => typeof v === "string" ? v.slice(0, 6e3).replace(/<[^>]*>/g, " ").replace(/&amp;/g, "&").replace(/[\x00-\x1f\x7f\u202a-\u202e\u2066-\u2069]/gu, " ").replace(/\s+/g, " ").trim().slice(0, n) : "";
 var cap = (p, n) => ({ ...p, net: { ...p.net, maxBytes: Math.min(p.net.maxBytes, n) } });
@@ -26305,9 +26631,49 @@ function thumbnailOK(b, mime2) {
   }
   return w > 0 && h > 0 && w <= 1600 && h <= 1600 && w * h <= 1e6;
 }
+var FABRIC = { source: "https://fabricmc.net/", image: "https://fabricmc.net/assets/logo.png", width: 52, height: 56 };
+function modLogoIntent(q) {
+  const words = new Set(q.normalize("NFKC").toLowerCase().match(/[\p{L}\p{N}]+/gu));
+  const logos = ["logo", "logos", "logosu", "icon", "ikonu", "simge"];
+  const context = ["mod", "modu", "modloader", "loader", "minecraft", "fabricmc"];
+  if (!logos.some((w) => words.has(w)) || !context.some((w) => words.has(w))) return null;
+  const known = /* @__PURE__ */ new Set([...logos, ...context, "fabric", "official", "resmi", "resm\xEE", "mc"]);
+  return (words.has("fabric") || words.has("fabricmc")) && [...words].every((w) => known.has(w)) ? "fabric" : "unknown";
+}
+async function modLogo(p, a, intent, get) {
+  const text = (message) => ({ content: [{ type: "text", text: message }] });
+  if (intent === "unknown") return text("No reliable project-logo match. Specify the exact project or consult its official site; unrelated Commons photos were not substituted.");
+  const asset = new URL(FABRIC.image);
+  checkUrl(p, asset);
+  if ((a.offset ?? 0) > 0 || a.file_type && a.file_type !== "png" || a.orientation && a.orientation !== "portrait")
+    return text("No matching project logos on this page with these filters.");
+  const result = { content: [
+    { type: "text", text: "Official project source: Fabric (Minecraft mod loader). This is the project logo, not a specific mod's icon. Reuse rights are not verified." },
+    { type: "text", text: JSON.stringify({ title: "Fabric \u2014 Minecraft mod loader logo", source: FABRIC.source, image_url: FABRIC.image, publisher: "FabricMC", artist: null, license: null, width: FABRIC.width, height: FABRIC.height, mime_type: "image/png" }) }
+  ] };
+  if (a.previews === false) return result;
+  try {
+    const max = Math.min(256 << 10, p.net.maxBytes);
+    const { response: r } = await get(cap(p, max), asset, { accept: "image/png", deadline: Date.now() + Math.min(2e4, p.net.timeoutMs), validateHop: (target) => {
+      if (target.href !== FABRIC.image) throw new PolicyError("image_host", "project preview must be the official Fabric logo asset");
+    } });
+    const mime2 = String(r.headers["content-type"]).split(";")[0].trim().toLowerCase();
+    if (r.status === 200 && !r.truncated && r.body.length <= max && mime2 === "image/png" && thumbnailOK(r.body, mime2) && r.body.readUInt32BE(16) === FABRIC.width && r.body.readUInt32BE(20) === FABRIC.height) {
+      result.content.push({ type: "image", mimeType: mime2, data: r.body.toString("base64") });
+      return result;
+    }
+  } catch {
+  }
+  return text(`No reliable preview of the Fabric logo could be retrieved. Official project: ${FABRIC.source} \u2014 check the source and its reuse terms.`);
+}
 async function imageSearch(p, a, get = fetchBytes) {
   const u = new URL(API), q = a.query.trim();
   if (!q || q.length > 200) throw new PolicyError("bad_query", "query must be 1\u2013200 characters");
+  const intent = modLogoIntent(q);
+  if (intent) {
+    if (!p.net.enabled) throw new PolicyError("net_disabled", "network access is disabled by policy");
+    return modLogo(p, a, intent, get);
+  }
   const limit = a.limit ?? 5, offset = a.offset ?? 0;
   u.search = new URLSearchParams({ action: "query", format: "json", formatversion: "2", generator: "search", gsrnamespace: "6", gsrsearch: `filetype:bitmap ${q}`, gsrlimit: String(limit), gsroffset: String(offset), prop: "imageinfo", iiprop: "url|size|mime|extmetadata", iiextmetadatafilter: "LicenseShortName|Artist", iiurlwidth: String(a.thumbnail_width ?? 250) }).toString();
   checkUrl(p, u);
@@ -26354,8 +26720,8 @@ async function imageSearch(p, a, get = fetchBytes) {
 }
 
 // src/share.ts
-import crypto6 from "node:crypto";
-import path8 from "node:path";
+import crypto7 from "node:crypto";
+import path10 from "node:path";
 var SHARE_CWD = "/_tmp/hardtools-share/";
 var sharePrefix = `hardtools-share://local${SHARE_CWD}`;
 var shareTemplate = sharePrefix + "{id}";
@@ -26374,15 +26740,15 @@ var resource = (s) => ({ uri: sharePrefix + s.id, mimeType: s.mimeType, blob: s.
 function sourceFile(p, a) {
   if (a.path === void 0 === (a.source_path === void 0)) throw new PolicyError("bad_input", "supply path (in the share cwd) OR source_path (in a workspace root)");
   let abs;
-  if (a.source_path !== void 0) abs = path8.resolve(p.roots[0], a.source_path);
+  if (a.source_path !== void 0) abs = path10.resolve(p.roots[0], a.source_path);
   else {
     const rel = a.path.startsWith(SHARE_CWD) ? a.path.slice(SHARE_CWD.length) : a.path;
     if (!rel || /[\\:\0]/.test(rel) || rel.split("/").some((c) => !c || c === "." || c === "..")) throw new PolicyError("bad_share_path", `path must be a file inside ${SHARE_CWD}`);
-    abs = path8.join(p.roots[0], SHARE_CWD.slice(1), rel);
+    abs = path10.join(p.roots[0], SHARE_CWD.slice(1), rel);
   }
   const r = resolveSafe(p, abs, "read");
   if (!r.exists) throw new PolicyError("not_found", `no such source file; stage path under ${SHARE_CWD} or use source_path`);
-  if (r.abs !== abs || path8.relative(r.root, r.abs).split(path8.sep).some((c) => [".git", ".ht-trash"].includes(c.toLowerCase())))
+  if (r.abs !== abs || path10.relative(r.root, r.abs).split(path10.sep).some((c) => [".git", ".ht-trash"].includes(c.toLowerCase())))
     throw new PolicyError("share_protected", "links, trash and version-control metadata cannot be shared");
   return r.abs;
 }
@@ -26419,7 +26785,7 @@ var Shares = class {
       return { content: [{ type: "text", text: "REVOKED: future downloads and resource reads are disabled" }] };
     }
     if (!p.fs.writeEnabled) throw new PolicyError("write_disabled", "creating a share requires write permission");
-    const abs = sourceFile(p, a), name = (a.name ?? path8.basename(abs)).normalize("NFC");
+    const abs = sourceFile(p, a), name = (a.name ?? path10.basename(abs)).normalize("NFC");
     if (!name || name.startsWith(".") || /[\\/<>:"|?*\x00-\x1f\x7f\u202a-\u202e\u2066-\u2069]/u.test(name) || Buffer.byteLength(name) > 180)
       throw new PolicyError("bad_name", "supply a safe display filename (at most 180 bytes)");
     const ttl = a.ttl_minutes ?? 10;
@@ -26428,8 +26794,8 @@ var Shares = class {
     const bytes = readBytesNoFollow(abs, Math.min(p.fs.maxReadBytes, MAX_FILE), true);
     if ([...this.items.values()].reduce((n, s2) => n + s2.bytes.length, bytes.length) > MAX_TOTAL) throw new PolicyError("share_limit", "share memory quota reached");
     const warnings = enforceSecrets(p, bytes.toString("latin1"), "shared file");
-    const id = crypto6.randomBytes(32).toString("base64url");
-    const s = { owner, id, bytes, name, mimeType: mime[path8.extname(name).toLowerCase()] ?? "application/octet-stream", expires: this.now() + ttl * 6e4, sha256: crypto6.createHash("sha256").update(bytes).digest("hex") };
+    const id = crypto7.randomBytes(32).toString("base64url");
+    const s = { owner, id, bytes, name, mimeType: mime[path10.extname(name).toLowerCase()] ?? "application/octet-stream", expires: this.now() + ttl * 6e4, sha256: crypto7.createHash("sha256").update(bytes).digest("hex") };
     this.items.set(id, s);
     const url = origin && origin + SHARE_CWD + id;
     const text = JSON.stringify({ ...summary(s), ...url && { url }, ...warnings.length && { warnings } });
@@ -26460,13 +26826,23 @@ ${text}` }] : [{ type: "text", text }, { type: "resource", resource: resource(s)
 };
 
 // src/server.ts
-var createWorkspace = () => ({ vars: new Variables(), shares: new Shares() });
+var usesProject = /* @__PURE__ */ new Set(["ht_read", "ht_write", "ht_edit", "ht_glob", "ht_search", "ht_move", "ht_mkdir", "ht_trash", "ht_empty_trash", "ht_shell", "ht_share"]);
+var createWorkspace = () => ({ vars: new Variables(), shares: new Shares(), projectReady: Promise.resolve() });
 var asText = (text) => ({ content: [{ type: "text", text }] });
 function createServer(policy, audit, workspace = createWorkspace(), owner = "stdio", origin) {
   const server = new McpServer({ name: "hardtools", version: VERSION });
-  const wrap = (tool, fn) => async (args) => {
+  const wrap = (tool, fn) => async (args, extra) => {
     const t0 = Date.now();
+    let release;
     try {
+      if (policy.shellWorker && usesProject.has(tool)) {
+        const previous = workspace.projectReady;
+        workspace.projectReady = new Promise((resolve) => {
+          release = resolve;
+        });
+        await previous;
+        if (extra.signal.aborted) throw new PolicyError("cancelled", "request cancelled while waiting for the workspace");
+      }
       const safeArgs = tool === "ht_add_var" ? { name: args.name } : tool === "ht_share" ? { action: args.action ?? "create" } : args;
       audit.write({ ev: "call", tool, profile: policy.profile, args: summarize(safeArgs) });
       const value = await fn(args), result = typeof value === "string" ? asText(value) : value;
@@ -26480,6 +26856,8 @@ function createServer(policy, audit, workspace = createWorkspace(), owner = "std
       } catch {
       }
       return { isError: true, ...asText(denied ? `DENIED [${e.code}]: ${msg}` : `ERROR: ${msg}`) };
+    } finally {
+      release?.();
     }
   };
   server.registerTool("ht_read", {
@@ -26534,19 +26912,19 @@ function createServer(policy, audit, workspace = createWorkspace(), owner = "std
   }, wrap("ht_mkdir", (a) => htMkdir(policy, a)));
   server.registerTool("ht_move", {
     title: "Move / rename a file or directory (never overwrites)",
-    description: "Rename or move a regular file or directory within the allowed roots. `to` is the full new path (not a target directory) and must not exist: moves never overwrite. Refuses symlink sources, roots, anything inside .git, and moving a directory into itself. Use mkdirp=true to create the destination's parent directories.",
+    description: "Rename or move a regular file or directory within the allowed roots. `to` is the full new path (not a target directory) and must not exist: moves never overwrite. Refuses symlink sources, roots, anything inside .git, and moving a directory into itself. Use mkdirp=true for missing parents. Restore an item out of the trash with this tool; use ht_trash, not ht_move, to put an item in the managed trash.",
     inputSchema: { from: string2(), to: string2(), mkdirp: boolean2().optional() },
     annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false }
   }, wrap("ht_move", (a) => htMove(policy, a)));
   server.registerTool("ht_trash", {
     title: "Reversible delete: move to .ht-trash",
-    description: "Delete by moving a file or directory into <root>/.ht-trash/ and logging its original path in .ht-trash/index.jsonl; restore with ht_move. Only ht_empty_trash can purge the trash. Directories require recursive=true. Refuses roots, anything inside .git, and items already in the trash.",
+    description: "Delete by moving a file or directory into <root>/.ht-trash/ and logging its original path in .ht-trash/index.jsonl; restore with ht_move, which also removes the restored top-level row. For a managed permanent purge use ht_empty_trash with explicit confirmation. Directories require recursive=true. Refuses roots, anything inside .git, and items already in the trash.",
     inputSchema: { path: string2(), recursive: boolean2().optional() },
     annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false }
   }, wrap("ht_trash", (a) => htTrash(policy, a)));
   server.registerTool("ht_empty_trash", {
     title: "Preview or permanently empty the trash",
-    description: "Targets only the .ht-trash inside a configured root. With no confirmation it only counts items. Confirming irreversibly removes the contents and index, not the directory itself.",
+    description: "Targets only the .ht-trash inside a configured root. With no confirmation it counts real items and reports index discrepancies without changing anything. Confirming irreversibly removes the contents and index, not the directory itself.",
     inputSchema: { root: string2().optional(), confirm: boolean2().optional() },
     annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: false }
   }, wrap("ht_empty_trash", (a) => htEmptyTrash(policy, a)));
@@ -26571,7 +26949,7 @@ function createServer(policy, audit, workspace = createWorkspace(), owner = "std
   }, wrap("ht_delete_var", (a) => workspace.vars.remove(policy, owner, a.name)));
   server.registerTool("ht_shell", {
     title: "Run a policy-checked command",
-    description: "Use argv by default; shell syntax via command requires allowShellSyntax. denyCommands/denyArgs are blocklists, not a sandbox. Choose input, output streams, structured JSON, output byte budget and optional expected exit codes. Select managed variables by name for this child only.",
+    description: "Use argv for literal arguments, or command for native pipes and redirection where shellSyntax is enabled. In workspace mode both execute under /work, not on the runner host. denyCommands/denyArgs are blocklists, not a sandbox. Choose input, output streams, structured JSON, output byte budget and optional expected exit codes. Select managed variables by name for this child only.",
     inputSchema: {
       argv: array(string2()).min(1).max(64).optional(),
       command: string2().optional(),
@@ -26608,8 +26986,8 @@ function createServer(policy, audit, workspace = createWorkspace(), owner = "std
     return { contents: [workspace.shares.readResource(owner, id)] };
   });
   server.registerTool("ht_image_search", {
-    title: "Find and display Wikimedia Commons images",
-    description: "No API key. Returns source links, dimensions, artist and license when available, plus up to three real image previews. Filters apply to this page of results; use next_offset to continue. Subject to the network policy.",
+    title: "Find images and verified project logos",
+    description: "Commons for general images; official FabricMC asset for Minecraft Fabric logo queries. No unrelated substitutes for an unknown mod logo. Returns sources, dimensions, available rights metadata and up to three real previews. Filters apply to this page of results; use next_offset to continue. Subject to the network policy.",
     inputSchema: {
       query: string2().min(1).max(200),
       limit: number2().int().min(1).max(8).optional(),
@@ -26644,20 +27022,27 @@ function createServer(policy, audit, workspace = createWorkspace(), owner = "std
   }));
   server.registerTool("ht_status", {
     title: "Show active policy and audit-chain status",
-    description: "Returns the active profile, confinement roots, which capabilities are enabled, the number of shell deny rules, and verifies the tamper-evident audit chain for this session.",
-    inputSchema: {},
+    description: "Show policy and verify the current audit segment. With audit_export=true return a fixed-prefix JSONL attachment for offline verification (HTTP: this authorization only). For larger files continue with audit_snapshot and audit_offset=next_offset. No public link.",
+    inputSchema: { audit_export: boolean2().optional(), audit_snapshot: string2().uuid().optional(), audit_offset: number2().int().nonnegative().optional() },
     annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false }
-  }, wrap("ht_status", () => JSON.stringify({
-    version: VERSION,
-    profile: policy.profile,
-    roots: policy.roots,
-    fs: { writeEnabled: policy.fs.writeEnabled, secretScan: policy.fs.secretScan, requireHashForOverwrite: policy.fs.requireHashForOverwrite, denyWrite: policy.fs.denyWrite },
-    shell: { enabled: policy.shell.enabled, shellSyntax: policy.shell.allowShellSyntax, denyCommands: policy.shell.denyCommands.length },
-    net: { enabled: policy.net.enabled, schemes: policy.net.schemes, allowDomains: policy.net.allowDomains, needsAllowlist: policy.net.requireAllowDomains && policy.net.allowDomains.length === 0 },
-    share: { cwd: SHARE_CWD, createEnabled: policy.fs.writeEnabled },
-    variables: { enabled: policy.shell.enabled, inheritByDefault: false },
-    audit: { file: audit.file, chain: audit.verify() }
-  }, null, 2)));
+  }, wrap("ht_status", (a) => {
+    if (a.audit_export) {
+      const page = audit.exportPage(a.audit_snapshot, a.audit_offset);
+      return { content: [{ type: "text", text: JSON.stringify(page.info) }, { type: "resource", resource: page.resource }] };
+    }
+    if (a.audit_snapshot !== void 0 || a.audit_offset !== void 0) throw new PolicyError("bad_input", "audit cursors require audit_export=true");
+    return JSON.stringify({
+      version: VERSION,
+      profile: policy.profile,
+      roots: policy.roots,
+      fs: { writeEnabled: policy.fs.writeEnabled, secretScan: policy.fs.secretScan, requireHashForOverwrite: policy.fs.requireHashForOverwrite, denyWrite: policy.fs.denyWrite },
+      shell: { enabled: policy.shell.enabled, shellSyntax: policy.shell.enabled && policy.shell.allowShellSyntax, execution: policy.shell.enabled ? policy.shellWorker ?? "host" : "disabled", ...policy.shellWorker && { workspaceRoot: "/work" }, denyCommands: policy.shell.denyCommands.length },
+      net: { enabled: policy.net.enabled, schemes: policy.net.schemes, allowDomains: policy.net.allowDomains, needsAllowlist: policy.net.requireAllowDomains && policy.net.allowDomains.length === 0 },
+      share: { cwd: SHARE_CWD, createEnabled: policy.fs.writeEnabled },
+      variables: { enabled: policy.shell.enabled, inheritByDefault: false },
+      audit: { file: audit.file, scope: audit.scope, chain: audit.verify(), export: { audit_export: true } }
+    }, null, 2);
+  }));
   return server;
 }
 
@@ -26674,15 +27059,20 @@ async function main() {
     return;
   }
   if (arg("--verify")) {
-    const r = verifyAuditFile(arg("--verify"));
+    const r = verifyAuditFile(arg("--verify"), arg("--expect-head"));
     console.log(JSON.stringify(r));
     process.exit(r.ok ? 0 : 2);
   }
   const profile = arg("--profile");
-  let policy = loadPolicy({ profile });
   const httpMode = process.argv.includes("--http");
-  if (httpMode && process.env.HARDTOOLS_HTTP_ALLOW_LOCAL_TOOLS !== "1") {
-    policy = { ...policy, fs: { ...policy.fs, writeEnabled: false }, shell: { ...policy.shell, enabled: false } };
+  let policy = loadPolicy({ profile });
+  if (httpMode) {
+    if (process.env.HARDTOOLS_HTTP_ALLOW_LOCAL_TOOLS !== "1") {
+      policy = { ...policy, fs: { ...policy.fs, writeEnabled: false }, shell: { ...policy.shell, enabled: false } };
+    } else if (policy.shell.enabled) {
+      policy.shellWorker = "workspace";
+      probeWorkspaceShell(policy);
+    }
   }
   const audit = new Audit(policy.audit.dir, policy.audit.failClosed);
   audit.write({ ev: "start", version: VERSION, profile: policy.profile, transport: httpMode ? "http" : "stdio", roots: policy.roots, shell: policy.shell.enabled, write: policy.fs.writeEnabled });
@@ -26715,8 +27105,8 @@ async function main() {
     try {
       const h = String(req.headers.host ?? "").toLowerCase();
       if (!allowedHosts.has(h)) return send(403, "host not allowed");
-      const path9 = (req.url ?? "").split("?")[0];
-      if (req.headers.origin && !(path9 === "/authorize" && req.headers.origin === oauth.origin(req))) return send(403, "browser origins are not allowed");
+      const path11 = (req.url ?? "").split("?")[0];
+      if (req.headers.origin && !(path11 === "/authorize" && req.headers.origin === oauth.origin(req))) return send(403, "browser origins are not allowed");
       const ip = req.socket.remoteAddress ?? "?";
       const now = Date.now();
       const b = hits.get(ip) ?? { n: 0, reset: now + 6e4 };
@@ -26727,9 +27117,9 @@ async function main() {
       b.n++;
       hits.set(ip, b);
       if (b.n > 120) return send(429, "rate limited");
-      if (workspace.shares.download(req, res, path9)) return;
+      if (workspace.shares.download(req, res, path11)) return;
       if (await oauth.handle(req, res)) return;
-      if (path9 !== "/mcp") return send(404, "not found");
+      if (path11 !== "/mcp") return send(404, "not found");
       const m = /^Bearer (.+)$/.exec(String(req.headers.authorization ?? ""));
       const owner = m && (equalSecret(m[1], token) ? "static" : oauth.accessScope(m[1]));
       if (!owner) return send(401, "unauthorized", { "www-authenticate": `Bearer resource_metadata="${oauth.resourceMetadataUrl(req)}"` });
@@ -26748,7 +27138,7 @@ async function main() {
         return send(400, "invalid JSON");
       }
       const origin = oauth.origin(req);
-      const server = createServer(policy, audit, workspace, owner, origin);
+      const server = createServer(policy, audit.forGrant(owner), workspace, owner, origin);
       const transport = new WebStandardStreamableHTTPServerTransport({ sessionIdGenerator: void 0 });
       const abort = new AbortController();
       res.once("close", () => {

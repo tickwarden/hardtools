@@ -6,7 +6,8 @@ import path from "node:path";
 import type { Policy } from "./config.js";
 import { PolicyError, globToRegExp, isDeniedRead, isDeniedWrite, isInside, resolveSafe, type Resolved } from "./guard.js";
 
-export const TRASH_DIR = ".ht-trash";
+import { INDEX, TRASH_DIR, readTrashIndex, updateTrashIndex, withTrashLock } from "./trash-index.js";
+export { TRASH_DIR };
 const SKIP_DIRS = new Set([".git", "node_modules", ".venv", "venv", "__pycache__", ".gradle", ".idea", ".mypy_cache", ".pytest_cache", TRASH_DIR]);
 const MAX_VISITED = 200_000;
 const MAX_COLLECT = 50_000;
@@ -87,6 +88,22 @@ export function htMkdir(policy: Policy, a: { path: string }): string {
 }
 
 /* -------------------------------- ht_move -------------------------------- */
+function moveNoClobber(from: string, to: string, isFile: boolean) {
+  try {
+    if (isFile) {
+      fs.linkSync(from, to); // exclusive-create semantics, even across cooperating processes
+      try { fs.unlinkSync(from); } catch (e) { fs.unlinkSync(to); throw e; }
+    } else {
+      if (fs.lstatSync(to, { throwIfNoEntry: false })) throw new PolicyError("exists", "destination already exists");
+      fs.renameSync(from, to);
+    }
+  } catch (e: any) {
+    if (e.code === "EEXIST") throw new PolicyError("exists", "destination already exists");
+    if (e.code === "EXDEV") throw new PolicyError("cross_device", "source and destination are on different filesystems");
+    throw e;
+  }
+}
+
 export function htMove(policy: Policy, a: { from: string; to: string; mkdirp?: boolean }): string {
   refuseSymlinkSource(policy, a.from);
   const src = resolveSafe(policy, a.from, "write");
@@ -98,20 +115,20 @@ export function htMove(policy: Policy, a: { from: string; to: string; mkdirp?: b
   if (dst.exists) throw new PolicyError("exists", "destination already exists; moves never overwrite (give the full new path, not a target directory)");
   assertNotProtectedTree(policy, dst, "move into");
   if (st.isDirectory() && isInside(src.abs, dst.abs)) throw new PolicyError("into_self", "cannot move a directory into itself");
-  const parent = path.dirname(dst.abs);
-  if (!fs.existsSync(parent)) {
-    if (!a.mkdirp) throw new PolicyError("no_parent", "destination directory does not exist (set mkdirp=true)");
-    fs.mkdirSync(parent, { recursive: true });
-  }
-  try {
-    if (st.isFile()) { fs.linkSync(src.abs, dst.abs); fs.unlinkSync(src.abs); } // link() fails with EEXIST: atomic no-clobber
-    else { if (fs.existsSync(dst.abs)) throw new PolicyError("exists", "destination already exists"); fs.renameSync(src.abs, dst.abs); }
-  } catch (e: any) {
-    if (e instanceof PolicyError) throw e;
-    if (e.code === "EEXIST") throw new PolicyError("exists", "destination already exists");
-    if (e.code === "EXDEV") throw new PolicyError("cross_device", "source and destination are on different filesystems");
-    throw e;
-  }
+  const parts = relParts(src);
+  if (parts[0] === TRASH_DIR && parts[1] === INDEX) throw new PolicyError("trash_protected", "cannot move the trash index");
+  if (relParts(dst)[0] === TRASH_DIR) throw new PolicyError("trash_protected", "use ht_trash to move an item into the trash");
+  const move = () => {
+    const parent = path.dirname(dst.abs);
+    if (!fs.existsSync(parent)) {
+      if (!a.mkdirp) throw new PolicyError("no_parent", "destination directory does not exist (set mkdirp=true)");
+      fs.mkdirSync(parent, { recursive: true });
+    }
+    moveNoClobber(src.abs, dst.abs, st.isFile());
+  };
+  if (parts[0] === TRASH_DIR && parts.length === 2) {
+    updateTrashIndex(policy, src.root, rows => rows.delete(parts[1]), move, () => moveNoClobber(dst.abs, src.abs, st.isFile()));
+  } else move(); // restoring one nested file leaves the top-level directory in the active index
   return `MOVED ${path.relative(src.root, src.abs)} -> ${path.relative(dst.root, dst.abs)} (${st.isDirectory() ? "directory" : `file, ${st.size} B`})`;
 }
 
@@ -134,38 +151,41 @@ export function htTrash(policy: Policy, a: { path: string; recursive?: boolean }
   const safeName = path.basename(src.abs).replace(/[^A-Za-z0-9._-]/g, "_").slice(0, 100) || "item";
   const name = `${Date.now()}-${crypto.randomBytes(3).toString("hex")}-${safeName}`;
   const dst = resolveSafe(policy, path.join(trashDir, name), "write");
-  const manifest = path.join(trashDir, "index.jsonl");
-  if (resolveSafe(policy, manifest, "write").abs !== manifest) throw new PolicyError("trash_invalid", "invalid trash index");
-  const fd = fs.openSync(manifest, fs.constants.O_WRONLY | fs.constants.O_APPEND | fs.constants.O_CREAT | (fs.constants.O_NOFOLLOW ?? 0) | (fs.constants.O_NONBLOCK ?? 0), 0o600);
   const original = path.relative(src.root, src.abs);
-  try {
-    const index = fs.fstatSync(fd);
-    if (!index.isFile() || index.nlink !== 1) throw new PolicyError("trash_invalid", "trash index must be a regular, single-link file");
-    try { fs.renameSync(src.abs, dst.abs); }
-    catch (e: any) { if (e.code === "EXDEV") throw new PolicyError("cross_device", "trash is on a different filesystem than the target"); throw e; }
-    try { fs.writeFileSync(fd, JSON.stringify({ ts: new Date().toISOString(), name, original, kind: st.isDirectory() ? "dir" : "file" }) + "\n"); }
-    catch (err) { fs.renameSync(dst.abs, src.abs); throw err; }
-  } finally { fs.closeSync(fd); }
+  updateTrashIndex(policy, src.root, rows => rows.set(name, { ts: new Date().toISOString(), name, original, kind: st.isDirectory() ? "dir" : "file" }),
+    () => moveNoClobber(src.abs, dst.abs, st.isFile()), () => moveNoClobber(dst.abs, src.abs, st.isFile()));
   return `TRASHED ${original} -> ${TRASH_DIR}/${name}\nRestore with ht_move from=${JSON.stringify(`${TRASH_DIR}/${name}`)} to=${JSON.stringify(original)}`;
 }
 
 /** The caller selects an actual configured root, never the directory to delete. Keep the trash directory. */
 export function htEmptyTrash(policy: Policy, a: { root?: string; confirm?: boolean }): string {
-  const root = resolveSafe(policy, a.root ?? ".", "write").abs;
+  const mode = a.confirm === true ? "write" : "read";
+  const root = resolveSafe(policy, a.root ?? ".", mode).abs;
   if (!policy.roots.includes(root)) throw new PolicyError("not_a_root", "select a configured root, not an arbitrary directory");
   const dir = path.join(root, TRASH_DIR);
-  const checked = resolveSafe(policy, dir, "write");
+  const checked = resolveSafe(policy, dir, mode);
   if (checked.abs !== dir || [...policy.roots, ...policy.protectedDirs].some(d => isInside(dir, d)))
     throw new PolicyError("trash_invalid", "trash is a link or overlaps a protected directory");
   if (!checked.exists) return "EMPTY: no trash directory; nothing deleted";
   if (!fs.lstatSync(dir).isDirectory()) throw new PolicyError("trash_invalid", "trash is not a real directory");
-  const entries = fs.readdirSync(dir);
-  const names = entries.filter(n => n !== "index.jsonl");
-  if (a.confirm !== true) return `PREVIEW: ${names.length} item(s); nothing deleted. To permanently empty this trash and clear its index, set confirm=true.`;
+  if (a.confirm !== true) {
+    const names = fs.readdirSync(dir).filter(n => n !== INDEX);
+    let note: string;
+    try {
+      const { stale, untracked } = readTrashIndex(policy, root, names);
+      note = `stale index rows=${stale}, unindexed items=${untracked}`;
+    } catch { note = "index unavailable; counted directory entries only"; }
+    return `PREVIEW: ${names.length} item(s); ${note}; nothing deleted. To permanently empty this trash and clear its index, set confirm=true.`;
+  }
+  return withTrashLock(policy, root, () => purgeTrash(policy, dir));
+}
+
+function purgeTrash(policy: Policy, dir: string): string {
+  const entries = fs.readdirSync(dir), names = entries.filter(n => n !== INDEX);
   // Preflight the whole deletion before touching anything. Never follow links or cross
   // devices. Unlink/rmdir explicit entries rather than recursively deleting a supplied path.
   const device = fs.lstatSync(dir).dev;
-  const pending = [...names, ...entries.filter(n => n === "index.jsonl")].map(n => path.join(dir, n)); // visit index first, delete it last
+  const pending = [...names, ...entries.filter(n => n === INDEX)].map(n => path.join(dir, n)); // visit index first, delete it last
   const ordered: { abs: string; dir: boolean }[] = [];
   while (pending.length) {
     if (ordered.length + pending.length > 50_000) throw new PolicyError("trash_limit", "too many entries for one purge");

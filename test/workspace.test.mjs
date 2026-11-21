@@ -1,13 +1,16 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
+import crypto from 'node:crypto';
+import { spawnSync } from 'node:child_process';
 import os from 'node:os';
 import path from 'node:path';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
 import { loadPolicy } from '../dist/config.js';
 import { Shares, SHARE_CWD } from '../dist/share.js';
-import { htEmptyTrash, htTrash } from '../dist/fs-extra.js';
+import { htEmptyTrash, htMove, htTrash } from '../dist/fs-extra.js';
+import { Audit } from '../dist/audit.js';
 import { Variables } from '../dist/variables.js';
 
 function fixture(t) {
@@ -17,9 +20,9 @@ function fixture(t) {
   const policy = loadPolicy({ roots: [root], override: { profile: 'balanced', audit: { dir: audit } } });
   return { base, root, audit, policy };
 }
-async function session(t) {
+async function session(t, config = {}) {
   const f = fixture(t), cfg = path.join(f.base, 'settings', 'config.json');
-  fs.mkdirSync(path.dirname(cfg)); fs.writeFileSync(cfg, JSON.stringify({ audit: { dir: f.audit } }));
+  fs.mkdirSync(path.dirname(cfg)); fs.writeFileSync(cfg, JSON.stringify({ ...config, audit: { dir: f.audit } }));
   const client = new Client({ name: 'workspace-tests', version: '1' });
   await client.connect(new StdioClientTransport({ command: process.execPath, args: [path.resolve(process.env.HT_ENTRY ?? 'dist/index.js'), '--profile', 'balanced'], env: { PATH: process.env.PATH, HARDTOOLS_ROOTS: f.root, HARDTOOLS_CONFIG: cfg }, stderr: 'ignore' }));
   t.after(() => client.close());
@@ -82,7 +85,9 @@ test('trash: preview before purge, one root only; retain root and never follow d
   const bin = path.join(root,'.ht-trash'); fs.symlinkSync(other,path.join(bin,'linked')); fs.mkdirSync(path.join(bin,'nested')); fs.symlinkSync(other,path.join(bin,'nested','link'));
   assert.match(htEmptyTrash(p,{}), /PREVIEW: 3/); assert.equal(fs.readdirSync(bin).length,4);
   assert.throws(() => htEmptyTrash(p,{root: bin,confirm:true}), /configured root/);
-  assert.throws(() => htEmptyTrash({...p,fs:{...p.fs,writeEnabled:false}},{confirm:true}), /disabled/);
+  const readonly = {...p,fs:{...p.fs,writeEnabled:false}};
+  assert.match(htEmptyTrash(readonly,{}),/PREVIEW: 3/);
+  assert.throws(() => htEmptyTrash(readonly,{confirm:true}), /disabled/);
   assert.throws(() => htEmptyTrash({...p,protectedDirs:[path.join(bin,'nested')]},{confirm:true}), /protected/);
   assert.throws(() => htEmptyTrash({...p,fs:{...p.fs,denyWrite:['.ht-trash/nested/*']}},{confirm:true}), /protected/); assert.equal(fs.readdirSync(bin).length,4);
   assert.match(htEmptyTrash(p,{confirm:true}), /EMPTIED: 3/); assert.deepEqual(fs.readdirSync(bin),[]); assert.equal(fs.readFileSync(path.join(other,'keep'),'utf8'),'keep');
@@ -119,4 +124,111 @@ test('share: no publication through paths/links or disabled writes; expiry, scop
   fs.writeFileSync(path.join(root,'too-large'),Buffer.alloc((2<<20)+1)); fs.writeFileSync(path.join(root,'looks-like-a-key.txt'),'-----BEGIN PRIVATE KEY-----');
   for(const a of [{path:'../demo'},{path:'/outside'},{source_path:path.join(base,'outside')},{source_path:'.env'},{source_path:'symlink'},{source_path:'linked'},{source_path:'too-large'},{source_path:'looks-like-a-key.txt'},{source_path:'demo',name:'../x'},{source_path:'demo',ttl_minutes:61}]) assert.throws(()=>store.tool(p,'a',a));
   assert.throws(()=>store.tool({...p,fs:{...p.fs,writeEnabled:false}},'a',{source_path:'demo'}),/write permission/);
+});
+
+test('MCP: isolated allowlist fixture and wrong overwrite hash exercise the tools, not just their helpers', async t => {
+  const { root, call } = await session(t, { net: { allowDomains: ['allowed.example'] } });
+  assert.deepEqual(JSON.parse(ok(await call('ht_status'))).net.allowDomains, ['allowed.example']);
+  denied(await call('ht_fetch', { url: 'https://unlisted.invalid/' }), /DENIED \[domain_not_allowed\]/);
+  ok(await call('ht_write', { path: 'n.txt', content: 'original\n' }));
+  const before = ok(await call('ht_read', { path: 'n.txt' })), hash = /sha256=([a-f0-9]{64})/.exec(before)[1];
+  const wrong = (hash[0] === '0' ? '1' : '0') + hash.slice(1);
+  denied(await call('ht_write', { path: 'n.txt', content: 'replacement\n', overwrite: true, if_hash: wrong }), /DENIED \[hash_mismatch\]/);
+  assert.equal(ok(await call('ht_read', { path: 'n.txt' })), before);
+  assert.deepEqual(fs.readFileSync(path.join(root, 'n.txt')), Buffer.from('original\n'));
+  ok(await call('ht_write', { path: 'n.txt', content: 'replacement\n', overwrite: true, if_hash: hash }));
+});
+
+test('MCP stdio balanced: native pipeline and redirection in the host cwd, argv remains literal', async t => {
+  const { root, call } = await session(t);
+  const st = JSON.parse(ok(await call('ht_status'))); assert.equal(st.shell.execution, 'host'); assert.equal(st.shell.shellSyntax, true);
+  if (process.platform === 'win32') return; // POSIX fixture only
+  const stdout = async args => JSON.parse(ok(await call('ht_shell', { ...args, expected_exit_codes: [0], output_format: 'json' }))).stdout;
+  assert.equal(await stdout({ command: 'printf merhaba | tr a-z A-Z > sonuc.txt && pwd' }), root + '\n');
+  assert.equal(fs.readFileSync(path.join(root, 'sonuc.txt'), 'utf8'), 'MERHABA');
+  assert.equal(await stdout({ argv: ['echo', 'a | b > c'] }), 'a | b > c\n');
+  const custom = await session(t, { shell: { allowShellSyntax: false } });
+  denied(await custom.call('ht_shell', { command: 'echo not-run' }), /shell_syntax_disabled/);
+});
+
+test('MCP restore reconciles only on success; read-only preview neither purges nor repairs a stale manifest', async t => {
+  const { root, call } = await session(t), bin = path.join(root, '.ht-trash'), manifest = path.join(bin, 'index.jsonl');
+  const rows = () => fs.readFileSync(manifest, 'utf8').trim().split('\n').filter(Boolean).map(l => JSON.parse(l));
+  for (const name of ['a.txt','b.txt','c.txt']) {
+    ok(await call('ht_write', {path:name, content:name})); ok(await call('ht_trash', {path:name}));
+  }
+  const row = rows().find(r => r.original === 'b.txt'); assert.equal(rows().length, 3);
+  const from = `.ht-trash/${row.name}`;
+  ok(await call('ht_write', {path:'exists.txt',content:'keep'}));
+  denied(await call('ht_move', {from, to:'exists.txt'}), /\[exists\]/);
+  assert.equal(rows().length, 3); assert.equal(fs.readFileSync(path.join(root,'exists.txt'),'utf8'), 'keep');
+  // Simulate an index left by an older release. A preview cannot silently repair it.
+  fs.appendFileSync(manifest, JSON.stringify({...row, name:'missing-from-old-version', original:'old.txt'})+'\n');
+  const bytes = fs.readFileSync(manifest), mtime = fs.statSync(manifest).mtimeMs;
+  assert.match(ok(await call('ht_empty_trash')), /PREVIEW: 3 item\(s\); stale index rows=1/);
+  assert.equal(fs.statSync(manifest).mtimeMs, mtime); assert.deepEqual(fs.readFileSync(manifest), bytes);
+  ok(await call('ht_move', {from,to:'b.txt'}));
+  assert.deepEqual(rows().map(r=>r.original).sort(), ['a.txt','c.txt']);
+  assert.equal(fs.readFileSync(path.join(root,'b.txt'),'utf8'), 'b.txt');
+  assert.match(ok(await call('ht_empty_trash')), /PREVIEW: 2 item\(s\); stale index rows=0, unindexed items=0/);
+  assert.equal(fs.readdirSync(bin).length, 3);
+});
+
+test('MCP audit: own JSONL bytes, pinned multi-page prefix, independent hashes and offline CLI checkpoint', async t => {
+  const { base, call } = await session(t);
+  const status = JSON.parse(ok(await call('ht_status')));
+  denied(await call('ht_read', { path: status.audit.file }), /outside_roots/);
+  const first = await call('ht_status', { audit_export:true }); const small = JSON.parse(ok(first));
+  assert.equal(small.scope,'process'); assert.equal(small.next_offset,null); assert.equal(first.content[1].resource.mimeType,'application/x-ndjson');
+  // Create enough bounded audit entries to require paging, without changing any project file.
+  const edits = Array.from({length:45}, () => ({path:'nonexistent.txt',old_str:'a'.repeat(400),new_str:'b'.repeat(400)}));
+  for (let i=0; i<4; i++) denied(await call('ht_edit', {edits,dry_run:true}), /not_found/);
+  const page = await call('ht_status', {audit_export:true}), start = JSON.parse(ok(page));
+  assert.ok(start.next_offset > 0); const parts = [Buffer.from(page.content[1].resource.blob,'base64')];
+  ok(await call('ht_mkdir',{path:'after-snapshot-marker'}));
+  let offset = start.next_offset;
+  while (offset !== null) {
+    const r = await call('ht_status', {audit_export:true, audit_snapshot:start.snapshot, audit_offset:offset});
+    const m=JSON.parse(ok(r)); assert.equal(m.offset,offset); assert.equal(m.expected_head,start.expected_head);
+    assert.equal(m.entries,start.entries); assert.equal(m.total_bytes,start.total_bytes);
+    parts.push(Buffer.from(r.content[1].resource.blob,'base64')); offset=m.next_offset;
+  }
+  const bytes=Buffer.concat(parts); assert.equal(bytes.length,start.total_bytes); assert.ok(!bytes.includes('after-snapshot-marker'));
+  const lines=bytes.toString().trimEnd().split('\n'); assert.equal(lines.length,start.entries);
+  let prev='0'.repeat(64);
+  for(const [i,line] of lines.entries()) {
+    const {hash,...body}=JSON.parse(line); assert.equal(body.prev,prev); assert.equal(body.seq,i);
+    prev=crypto.createHash('sha256').update(JSON.stringify(body)).digest('hex'); assert.equal(hash,prev);
+  }
+  assert.equal(prev,start.expected_head);
+  const f=path.join(base,'export.jsonl'), verify = () => spawnSync(process.execPath,[path.resolve(process.env.HT_ENTRY ?? 'dist/index.js'),'--verify',f,'--expect-head',start.expected_head],{encoding:'utf8'});
+  fs.writeFileSync(f,bytes); assert.equal(verify().status,0);
+  fs.writeFileSync(f,lines.slice(0,-1).join('\n')+'\n'); assert.equal(verify().status,2);
+  fs.writeFileSync(f,bytes.toString().replace('"ev":"start"','"ev":"other"')); assert.equal(verify().status,2);
+  denied(await call('ht_status',{audit_export:true,audit_snapshot:crypto.randomUUID()}),/audit_snapshot/);
+  denied(await call('ht_status',{audit_export:true,audit_offset:32}),/audit_offset/);
+});
+
+test('trash restore: a nested file keeps its parent row, and an unusable index never loses the remaining directory', t => {
+  const { policy, root } = fixture(t), bin=path.join(root,'.ht-trash'), manifest=path.join(bin,'index.jsonl');
+  fs.mkdirSync(path.join(root,'tree')); fs.writeFileSync(path.join(root,'tree','a'),'alpha');
+  htTrash(policy,{path:'tree',recursive:true}); const saved=fs.readFileSync(manifest), row=JSON.parse(saved.toString());
+  htMove(policy,{from:`.ht-trash/${row.name}/a`,to:'a'});
+  assert.deepEqual(fs.readFileSync(manifest),saved); assert.equal(fs.readFileSync(path.join(root,'a'),'utf8'),'alpha');
+  fs.writeFileSync(manifest,'bad-json\n');
+  assert.throws(()=>htMove(policy,{from:`.ht-trash/${row.name}`,to:'tree'}),/invalid trash index/);
+  assert.ok(fs.statSync(path.join(bin,row.name)).isDirectory()); assert.ok(!fs.existsSync(path.join(root,'tree')));
+  assert.equal(fs.readFileSync(manifest,'utf8'),'bad-json\n'); assert.ok(!fs.existsSync(path.join(root,'.ht-trash-index.lock')));
+  fs.writeFileSync(manifest,saved); htMove(policy,{from:`.ht-trash/${row.name}`,to:'tree'});
+  assert.ok(fs.statSync(path.join(root,'tree')).isDirectory()); assert.equal(fs.readFileSync(manifest,'utf8'),'');
+});
+
+test('audit exports refuse replaced or linked journal files instead of reading an unrelated fixture', t => {
+  const {audit,base}=fixture(t), op=new Audit(audit,true), own=op.forGrant('one'), other=op.forGrant('two');
+  other.write({ev:'marker',tag:'only-two'}); const original=path.join(base,'saved-own.jsonl'); fs.renameSync(own.file,original);
+  for(const link of [fs.linkSync,fs.symlinkSync]) {
+    link(other.file,own.file); assert.throws(()=>own.exportPage()); fs.unlinkSync(own.file);
+  }
+  fs.writeFileSync(own.file,'not my original file'); assert.throws(()=>own.exportPage(),/identity changed/);
+  fs.unlinkSync(own.file); fs.renameSync(original,own.file); assert.ok(!Buffer.from(own.exportPage().resource.blob,'base64').includes('only-two'));
 });

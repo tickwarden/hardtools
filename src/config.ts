@@ -71,6 +71,8 @@ const OverrideSchema = z.object({
 }).strict().partial();
 
 export interface Policy {
+  /** Runtime-only. An enabled HTTP shell must be isolated; policy JSON cannot select a host launcher. */
+  shellWorker?: "workspace";
   profile: ProfileName;
   roots: string[];
   protectedDirs: string[];
@@ -136,7 +138,7 @@ const PROFILES: Record<ProfileName, Omit<Policy, "profile" | "roots" | "protecte
     shell: {
       enabled: true,
       denyCommands: [...DENY_BYPASS, ...DENY_DESTRUCTIVE, ...DENY_GIT],
-      denyArgs: DENY_ARGS, allowShellSyntax: false, shellDenyPatterns: [], allowRelativeExecutables: false,
+      denyArgs: DENY_ARGS, allowShellSyntax: true, shellDenyPatterns: [], allowRelativeExecutables: false,
       confineArgPaths: true, sanitizePath: true,
       timeoutMs: 60_000, maxTimeoutMs: 300_000, maxOutputBytes: 128 << 10, maxConcurrent: 3,
       envAllow: ["PATH", "LANG", "LC_ALL", "TERM", "HOME", "USER", "TMPDIR", "CI", "NODE_ENV"],
@@ -217,7 +219,9 @@ export function loadPolicy(opts: LoadOptions = {}): Policy {
     profile, roots,
     protectedDirs: [...new Set(protectedDirs.map(d => safeReal(d)))],
     fs: { ...base.fs, ...(o.fs ?? {}) },
-    shell: { ...base.shell, ...(o.shell ?? {}) },
+    // Existing balanced configs with argv-specific rules keep their previous semantics
+    // unless the operator also explicitly opts into shell syntax.
+    shell: { ...base.shell, ...(profile === "balanced" && (o.shell?.denyCommands?.length || o.shell?.denyArgs?.length) ? { allowShellSyntax: false } : {}), ...(o.shell ?? {}) },
     net: { ...base.net, ...(o.net ?? {}) },
     search: { ...base.search, ...(o.search ?? {}) },
     audit: { ...base.audit, ...(o.audit ?? {}), dir: auditDir },

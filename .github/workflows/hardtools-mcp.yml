@@ -39,9 +39,13 @@ on:
         options: [serve, check-connection, build-only, unpublish]
         default: serve
       allow_local_tools:
-        description: 'serve: HARDTOOLS_HTTP_ALLOW_LOCAL_TOOLS açılsın mı? (riskli)'
+        description: 'serve: ayrı proje alanında yazma ve izole kabuk (command / argv) açılsın mı?'
         type: boolean
         default: false
+      workspace_name:
+        description: 'Yeni, boş proje klasörünün adı (bir host yolu değil). Yenilemede veriler taşınmaz.'
+        type: string
+        default: project
       auto_renew:
         description: 'Tek oturum yerine süre dolmadan yeni oturum başlat. Yenilenirse URL ve token değişir.'
         type: boolean
@@ -84,14 +88,17 @@ jobs:
         run: node scripts/connection-card.mjs --check-password
 
       - run: npm ci
+      - name: İzole kabuk test bağımlılığı
+        run: bash scripts/install-worker.sh
       - run: npm test
-      - run: npm run bundle
+        env:
+          HT_REQUIRE_WORKER_TEST: '1'
+      - name: Dağıtılan bundle ile MCP, çalışma alanı ve OAuth testleri
+        run: npm run test:bundle
+        env:
+          HT_REQUIRE_WORKER_TEST: '1'
       - name: Dağıtılan bundle kaynakla eşleşiyor mu?
         run: git diff --exit-code --stat -- bundle/index.js bundle/search-worker.js bundle/BAGLAN.html
-      - name: Dağıtılan sunucuda OAuth ve bağlantı yolları
-        env:
-          HT_ENTRY: bundle/index.js
-        run: node --test --test-concurrency=1 test/oauth.test.mjs
 
       - name: Yerel HTML okuyucusunu kurulu Chrome ile doğrula
         run: CHROME_BIN="$(command -v google-chrome)" npm run test:reader
@@ -102,6 +109,7 @@ jobs:
           path: |
             bundle/
             scripts/connection-card.mjs
+            scripts/install-worker.sh
             reader/session.mjs
             package.json
             README.md
@@ -168,6 +176,7 @@ jobs:
       CLOUDFLARED_VERSION: '2026.8.1'
       CLOUDFLARED_SHA256: '98d8eadbfdf8c7ec994e08260599c9be991e7833c746f98692b18bdf71c9b9dc'
       ALLOW_LOCAL_TOOLS: ${{ inputs.action == 'serve' && inputs.allow_local_tools && '1' || '0' }}
+      WORKSPACE_NAME: ${{ inputs.workspace_name || 'project' }}
       AUTO_RENEW: ${{ inputs.action == 'serve' && inputs.auto_renew && '1' || '0' }}
     steps:
       - uses: actions/download-artifact@v7
@@ -179,11 +188,22 @@ jobs:
         with:
           node-version: ${{ env.NODE_VERSION }}
 
+      - name: İzole çalışma alanını hazırla
+        if: inputs.action == 'serve' && inputs.allow_local_tools
+        run: bash artifact/scripts/install-worker.sh
+
       - name: Start tunnel + MCP server (arka planda)
         id: start_mcp
         run: |
           set -euo pipefail
           umask 077
+
+          # A dispatch input names a fresh child of a private directory, never an arbitrary host mount.
+          if ! [[ "$WORKSPACE_NAME" =~ ^[a-zA-Z0-9][a-zA-Z0-9_-]{0,47}$ ]]; then
+            echo '::error::workspace_name 1–48 harf, rakam, alt çizgi veya tire olmalı; yol verilmez.'; exit 1
+          fi
+          sandbox="$(mktemp -d "$RUNNER_TEMP/ht-work.XXXXXXXX")/$WORKSPACE_NAME"
+          mkdir -m 700 -- "$sandbox"
 
           # --- cloudflared: sabit sürüm + checksum doğrulaması ---
           cf="$RUNNER_TEMP/cloudflared"
@@ -213,8 +233,6 @@ jobs:
           echo "::add-mask::$token"
 
           # --- MCP sunucusu: repo yerine boş sandbox, host kısıtlı ---
-          sandbox="$RUNNER_TEMP/hardtools-sandbox"
-          mkdir -p "$sandbox"
 
           (
             umask 077
@@ -386,7 +404,7 @@ jobs:
               renew_tries=$((renew_tries + 1)); last_try=$now
               if gh workflow run "$wf" --ref "$GITHUB_REF_NAME" \
                    -f action=serve \
-                   -f allow_local_tools="$local_bool" -f auto_renew=true; then
+                   -f allow_local_tools="$local_bool" -f workspace_name="$WORKSPACE_NAME" -f auto_renew=true; then
                 renewed=1
                 echo "::notice::Yeni serve run'ı tetiklendi. Yeni URL+token için yeni run'ın artifact'larına bak."
               else

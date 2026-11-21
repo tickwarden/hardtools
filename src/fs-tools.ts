@@ -15,7 +15,7 @@ export function readBytesNoFollow(abs: string, max: number, singleLink = false):
   try {
     const st = fs.fstatSync(fd);
     if (!st.isFile()) throw new PolicyError("not_a_file", "not a regular file");
-    if (singleLink && st.nlink !== 1) throw new PolicyError("linked_file", "only a file with one link may be shared");
+    if (singleLink && st.nlink !== 1) throw new PolicyError("linked_file", "operation requires a regular file with one link");
     if (st.size > max) throw new PolicyError("too_large", `file is ${st.size} bytes; limit is ${max}. Use ht_search or read a smaller file.`);
     const buf = Buffer.alloc(st.size);
     let off = 0; while (off < st.size) { const n = fs.readSync(fd, buf, off, st.size - off, off); if (n <= 0) break; off += n; }
