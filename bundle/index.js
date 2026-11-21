@@ -26300,6 +26300,16 @@ function workspaceLaunch(p, cwd, program, args) {
   } catch {
     throw new PolicyError("worker_unavailable", "bubblewrap is not installed at /usr/bin/bwrap; no host-shell fallback");
   }
+  let nodeExec;
+  try {
+    nodeExec = fs7.realpathSync(process.execPath);
+    if (!path8.isAbsolute(nodeExec) || nodeExec.includes("\0") || nodeExec.includes("\n") || nodeExec.includes("\r"))
+      throw new Error("invalid node executable path");
+    if (!fs7.statSync(nodeExec).isFile())
+      throw new Error("node executable path is not a file");
+  } catch {
+    throw new PolicyError("worker_unavailable", "unable to resolve a safe node executable path for workspace shell");
+  }
   const childCwd = path8.posix.join("/work", path8.relative(root, cwd));
   return { file: launcher, args: [
     "--unshare-all",
@@ -26335,7 +26345,7 @@ function workspaceLaunch(p, cwd, program, args) {
     "--dir",
     "/runtime",
     "--ro-bind",
-    fs7.realpathSync(process.execPath),
+    nodeExec,
     "/runtime/node",
     "--size",
     "67108864",
