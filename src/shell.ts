@@ -4,11 +4,13 @@ import fs from "node:fs";
 import path from "node:path";
 import { readBytesNoFollow } from "./fs-tools.js";
 import { Variables } from "./variables.js";
+import { openWorkspaceEgress, type EgressLease } from "./workspace-egress.js";
 import { spawnWorkspaceShell } from "./workspace-shell.js";
 import type { Policy } from "./config.js";
 import { PolicyError, isInside, resolveSafe } from "./guard.js";
 
 const active = new Set<ChildProcess>();
+let opening = 0;
 process.on("exit", () => { for (const c of active) killTree(c, "SIGKILL"); });
 
 function killTree(c: ChildProcess, sig: NodeJS.Signals): void {
@@ -78,7 +80,7 @@ export async function runShell(policy: Policy, a: ShellArgs, vars = new Variable
   const sh = policy.shell;
   if (!sh.enabled) throw new PolicyError("shell_disabled", "shell execution is disabled by policy");
   if ((a.argv === undefined) === (a.command === undefined)) throw new PolicyError("bad_input", "provide exactly one of argv or command");
-  if (active.size >= sh.maxConcurrent) throw new PolicyError("busy", `too many concurrent commands (limit ${sh.maxConcurrent})`);
+  if (active.size + opening >= sh.maxConcurrent) throw new PolicyError("busy", `too many concurrent commands (limit ${sh.maxConcurrent})`);
 
   // The tool accepts relative paths (as before), and the virtual /work prefix reported by pwd.
   const checkedPath = (v: string) => policy.shellWorker && (v === "/work" || v.startsWith("/work/"))
@@ -127,11 +129,16 @@ export async function runShell(policy: Policy, a: ShellArgs, vars = new Variable
 
   const selected = vars.select(policy, owner, a.inherit_vars);
   const started = Date.now();
-  return await new Promise<ShellResult>((resolve, reject) => {
+  let lease: EgressLease | undefined;
+  if (policy.shellWorker && policy.workspaceHttps) {
+    opening++;
+    try { lease = await openWorkspaceEgress(policy); } finally { opening--; }
+  }
+  return new Promise<ShellResult>((resolve, reject) => {
     let child: ChildProcess;
     try {
       child = policy.shellWorker
-        ? spawnWorkspaceShell(policy, cwdR.abs, file, args, selected)
+        ? spawnWorkspaceShell(policy, cwdR.abs, file, args, selected, lease)
         : spawn(file, args, { cwd: cwdR.abs, env: Object.assign(buildEnv(policy, policy.roots), selected), shell: false, detached: process.platform !== "win32", stdio: ["pipe", "pipe", "pipe"], windowsHide: true });
     } catch (e) { return reject(e instanceof PolicyError ? e : new Error(`spawn failed: ${(e as Error).message}`)); }
     active.add(child);
@@ -163,7 +170,7 @@ export async function runShell(policy: Policy, a: ShellArgs, vars = new Variable
       // Preserve the historical nonzero-exit behaviour unless the caller opts into exit expectations.
       resolve({ text, isError: a.expected_exit_codes !== undefined && !ok });
     });
-  });
+  }).finally(() => lease?.close());
 }
 
 export async function htShell(policy: Policy, a: ShellArgs): Promise<string> {

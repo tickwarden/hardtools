@@ -42,6 +42,10 @@ on:
         description: 'serve: ayrı proje alanında yazma ve izole kabuk (command / argv) açılsın mı?'
         type: boolean
         default: false
+      allow_workspace_https:
+        description: 'serve + izole kabuk: komutlara genel internet için HTTPS proxy çıkışı ver (özel ağ kapalı).'
+        type: boolean
+        default: false
       workspace_name:
         description: 'Yeni, boş proje klasörünün adı (bir host yolu değil). Yenilemede veriler taşınmaz.'
         type: string
@@ -98,7 +102,7 @@ jobs:
         env:
           HT_REQUIRE_WORKER_TEST: '1'
       - name: Dağıtılan bundle kaynakla eşleşiyor mu?
-        run: git diff --exit-code --stat -- bundle/index.js bundle/search-worker.js bundle/BAGLAN.html
+        run: git diff --exit-code --stat -- bundle/index.js bundle/search-worker.js bundle/workspace-bridge.js bundle/BAGLAN.html
 
       - name: Yerel HTML okuyucusunu kurulu Chrome ile doğrula
         run: CHROME_BIN="$(command -v google-chrome)" npm run test:reader
@@ -176,6 +180,7 @@ jobs:
       CLOUDFLARED_VERSION: '2026.8.1'
       CLOUDFLARED_SHA256: '98d8eadbfdf8c7ec994e08260599c9be991e7833c746f98692b18bdf71c9b9dc'
       ALLOW_LOCAL_TOOLS: ${{ inputs.action == 'serve' && inputs.allow_local_tools && '1' || '0' }}
+      WORKSPACE_HTTPS: ${{ inputs.action == 'serve' && inputs.allow_local_tools && inputs.allow_workspace_https && '1' || '0' }}
       WORKSPACE_NAME: ${{ inputs.workspace_name || 'project' }}
       AUTO_RENEW: ${{ inputs.action == 'serve' && inputs.auto_renew && '1' || '0' }}
     steps:
@@ -240,6 +245,7 @@ jobs:
               printf 'export HARDTOOLS_HTTP_TOKEN=%q\n' "$token"
               printf 'export HARDTOOLS_ALLOWED_HOSTS=%q\n' "$host,127.0.0.1:${MCP_PORT},localhost:${MCP_PORT}"
               printf 'export HARDTOOLS_HTTP_ALLOW_LOCAL_TOOLS=%q\n' "$ALLOW_LOCAL_TOOLS"
+              printf 'export HARDTOOLS_WORKSPACE_HTTPS=%q\n' "$WORKSPACE_HTTPS"
               printf 'export HARDTOOLS_PROFILE=%q\n' balanced
               printf 'export HARDTOOLS_ROOTS=%q\n' "$sandbox"
               printf 'export HARDTOOLS_INVITE_ORIGIN=%q\n' "$url"
@@ -380,6 +386,7 @@ jobs:
           restarts=0; max_restarts=5
           renewed=0; renew_tries=0; last_try=0
           local_bool=$([ "$ALLOW_LOCAL_TOOLS" = 1 ] && echo true || echo false)
+          https_bool=$([ "$WORKSPACE_HTTPS" = 1 ] && echo true || echo false)
           while :; do
             now=$(date +%s)
             if ! kill -0 "$CF_PID" 2>/dev/null; then
@@ -404,7 +411,8 @@ jobs:
               renew_tries=$((renew_tries + 1)); last_try=$now
               if gh workflow run "$wf" --ref "$GITHUB_REF_NAME" \
                    -f action=serve \
-                   -f allow_local_tools="$local_bool" -f workspace_name="$WORKSPACE_NAME" -f auto_renew=true; then
+                   -f allow_local_tools="$local_bool" -f allow_workspace_https="$https_bool" \
+                   -f workspace_name="$WORKSPACE_NAME" -f auto_renew=true; then
                 renewed=1
                 echo "::notice::Yeni serve run'ı tetiklendi. Yeni URL+token için yeni run'ın artifact'larına bak."
               else

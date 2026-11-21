@@ -73,6 +73,8 @@ const OverrideSchema = z.object({
 export interface Policy {
   /** Runtime-only. An enabled HTTP shell must be isolated; policy JSON cannot select a host launcher. */
   shellWorker?: "workspace";
+  /** Operator start option only; not accepted in policy JSON or MCP requests. */
+  workspaceHttps?: boolean;
   profile: ProfileName;
   roots: string[];
   protectedDirs: string[];

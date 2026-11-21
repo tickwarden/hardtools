@@ -122,6 +122,8 @@ test('e2e/http opt-in: command and argv both run in /work without the host envir
   const call = async (name,args={}) => { const r=await c.callTool({ name,arguments:args }); assert.ok(!r.isError,text(r)); return r.content[0].text; };
   const sh = async args => JSON.parse(await call('ht_shell',{...args, expected_exit_codes:[0],output_format:'json'})).stdout;
   const st=JSON.parse(await call('ht_status')); assert.equal(st.shell.execution,'workspace'); assert.equal(st.shell.shellSyntax,true);
+  assert.equal(st.shell.network,'isolated');
+  await sh({command:'test -z "${HTTPS_PROXY:-}" && test ! -S /runtime/https.sock'});
   await call('ht_write',{path:'sub/input',content:'iki satır\n',mkdirp:true});
   await call('ht_add_var',{name:'APP_TEST',value:'ekip'});
   const stdout=await sh({cwd:'/work/sub',stdin_file:'input',inherit_vars:['APP_TEST'],command:`test ! -e '${marker}' && cat | tr a-z A-Z > out && pwd && printf '%s' "$APP_TEST"`});
@@ -154,4 +156,24 @@ test('e2e/http opt-in: unsuitable dedicated roots fail startup instead of fallin
     const r=spawnSync(process.execPath,[entry,'--http','--port','0'],{encoding:'utf8',timeout:6000,env:envFor(root, root,{HARDTOOLS_HTTP_TOKEN:token,HARDTOOLS_HTTP_ALLOW_LOCAL_TOOLS:'1'})});
     assert.equal(r.status,1); assert.doesNotMatch(r.stderr,/HTTP listening/); assert.match(r.stderr,/dedicated workspace|requires Linux/);
   } finally { fs.rmSync(root,{recursive:true,force:true}); }
+});
+
+test('e2e/http: workspace HTTPS is explicit, proxy-only, and does not expose the host network namespace', {
+  skip:process.env.HT_REQUIRE_WORKER_TEST!=='1' && (process.platform!=='linux'||!fs.existsSync('/usr/bin/bwrap')) && 'Linux bubblewrap not installed',
+},async t=>{
+  const root=tmp('ht-whttps-'),admin=tmp('ht-whttps-admin-'),token='w'.repeat(48);
+  t.after(()=>{fs.rmSync(root,{recursive:true,force:true});fs.rmSync(admin,{recursive:true,force:true});});
+  const noShell=spawnSync(process.execPath,[entry,'--http','--port','0'],{encoding:'utf8',timeout:6000,env:envFor(root,admin,{HARDTOOLS_HTTP_TOKEN:token,HARDTOOLS_WORKSPACE_HTTPS:'1',HARDTOOLS_HTTP_ALLOW_LOCAL_TOOLS:'0'})});
+  assert.equal(noShell.status,1);assert.doesNotMatch(noShell.stderr,/HTTP listening/);
+  const {port,child,err}=await startHttp(root,admin,{HARDTOOLS_HTTP_TOKEN:token,HARDTOOLS_HTTP_ALLOW_LOCAL_TOOLS:'1',HARDTOOLS_WORKSPACE_HTTPS:'1',HT_PRIVATE_FIXTURE:'never pass to the guest'});
+  t.after(()=>child.kill('SIGKILL'));assert.match(err(),/HTTP listening/,err());
+  const c=new Client({name:'HTTPS-test',version:'1'});
+  await c.connect(new StreamableHTTPClientTransport(new URL(`http://127.0.0.1:${port}/mcp`),{requestInit:{headers:{authorization:`Bearer ${token}`}}}));t.after(()=>c.close());
+  const call=async(name,args={})=>{const r=await c.callTool({name,arguments:args});assert.ok(!r.isError,text(r));return r.content[0].text;};
+  const st=JSON.parse(await call('ht_status'));assert.equal(st.shell.execution,'workspace');assert.equal(st.shell.network,'public-https-proxy');
+  const sh=async args=>JSON.parse(await call('ht_shell',{...args,output_format:'json'}));
+  const check=await sh({command:'test -z "${HT_PRIVATE_FIXTURE:-}" && test -S /runtime/https.sock && test -r /etc/ssl/certs/ca-certificates.crt && readlink /proc/self/ns/net && cat',stdin:'guest stdin'});
+  assert.equal(check.exit_code,0,check.stderr);const [ns,line]=check.stdout.split('\n');assert.match(ns,/^net:\[/);assert.notEqual(ns,fs.readlinkSync('/proc/self/ns/net'));assert.equal(line,'guest stdin');
+  const denied=await sh({argv:['curl','--silent','--show-error','--max-time','4','https://127.0.0.1/']});assert.notEqual(denied.exit_code,0);assert.match(denied.stderr,/403/);
+  const plain=await sh({argv:['curl','--silent','--fail','--show-error','--max-time','4','http://example.invalid/']});assert.notEqual(plain.exit_code,0);assert.match(plain.stderr,/405/);
 });
