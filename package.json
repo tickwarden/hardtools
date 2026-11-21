@@ -1,6 +1,6 @@
 {
   "name": "hardtools",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "description": "MCP workspace tools for files, shell, session variables, file sharing and Wikimedia image search, with configurable policies and an audit log.",
   "type": "module",
   "license": "MIT",
@@ -15,12 +15,12 @@
     "test": "npm run build && node --test --test-concurrency=1 test",
     "start": "node dist/index.js",
     "bundle": "npm run build && node build-bundle.mjs",
-    "test:bundle": "npm run bundle && HT_ENTRY=bundle/index.js node --test --test-concurrency=1 test/integration.test.mjs test/oauth.test.mjs test/workspace.test.mjs",
+    "test:bundle": "npm run bundle && HT_ENTRY=bundle/index.js node --test --test-concurrency=1 test/integration.test.mjs test/oauth.test.mjs test/workspace.test.mjs test/code-scanning.test.mjs",
     "test:reader": "node scripts/reader-browser-check.mjs"
   },
   "dependencies": {
-    "@modelcontextprotocol/sdk": "^1.12.0",
-    "zod": "^4.6.7"
+    "@modelcontextprotocol/sdk": "^1.32.2",
+    "zod": "4.6.7"
   },
   "devDependencies": {
     "@types/node": "^20.14.0",

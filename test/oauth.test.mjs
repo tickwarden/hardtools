@@ -54,7 +54,8 @@ test("oauth: anonymous probe gets a discoverable 401, then the full flow yields 
     const client = await reg.json(); assert.ok(client.client_id); assert.equal(client.token_endpoint_auth_method, "none");
 
     // 4. consent page renders, wrong secret is rejected, right secret redirects with a code and echoes state
-    const { verifier, challenge } = pkce();
+    // RFC 7636 Appendix B: the verifier still uses S256, not a password KDF or direct comparison.
+    const verifier = "dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk", challenge = "E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM";
     const q = { response_type: "code", client_id: client.client_id, redirect_uri: CB, state: "xyz", code_challenge: challenge, code_challenge_method: "S256" };
     const page = await fetch(`${base}/authorize?${form(q)}`); assert.equal(page.status, 200);
     const consent = await page.text();

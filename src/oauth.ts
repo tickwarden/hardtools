@@ -18,10 +18,11 @@
 //   - Invite redemption and browser sessions are tracked per process.
 import crypto from "node:crypto";
 import type http from "node:http";
+import { equalSecret } from "./credentials.js";
 
 const B64 = (b: Buffer | string) => Buffer.from(b).toString("base64url");
-const sha256 = (s: string | Buffer) => crypto.createHash("sha256").update(s).digest();
-const safeEq = (a: string, b: string) => crypto.timingSafeEqual(sha256(a), sha256(b));
+// RFC 7636 S256: the challenge is SHA-256 of the ASCII verifier, not a password verifier.
+const pkceS256 = (verifier: string) => crypto.createHash("sha256").update(verifier, "ascii").digest("base64url");
 
 const ACCESS_TTL_S  = 60 * 60;           // 1 h
 const REFRESH_TTL_S = 12 * 60 * 60;      // longer than any single `serve` job (<6 h)
@@ -56,6 +57,7 @@ export class OAuth {
   private extra: Set<string>;
 
   constructor(private o: OAuthOptions) {
+    // Existing v1 HMAC key schedule for a random per-run master key. Keeping it preserves signed grants on restart.
     this.key = crypto.createHash("sha256").update("hardtools-oauth-v1\0" + o.token).digest();
     this.extra = new Set(o.extraRedirectUris ?? []);
   }
@@ -70,7 +72,7 @@ export class OAuth {
     const [body, mac, extra] = blob.split(".");
     if (!body || !mac || extra !== undefined) return null;
     const want = B64(crypto.createHmac("sha256", this.key).update(body).digest());
-    if (!safeEq(mac, want)) return null;
+    if (!equalSecret(mac, want)) return null;
     let p: any; try { p = JSON.parse(Buffer.from(body, "base64url").toString("utf8")); } catch { return null; }
     if (!p || p.t !== type || typeof p.exp !== "number" || p.exp < Date.now() / 1000) return null;
     return p;
@@ -82,7 +84,7 @@ export class OAuth {
     const at = this.verify(bearer.startsWith("hta.") ? bearer.slice(4) : "", "at");
     if (!at) return null;
     // One grant, not one public client_id. Preserve state across refreshes without storing bearer tokens.
-    return typeof at.grant === "string" ? `grant:${at.grant}` : `legacy:${B64(sha256(bearer))}`;
+    return typeof at.grant === "string" ? `grant:${at.grant}` : `legacy:${crypto.createHmac("sha256", this.key).update("scope\0").update(bearer).digest("base64url")}`;
   }
   isAccessToken(bearer: string): boolean { return this.accessScope(bearer) !== null; }
 
@@ -297,7 +299,7 @@ export class OAuth {
     // POST: direct token entry when the web client has no valid invite session.
     const now = Date.now(); this.failures = this.failures.filter(t => now - t < 60_000);
     if (this.failures.length >= 10) return this.page(res, 429, "Too many failed attempts. Wait a minute.", q);
-    if (typeof q.access_token !== "string" || !safeEq(q.access_token.trim(), this.o.token)) {
+    if (typeof q.access_token !== "string" || !equalSecret(q.access_token.trim(), this.o.token)) {
       this.failures.push(now); this.o.audit?.({ ev: "oauth_authorize", ok: false });
       const ciphertext = typeof q.access_token === "string" && /^(?:YWdlLWVuY3J5|-----BEGIN AGE ENCRYPTED FILE-----)/.test(q.access_token.trim());
       return this.page(res, 401, ciphertext ? "Bu şifreli bağlantı metni, access token değil. Genel BAGLAN.html dosyasında eski paketi açıp yalın token’ı kopyala." : "Wrong access token.", q);
@@ -342,7 +344,7 @@ export class OAuth {
       if (!c) return this.oerr(res, 400, "invalid_grant", "invalid or expired code");
       if (c.cid !== p.client_id || c.ru !== p.redirect_uri) return this.oerr(res, 400, "invalid_grant", "client_id or redirect_uri mismatch");
       const v = p.code_verifier ?? "";
-      if (!/^[A-Za-z0-9._~-]{43,128}$/.test(v) || !safeEq(B64(sha256(v)), String(c.cc))) return this.oerr(res, 400, "invalid_grant", "PKCE verification failed");
+      if (!/^[A-Za-z0-9._~-]{43,128}$/.test(v) || !equalSecret(pkceS256(v), String(c.cc))) return this.oerr(res, 400, "invalid_grant", "PKCE verification failed");
       const nowS = this.now(); for (const [k, e] of this.usedCodes) if (e < nowS) this.usedCodes.delete(k);
       if (this.usedCodes.has(c.jti)) return this.oerr(res, 400, "invalid_grant", "code already used");
       this.usedCodes.set(c.jti, c.exp);

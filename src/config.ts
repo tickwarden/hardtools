@@ -1,8 +1,9 @@
 // AI-generated (Claude, Anthropic), 2026-11-12. Requires human security review before production use.
+import "./schema-runtime.js";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { z } from "zod";
+import * as z from "zod/v4";
 
 export type ProfileName = "strict" | "balanced" | "open";
 

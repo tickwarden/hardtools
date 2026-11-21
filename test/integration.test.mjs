@@ -87,3 +87,21 @@ test("e2e/http: auth, host check, origin check; shell+write are OFF by default i
     const get = await fetch(`http://127.0.0.1:${port}/mcp`, { headers: { authorization: `Bearer ${token}` } }); assert.equal(get.status, 405);
   } finally { child.kill("SIGKILL"); }
 });
+
+test('e2e/http: fixed /mcp Web transport preserves SSE, header negotiation, limits and empty acknowledgements', async () => {
+  const root = tmp('ht-web-'), audit = tmp('ht-web-audit-'), token = 'x'.repeat(64);
+  const { port, child } = await startHttp(root, audit, { HARDTOOLS_HTTP_TOKEN:token });
+  const headers = { authorization:`Bearer ${token}` };
+  const list = { jsonrpc:'2.0', id:23, method:'tools/list', params:{} };
+  try {
+    const stream = await rpc(port, list, headers); assert.equal(stream.status,200);
+    assert.match(stream.headers.get('content-type'), /text\/event-stream/);
+    const body = await stream.text(); assert.match(body, /event: message/); assert.match(body, /ht_status/);
+    assert.equal((await rpc(port,list,{...headers,accept:'application/json'})).status,406);
+    assert.equal((await rpc(port,list,{...headers,'content-type':'text/plain'})).status,415);
+    assert.equal((await rpc(port,list,{...headers,'mcp-protocol-version':'unsupported'})).status,400);
+    const notify = await rpc(port, {jsonrpc:'2.0',method:'notifications/initialized'}, headers);
+    assert.equal(notify.status,202); assert.equal(await notify.text(),'');
+    assert.equal((await rpc(port,{...list,params:{padding:'x'.repeat(1_000_000)}},headers)).status,413);
+  } finally { child.kill('SIGKILL'); fs.rmSync(root,{recursive:true,force:true}); fs.rmSync(audit,{recursive:true,force:true}); }
+});
