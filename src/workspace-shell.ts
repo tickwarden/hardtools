@@ -36,6 +36,8 @@ function workspaceArgs(p: Policy, cwd: string, program: string, args: string[], 
   return [
     "--unshare-all", "--unshare-user", "--disable-userns", "--die-with-parent", "--new-session", "--cap-drop", "ALL",
     "--dir", "/usr", "--ro-bind", "/usr/bin", "/usr/bin", "--ro-bind", "/usr/lib", "/usr/lib",
+    // pip/pipx ve benzeri /usr/local kurulumları da görünür olsun (salt okunur).
+    "--ro-bind-try", "/usr/local/bin", "/usr/local/bin", "--ro-bind-try", "/usr/local/lib", "/usr/local/lib",
     "--ro-bind-try", "/usr/lib64", "/usr/lib64", "--ro-bind", "/usr/share", "/usr/share",
     "--symlink", "usr/bin", "/bin", "--symlink", "usr/lib", "/lib", "--symlink", "usr/lib64", "/lib64",
     "--dir", "/runtime", "--ro-bind-fd", "3", "/runtime/node",

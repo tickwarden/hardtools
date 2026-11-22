@@ -19,13 +19,13 @@ function envFor(root, audit, extra = {}) {
 }
 const text = (r) => r.content.map(c => c.text).join("\n");
 
-test("e2e/stdio: 17 tools, write→read→edit round trip, denials surface as tool errors, audit chain is intact", async () => {
+test("e2e/stdio: 18 tools, write→read→edit round trip, denials surface as tool errors, audit chain is intact", async () => {
   const root = tmp("ht-e2e-"); const audit = tmp("ht-e2e-audit-");
   const client = new Client({ name: "t", version: "0" });
   await client.connect(new StdioClientTransport({ command: process.execPath, args: [entry, "--profile", "balanced"], env: envFor(root, audit), stderr: "ignore" }));
   try {
     const tools = (await client.listTools()).tools.map(t => t.name).sort();
-    assert.deepEqual(tools, ["ht_add_var", "ht_delete_var", "ht_edit", "ht_empty_trash", "ht_fetch", "ht_glob", "ht_image_search", "ht_list_vars", "ht_mkdir", "ht_move", "ht_read", "ht_search", "ht_share", "ht_shell", "ht_status", "ht_trash", "ht_write"]);
+    assert.deepEqual(tools, ["ht_add_var", "ht_delete_var", "ht_edit", "ht_empty_trash", "ht_fetch", "ht_glob", "ht_image_search", "ht_list_vars", "ht_mkdir", "ht_move", "ht_read", "ht_search", "ht_share", "ht_shell", "ht_status", "ht_trash", "ht_user_input", "ht_write"]);
     for (const t of (await client.listTools()).tools) assert.ok(t.annotations, `${t.name} has annotations`);
     const w = await client.callTool({ name: "ht_write", arguments: { path: "hello.txt", content: "hi there\n" } }); assert.ok(!w.isError, text(w));
     const e = await client.callTool({ name: "ht_edit", arguments: { edits: [{ path: "hello.txt", old_str: "hi", new_str: "hello" }] } }); assert.ok(!e.isError, text(e));

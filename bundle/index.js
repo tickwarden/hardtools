@@ -17342,18 +17342,18 @@ var OAuth = class {
 <h1>hardtools</h1>${body}`);
   }
   infoPage(res, code, message, _q) {
-    const esc2 = (v) => v.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
-    return this.html(res, code, `<p class="e">${esc2(message)}</p>`);
+    const esc3 = (v) => v.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
+    return this.html(res, code, `<p class="e">${esc3(message)}</p>`);
   }
   waitPage(res, code, ticket, p, note) {
-    const esc2 = (v) => v.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
+    const esc3 = (v) => v.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
     const next = `/oauth/github/poll?t=${encodeURIComponent(ticket)}`;
     return this.html(res, code, `<p>GitHub hesab\u0131nla giri\u015F yap:</p>
-<p>1. <a href="${esc2(p.verifyUri)}" target="_blank" rel="noreferrer">${esc2(p.verifyUri)}</a> adresini a\xE7.</p>
-<p>2. \u015Eu kodu gir: <code>${esc2(p.userCode)}</code></p>
+<p>1. <a href="${esc3(p.verifyUri)}" target="_blank" rel="noreferrer">${esc3(p.verifyUri)}</a> adresini a\xE7.</p>
+<p>2. \u015Eu kodu gir: <code>${esc3(p.userCode)}</code></p>
 <p>3. Bu sayfa kendili\u011Finden devam eder; kapatma.</p>
-${note ? `<p class="m">${esc2(note)}</p>` : ""}
-<meta http-equiv="refresh" content="5;url=${esc2(next)}">`, {});
+${note ? `<p class="m">${esc3(note)}</p>` : ""}
+<meta http-equiv="refresh" content="5;url=${esc3(next)}">`, {});
   }
   /** GitHub dönüşü: kodu değiştir, hesabı allowlist ile karşılaştır, kendi kodumuzu üret. */
   async githubCallback(req, res, origin) {
@@ -17444,9 +17444,9 @@ ${note ? `<p class="m">${esc2(note)}</p>` : ""}
     back({ code });
   }
   page(res, code, error2, q) {
-    const esc2 = (s) => s.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
+    const esc3 = (s) => s.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
     const keep = ["response_type", "client_id", "redirect_uri", "state", "code_challenge", "code_challenge_method", "scope", "resource"];
-    const hidden = q ? keep.filter((k) => typeof q[k] === "string").map((k) => `<input type="hidden" name="${k}" value="${esc2(q[k])}">`).join("") : "";
+    const hidden = q ? keep.filter((k) => typeof q[k] === "string").map((k) => `<input type="hidden" name="${k}" value="${esc3(q[k])}">`).join("") : "";
     const form = q ? `<p>Enter the access token only, without the <code>Bearer</code> prefix. Do not paste a connection password, encrypted text, invite URL or private key.</p>
 <p>Where the token comes from: a <code>fly secrets</code> deployment stores it in the server\u2019s <code>HARDTOOLS_HTTP_TOKEN</code> secret (for example <code>deploy/fly/.env.local</code> on the machine that deployed it). A GitHub Actions publish shows it in <strong>BAGLAN.html</strong> from that run\u2019s hardtools-connect ZIP.</p>
 <form method="post" action="/authorize" autocomplete="off">${hidden}<input type="password" name="access_token" autocomplete="off" autofocus required placeholder="access token"><button type="submit">Authorize</button></form>` : "";
@@ -17459,7 +17459,7 @@ ${note ? `<p class="m">${esc2(note)}</p>` : ""}
     });
     res.end(`<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>hardtools</title>
 <style>body{font:16px system-ui,sans-serif;max-width:30rem;margin:4rem auto;padding:0 1rem}input{display:block;width:100%;padding:.6rem;margin:.8rem 0;box-sizing:border-box}button{padding:.6rem 1.2rem}.e{color:#b00020}</style>
-<h1>hardtools</h1>${error2 ? `<p class="e">${esc2(error2)}</p>` : ""}${form}`);
+<h1>hardtools</h1>${error2 ? `<p class="e">${esc3(error2)}</p>` : ""}${form}`);
   }
   // ---- token endpoint ---------------------------------------------------------------------
   async tokenEndpoint(req, res) {
@@ -26667,6 +26667,13 @@ function workspaceArgs(p, cwd, program, args, lease) {
     "--ro-bind",
     "/usr/lib",
     "/usr/lib",
+    // pip/pipx ve benzeri /usr/local kurulumları da görünür olsun (salt okunur).
+    "--ro-bind-try",
+    "/usr/local/bin",
+    "/usr/local/bin",
+    "--ro-bind-try",
+    "/usr/local/lib",
+    "/usr/local/lib",
     "--ro-bind-try",
     "/usr/lib64",
     "/usr/lib64",
@@ -26938,7 +26945,7 @@ async function runShell(policy, a, vars = new Variables(), owner = "stdio") {
     [file, args] = process.platform === "win32" ? ["cmd.exe", ["/d", "/s", "/c", cmd]] : ["/bin/sh", ["-c", cmd]];
     shown = cmd;
   }
-  const selected = vars.select(policy, owner, a.inherit_vars);
+  const selected = { ...vars.select(policy, owner, a.inherit_vars), ...a.user_env ?? {} };
   const started = Date.now();
   let lease;
   if (policy.shellWorker && policy.workspaceHttps) {
@@ -27241,9 +27248,192 @@ ${text}` }] : [{ type: "text", text }, { type: "resource", resource: resource(s)
   }
 };
 
+// src/user-input.ts
+import crypto8 from "node:crypto";
+var MAX_TEXT = 8192;
+var MAX_ARRAY_ITEMS = 100;
+var MAX_ARRAY_BYTES = 32768;
+var MAX_REQUESTS = 32;
+var MAX_SECRETS = 16;
+var KINDS = ["string", "boolean", "number", "array", "null"];
+var esc2 = (v) => v.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
+function parseValue(kind, raw) {
+  if (typeof raw !== "string") throw new PolicyError("bad_input", "value must be a string");
+  if (raw.length > MAX_TEXT) throw new PolicyError("bad_input", `value is longer than ${MAX_TEXT} characters`);
+  switch (kind) {
+    case "string":
+      return raw;
+    case "boolean":
+      if (raw === "true") return true;
+      if (raw === "false") return false;
+      throw new PolicyError("bad_input", "expected true or false");
+    case "number": {
+      if (!raw.trim() || !/^[+-]?(?:\d+\.?\d*|\.\d+)(?:[eE][+-]?\d+)?$/.test(raw.trim())) throw new PolicyError("bad_input", "expected a number");
+      const n = Number(raw);
+      if (!Number.isFinite(n)) throw new PolicyError("bad_input", "expected a finite number");
+      return n;
+    }
+    case "array": {
+      if (raw.length > MAX_ARRAY_BYTES) throw new PolicyError("bad_input", "array payload is too large");
+      let parsed;
+      try {
+        parsed = JSON.parse(raw);
+      } catch {
+        throw new PolicyError("bad_input", 'expected a JSON array, e.g. ["a","b"]');
+      }
+      if (!Array.isArray(parsed)) throw new PolicyError("bad_input", "expected a JSON array");
+      if (parsed.length > MAX_ARRAY_ITEMS) throw new PolicyError("bad_input", `at most ${MAX_ARRAY_ITEMS} items`);
+      for (const item of parsed) if (item !== null && !["string", "number", "boolean"].includes(typeof item)) throw new PolicyError("bad_input", "array items must be strings, numbers, booleans or null");
+      return parsed;
+    }
+    case "null":
+      if (raw.trim() !== "" && raw.trim().toLowerCase() !== "null") throw new PolicyError("bad_input", "expected an empty answer");
+      return null;
+  }
+}
+function renderEnv(value) {
+  return typeof value === "string" ? value : JSON.stringify(value);
+}
+var UserInputs = class {
+  byId = /* @__PURE__ */ new Map();
+  active = /* @__PURE__ */ new Map();
+  // owner -> request id
+  secrets = [];
+  create(owner, o) {
+    if (!KINDS.includes(o.kind)) throw new PolicyError("bad_input", `kind must be one of ${KINDS.join(", ")}`);
+    const title = (o.title ?? "").trim();
+    if (!title || title.length > 200) throw new PolicyError("bad_input", "title must be 1\u2013200 characters");
+    this.prune();
+    if (this.byId.size >= MAX_REQUESTS) throw new PolicyError("too_many_requests", "too many open input requests; clear one first");
+    const id = crypto8.randomBytes(24).toString("base64url");
+    const now = Date.now();
+    const req = { id, title, kind: o.kind, secret: o.secret, createdAt: now, expiresAt: now + Math.max(6e4, Math.min(36e5, o.ttlMs)) };
+    this.byId.set(id, req);
+    this.active.set(owner, id);
+    return req;
+  }
+  get(owner, id) {
+    const key = id ?? this.active.get(owner);
+    const req = key ? this.byId.get(key) : void 0;
+    if (!req || req.expiresAt < Date.now()) throw new PolicyError("not_found", "no open input request (expired or already answered and cleared)");
+    return req;
+  }
+  /** Submit a browser answer. The request id is the capability; a second answer is refused. */
+  submit(id, raw) {
+    const req = this.byId.get(id);
+    if (!req) throw new PolicyError("not_found", "this input request does not exist or was already cleared");
+    if (req.expiresAt < Date.now()) {
+      this.byId.delete(id);
+      throw new PolicyError("expired", "this input request expired; ask again from the chat");
+    }
+    if (req.submittedAt !== void 0) throw new PolicyError("already_answered", "this input was already submitted once");
+    const value = parseValue(req.kind, raw);
+    req.value = value;
+    req.submittedAt = Date.now();
+    if (req.secret) this.rememberSecret(renderEnv(value));
+    return req;
+  }
+  /** Current unexpired answer of this owner, if any. */
+  value(owner) {
+    const key = this.active.get(owner);
+    const req = key ? this.byId.get(key) : void 0;
+    if (!req || req.submittedAt === void 0 || req.expiresAt < Date.now()) return void 0;
+    return { request: req, env: renderEnv(req.value) };
+  }
+  /** Environment for shell children; absent until the user answers. */
+  envFor(owner) {
+    const v = this.value(owner);
+    return v ? { HT_USER_INPUT: v.env } : {};
+  }
+  clear(owner, id) {
+    const key = id ?? this.active.get(owner);
+    if (!key) return false;
+    const req = this.byId.get(key);
+    if (req?.secret && req.value !== void 0) this.forgetSecret(renderEnv(req.value));
+    this.byId.delete(key);
+    if (this.active.get(owner) === key) this.active.delete(owner);
+    return true;
+  }
+  /** Never let a secret come back to the model through command output. */
+  mask(text) {
+    if (!text || !this.secrets.length) return text;
+    let out = text;
+    for (const s of this.secrets) if (s.length >= 4 && out.includes(s)) out = out.split(s).join("[redacted:HT_USER_INPUT]");
+    return out;
+  }
+  rememberSecret(env) {
+    if (env.length < 4) return;
+    this.secrets = [env, ...this.secrets.filter((s) => s !== env)].slice(0, MAX_SECRETS);
+  }
+  forgetSecret(env) {
+    this.secrets = this.secrets.filter((s) => s !== env);
+  }
+  prune() {
+    const now = Date.now();
+    for (const [id, r] of this.byId) if (r.expiresAt < now) {
+      if (r.secret && r.value !== void 0) this.forgetSecret(renderEnv(r.value));
+      this.byId.delete(id);
+    }
+  }
+  // ---- browser UI -------------------------------------------------------------------
+  /** Serve /ui/input/<id>. Returns false when the path is not ours. */
+  handle(req, res, path11, origin) {
+    const m = /^\/ui\/input\/([A-Za-z0-9_-]{20,64})$/.exec(path11);
+    if (!m) return false;
+    const id = m[1];
+    const req_ = this.byId.get(id);
+    const headers = {
+      "cache-control": "no-store",
+      "referrer-policy": "no-referrer",
+      "x-frame-options": "DENY",
+      "x-content-type-options": "nosniff",
+      "content-security-policy": "default-src 'none'; style-src 'unsafe-inline'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'"
+    };
+    const page = (code, body) => {
+      res.writeHead(code, { "content-type": "text/html; charset=utf-8", ...headers });
+      res.end(body);
+    };
+    const shell = (body) => `<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>hardtools</title>
+<style>body{font:16px system-ui,sans-serif;max-width:34rem;margin:3rem auto;padding:0 1rem;line-height:1.5}input[type=text],input[type=password],textarea{width:100%;padding:.6rem;box-sizing:border-box;font:14px ui-monospace,monospace}button{padding:.6rem 1.2rem;margin-top:.8rem}.m{color:#555;font-size:14px}.e{color:#b00020}label{display:block;margin:1rem 0 .3rem}</style>
+<h1>hardtools</h1>${body}`;
+    if (!req_ || req_.expiresAt < Date.now()) return page(410, shell(`<p class="e">Bu istek bulunamad\u0131 ya da s\xFCresi doldu. Sohbetten yeniden iste.</p>`)), true;
+    if (req_.submittedAt !== void 0) return page(409, shell(`<p class="e">Bu istek zaten yan\u0131tland\u0131. Yeni bir istek i\xE7in sohbetten tekrar iste.</p>`)), true;
+    if (req.method === "POST") {
+      let size = 0;
+      const chunks = [];
+      req.on("data", (c) => {
+        size += c.length;
+        if (size <= 65536) chunks.push(c);
+      });
+      req.on("end", () => {
+        if (size > 65536) return page(413, shell(`<p class="e">Yan\u0131t \xE7ok b\xFCy\xFCk.</p>`));
+        const params = new URLSearchParams(Buffer.concat(chunks).toString("utf8"));
+        let value;
+        try {
+          value = this.submit(id, params.get("value") ?? params.get("secret") ?? "");
+        } catch (e) {
+          return page(400, shell(`<p class="e">${esc2(e.message)}</p><p class="m"><a href="${esc2(path11)}">Geri d\xF6n</a></p>`));
+        }
+        if (!value.secret) return page(200, shell(`<p>Kaydedildi. Sohbete d\xF6n; de\u011Fer <code>$HT_USER_INPUT</code> olarak kullan\u0131labilir.</p>`));
+        page(200, shell(`<p>Gizli de\u011Fer kaydedildi. Sohbete d\xF6n.</p><p class="m">De\u011Fer bu sayfada tekrar g\xF6sterilmez, modelin g\xF6rece\u011Fi \xE7\u0131kt\u0131da maskelenir.</p>`));
+      });
+      req.on("error", () => {
+        if (!res.headersSent) page(400, shell(`<p class="e">Okunamad\u0131.</p>`));
+      });
+      return true;
+    }
+    if (req.method !== "GET") return page(405, shell(`<p class="e">Yaln\u0131z GET/POST.</p>`)), true;
+    const field = req_.secret ? `<input type="password" name="secret" autocomplete="off" autofocus required>` : req_.kind === "boolean" ? `<select name="value" autofocus><option value="true">true</option><option value="false">false</option></select>` : req_.kind === "array" ? `<textarea name="value" rows="4" autofocus placeholder='["a","b"]'></textarea>` : req_.kind === "null" ? `<input type="text" name="value" value="" placeholder="(bo\u015F b\u0131rak)" autofocus>` : `<input type="text" name="value" autofocus ${req_.kind === "number" ? 'inputmode="decimal"' : ""}>`;
+    page(200, shell(`<p><strong>${esc2(req_.title)}</strong></p>
+<form method="post" action="${esc2(path11)}" autocomplete="off">${field}<button type="submit">G\xF6nder</button></form>
+<p class="m">${req_.secret ? "Bu de\u011Fer gizli kabul edilir: sohbete geri d\xF6nmez, denetim kayd\u0131na yaz\u0131lmaz, komut \xE7\u0131kt\u0131s\u0131nda maskelenir." : `T\xFCr: ${esc2(req_.kind)}. De\u011Fer <code>$HT_USER_INPUT</code> olarak komutlara ge\xE7er.`}</p>`));
+    return true;
+  }
+};
+
 // src/server.ts
 var usesProject = /* @__PURE__ */ new Set(["ht_read", "ht_write", "ht_edit", "ht_glob", "ht_search", "ht_move", "ht_mkdir", "ht_trash", "ht_empty_trash", "ht_shell", "ht_share"]);
-var createWorkspace = () => ({ vars: new Variables(), shares: new Shares(), projectReady: Promise.resolve() });
+var createWorkspace = () => ({ vars: new Variables(), shares: new Shares(), inputs: new UserInputs(), projectReady: Promise.resolve() });
 var asText = (text) => ({ content: [{ type: "text", text }] });
 function createServer(policy, audit, workspace = createWorkspace(), owner = "stdio", origin) {
   const server = new McpServer({ name: "hardtools", version: VERSION });
@@ -27281,7 +27471,7 @@ function createServer(policy, audit, workspace = createWorkspace(), owner = "std
     description: "Read a text file (with line numbers, line ranges, eol/BOM info and a sha256 to pass as if_hash when editing) or list a directory. Paths are confined to the configured roots; secrets files (.env, keys) are not readable.",
     inputSchema: { path: string2().describe("Path relative to the first root, or absolute inside a root"), start_line: number2().int().min(1).optional(), end_line: number2().int().min(1).optional(), numbered: boolean2().optional() },
     annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false }
-  }, wrap("ht_read", (a) => htRead(policy, a)));
+  }, wrap("ht_read", async (a) => workspace.inputs.mask(await htRead(policy, a))));
   server.registerTool("ht_edit", {
     title: "Atomic multi-file exact-match edit",
     description: "Apply exact-string edits across one or more files ALL-OR-NOTHING: every edit is validated in memory first (unique match, if_hash precondition, secret scan, size), concurrent modification is detected, files are written atomically (temp+rename) and rolled back on failure. Use dry_run=true to preview a diff. CRLF files are handled automatically; $-sequences in new_str are literal.",
@@ -27381,8 +27571,46 @@ function createServer(policy, audit, workspace = createWorkspace(), owner = "std
     },
     annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true }
   }, wrap("ht_shell", async (a) => {
-    const r = await runShell(policy, a, workspace.vars, owner);
-    return { ...asText(r.text), isError: r.isError };
+    const r = await runShell(policy, { ...a, user_env: workspace.inputs.envFor(owner) }, workspace.vars, owner);
+    return { ...asText(workspace.inputs.mask(r.text)), isError: r.isError };
+  }));
+  server.registerTool("ht_user_input", {
+    title: "Ask the user for a value (browser form, secret-safe)",
+    description: "Ask the user a question through a one-time browser form and receive the answer as $HT_USER_INPUT in ht_shell (and, for non-secret answers, in this tool's reply). action=request creates the form and returns its URL \u2014 give that URL to the user. Use action=get to collect the answer after the user submits; secret answers are never returned to the model, only injected into commands, kept out of the audit log and masked in command output. Clear the value when it is no longer needed.",
+    inputSchema: {
+      action: _enum(["request", "get", "clear"]).optional().describe("request (default when title is given), get, or clear"),
+      title: string2().min(1).max(200).optional().describe("Question shown to the user"),
+      kind: _enum(["string", "boolean", "number", "array", "null"]).optional().describe("Answer type; default string"),
+      secret: boolean2().optional().describe("Hidden field: never returned to the model, masked in output, not audited"),
+      ttl_minutes: number2().int().min(3).max(60).optional().describe("How long the form stays valid (default 10)"),
+      request_id: string2().min(20).max(64).optional().describe("Target a specific open request")
+    },
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true }
+  }, wrap("ht_user_input", (a) => {
+    const action = a.action ?? (a.title ? "request" : "get");
+    if (action === "request") {
+      if (!origin) throw new PolicyError("unavailable", "the user input form needs the HTTP transport (stdio has no browser endpoint)");
+      if (!a.title) throw new PolicyError("bad_input", "title is required for action=request");
+      const req2 = workspace.inputs.create(owner, { title: a.title, kind: a.kind ?? "string", secret: Boolean(a.secret), ttlMs: (a.ttl_minutes ?? 10) * 6e4 });
+      audit.write({ ev: "input_request", kind: req2.kind, secret: req2.secret });
+      return JSON.stringify({
+        action: "request",
+        request_id: req2.id,
+        kind: req2.kind,
+        secret: req2.secret,
+        url: `${origin}/ui/input/${req2.id}`,
+        expires_in_s: Math.round((req2.expiresAt - Date.now()) / 1e3),
+        next: "Show the user this url. Then call ht_user_input with action=get to read the answer (secrets stay in $HT_USER_INPUT only)."
+      }, null, 2);
+    }
+    if (action === "clear") {
+      const cleared = workspace.inputs.clear(owner, a.request_id);
+      return JSON.stringify({ action: "clear", cleared });
+    }
+    const req = workspace.inputs.get(owner, a.request_id);
+    if (req.submittedAt === void 0) return JSON.stringify({ action: "get", status: "pending", request_id: req.id, expires_in_s: Math.round((req.expiresAt - Date.now()) / 1e3), next: "Ask the user to open the url and submit the form, then call action=get again." }, null, 2);
+    if (req.secret) return JSON.stringify({ action: "get", status: "ready", secret: true, request_id: req.id, env: "HT_USER_INPUT", value: null, next: "Use $HT_USER_INPUT inside ht_shell; never print it. Call action=clear when done." }, null, 2);
+    return JSON.stringify({ action: "get", status: "ready", secret: false, request_id: req.id, kind: req.kind, value: req.value, env: "HT_USER_INPUT", next: "Use $HT_USER_INPUT inside ht_shell as well when convenient." }, null, 2);
   }));
   server.registerTool("ht_share", {
     title: "Share a file with the user",
@@ -27447,7 +27675,7 @@ function createServer(policy, audit, workspace = createWorkspace(), owner = "std
       return { content: [{ type: "text", text: JSON.stringify(page.info) }, { type: "resource", resource: page.resource }] };
     }
     if (a.audit_snapshot !== void 0 || a.audit_offset !== void 0) throw new PolicyError("bad_input", "audit cursors require audit_export=true");
-    return JSON.stringify({
+    return workspace.inputs.mask(JSON.stringify({
       version: VERSION,
       profile: policy.profile,
       roots: policy.roots,
@@ -27456,8 +27684,9 @@ function createServer(policy, audit, workspace = createWorkspace(), owner = "std
       net: { enabled: policy.net.enabled, schemes: policy.net.schemes, allowDomains: policy.net.allowDomains, needsAllowlist: policy.net.requireAllowDomains && policy.net.allowDomains.length === 0 },
       share: { cwd: SHARE_CWD, createEnabled: policy.fs.writeEnabled },
       variables: { enabled: policy.shell.enabled, inheritByDefault: false },
+      userInput: { env: "HT_USER_INPUT", active: Boolean(workspace.inputs.value(owner)), transport: origin ? "http" : "stdio" },
       audit: { file: audit.file, scope: audit.scope, chain: audit.verify(), export: { audit_export: true } }
-    }, null, 2);
+    }, null, 2));
   }));
   return server;
 }
@@ -27561,6 +27790,7 @@ async function main() {
       }
       const h = String(req.headers.host ?? "").toLowerCase();
       if (!allowedHosts.has(h)) return send(403, "host not allowed");
+      if (workspace.inputs.handle(req, res, path11, oauth.origin(req))) return;
       if (req.headers.origin && !(path11 === "/authorize" && req.headers.origin === oauth.origin(req))) return send(403, "browser origins are not allowed");
       const ip = req.socket.remoteAddress ?? "?";
       const now = Date.now();

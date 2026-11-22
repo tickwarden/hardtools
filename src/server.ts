@@ -12,6 +12,7 @@ import { htSearch } from "./search.js";
 import { runShell, type ShellArgs } from "./shell.js";
 import { imageSearch, type ImageArgs } from "./image-search.js";
 import { Shares, SHARE_CWD, shareIdFromUri, shareTemplate, type ShareArgs } from "./share.js";
+import { UserInputs } from "./user-input.js";
 import { Variables } from "./variables.js";
 import { VERSION } from "./version.js";
 import { ErrorCode, ListResourcesRequestSchema, ListResourceTemplatesRequestSchema, McpError, ReadResourceRequestSchema, type CallToolResult } from "@modelcontextprotocol/sdk/types.js";
@@ -19,7 +20,7 @@ import { ErrorCode, ListResourcesRequestSchema, ListResourceTemplatesRequestSche
 // The HTTP worker can change its project tree. Do not race a running child against
 // host-side path checks (including cwd and stdin_file preparation for the next child).
 const usesProject = new Set(["ht_read", "ht_write", "ht_edit", "ht_glob", "ht_search", "ht_move", "ht_mkdir", "ht_trash", "ht_empty_trash", "ht_shell", "ht_share"]);
-export const createWorkspace = () => ({ vars: new Variables(), shares: new Shares(), projectReady: Promise.resolve() });
+export const createWorkspace = () => ({ vars: new Variables(), shares: new Shares(), inputs: new UserInputs(), projectReady: Promise.resolve() });
 const asText = (text: string): CallToolResult => ({ content: [{ type: "text", text }] });
 export function createServer(policy: Policy, audit: Audit, workspace = createWorkspace(), owner = "stdio", origin?: string): McpServer {
   const server = new McpServer({ name: "hardtools", version: VERSION });
@@ -52,7 +53,7 @@ export function createServer(policy: Policy, audit: Audit, workspace = createWor
     description: "Read a text file (with line numbers, line ranges, eol/BOM info and a sha256 to pass as if_hash when editing) or list a directory. Paths are confined to the configured roots; secrets files (.env, keys) are not readable.",
     inputSchema: { path: z.string().describe("Path relative to the first root, or absolute inside a root"), start_line: z.number().int().min(1).optional(), end_line: z.number().int().min(1).optional(), numbered: z.boolean().optional() },
     annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false },
-  }, wrap("ht_read", (a: any) => htRead(policy, a)));
+  }, wrap("ht_read", async (a: any) => workspace.inputs.mask(await htRead(policy, a))));
 
   server.registerTool("ht_edit", {
     title: "Atomic multi-file exact-match edit",
@@ -145,7 +146,46 @@ export function createServer(policy: Policy, audit: Audit, workspace = createWor
       max_output_bytes: z.number().int().positive().optional().describe("May only lower the profile's captured-output budget (bytes, before formatting)"),
     },
     annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true },
-  }, wrap("ht_shell", async (a: ShellArgs) => { const r = await runShell(policy, a, workspace.vars, owner); return { ...asText(r.text), isError: r.isError }; }));
+  }, wrap("ht_shell", async (a: ShellArgs) => {
+    // HT_USER_INPUT comes from ht_user_input and is never an MCP argument.
+    const r = await runShell(policy, { ...a, user_env: workspace.inputs.envFor(owner) }, workspace.vars, owner);
+    return { ...asText(workspace.inputs.mask(r.text)), isError: r.isError };
+  }));
+
+  server.registerTool("ht_user_input", {
+    title: "Ask the user for a value (browser form, secret-safe)",
+    description: "Ask the user a question through a one-time browser form and receive the answer as $HT_USER_INPUT in ht_shell (and, for non-secret answers, in this tool's reply). action=request creates the form and returns its URL — give that URL to the user. Use action=get to collect the answer after the user submits; secret answers are never returned to the model, only injected into commands, kept out of the audit log and masked in command output. Clear the value when it is no longer needed.",
+    inputSchema: {
+      action: z.enum(["request", "get", "clear"]).optional().describe("request (default when title is given), get, or clear"),
+      title: z.string().min(1).max(200).optional().describe("Question shown to the user"),
+      kind: z.enum(["string", "boolean", "number", "array", "null"]).optional().describe("Answer type; default string"),
+      secret: z.boolean().optional().describe("Hidden field: never returned to the model, masked in output, not audited"),
+      ttl_minutes: z.number().int().min(3).max(60).optional().describe("How long the form stays valid (default 10)"),
+      request_id: z.string().min(20).max(64).optional().describe("Target a specific open request"),
+    },
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
+  }, wrap("ht_user_input", (a: { action?: "request" | "get" | "clear"; title?: string; kind?: any; secret?: boolean; ttl_minutes?: number; request_id?: string }) => {
+    const action = a.action ?? (a.title ? "request" : "get");
+    if (action === "request") {
+      if (!origin) throw new PolicyError("unavailable", "the user input form needs the HTTP transport (stdio has no browser endpoint)");
+      if (!a.title) throw new PolicyError("bad_input", "title is required for action=request");
+      const req = workspace.inputs.create(owner, { title: a.title, kind: a.kind ?? "string", secret: Boolean(a.secret), ttlMs: (a.ttl_minutes ?? 10) * 60_000 });
+      audit.write({ ev: "input_request", kind: req.kind, secret: req.secret });
+      return JSON.stringify({
+        action: "request", request_id: req.id, kind: req.kind, secret: req.secret,
+        url: `${origin}/ui/input/${req.id}`, expires_in_s: Math.round((req.expiresAt - Date.now()) / 1000),
+        next: "Show the user this url. Then call ht_user_input with action=get to read the answer (secrets stay in $HT_USER_INPUT only).",
+      }, null, 2);
+    }
+    if (action === "clear") {
+      const cleared = workspace.inputs.clear(owner, a.request_id);
+      return JSON.stringify({ action: "clear", cleared });
+    }
+    const req = workspace.inputs.get(owner, a.request_id);
+    if (req.submittedAt === undefined) return JSON.stringify({ action: "get", status: "pending", request_id: req.id, expires_in_s: Math.round((req.expiresAt - Date.now()) / 1000), next: "Ask the user to open the url and submit the form, then call action=get again." }, null, 2);
+    if (req.secret) return JSON.stringify({ action: "get", status: "ready", secret: true, request_id: req.id, env: "HT_USER_INPUT", value: null, next: "Use $HT_USER_INPUT inside ht_shell; never print it. Call action=clear when done." }, null, 2);
+    return JSON.stringify({ action: "get", status: "ready", secret: false, request_id: req.id, kind: req.kind, value: req.value, env: "HT_USER_INPUT", next: "Use $HT_USER_INPUT inside ht_shell as well when convenient." }, null, 2);
+  }));
 
   server.registerTool("ht_share", {
     title: "Share a file with the user",
@@ -202,15 +242,16 @@ export function createServer(policy: Policy, audit: Audit, workspace = createWor
       return { content: [{ type: "text", text: JSON.stringify(page.info) }, { type: "resource", resource: page.resource }] };
     }
     if (a.audit_snapshot !== undefined || a.audit_offset !== undefined) throw new PolicyError("bad_input", "audit cursors require audit_export=true");
-    return JSON.stringify({
+    return workspace.inputs.mask(JSON.stringify({
       version: VERSION, profile: policy.profile, roots: policy.roots,
       fs: { writeEnabled: policy.fs.writeEnabled, secretScan: policy.fs.secretScan, requireHashForOverwrite: policy.fs.requireHashForOverwrite, denyWrite: policy.fs.denyWrite },
       shell: { enabled: policy.shell.enabled, shellSyntax: policy.shell.enabled && policy.shell.allowShellSyntax, execution: policy.shell.enabled ? (policy.shellWorker ?? "host") : "disabled", ...(policy.shellWorker && { workspaceRoot: "/work", network: policy.workspaceHttps ? "public-https-proxy" : "isolated" }), denyCommands: policy.shell.denyCommands.length },
       net: { enabled: policy.net.enabled, schemes: policy.net.schemes, allowDomains: policy.net.allowDomains, needsAllowlist: policy.net.requireAllowDomains && policy.net.allowDomains.length === 0 },
       share: { cwd: SHARE_CWD, createEnabled: policy.fs.writeEnabled },
       variables: { enabled: policy.shell.enabled, inheritByDefault: false },
+      userInput: { env: "HT_USER_INPUT", active: Boolean(workspace.inputs.value(owner)), transport: origin ? "http" : "stdio" },
       audit: { file: audit.file, scope: audit.scope, chain: audit.verify(), export: { audit_export: true } },
-    }, null, 2);
+    }, null, 2));
   }));
 
   return server;
