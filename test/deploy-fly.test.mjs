@@ -42,7 +42,12 @@ test("fly deploy: image ships the bundle, bubblewrap and a health probe", () => 
   // Derleme, scripts/build-reader.mjs ve reader/ olmadan Docker içinde düşer.
   assert.match(dockerfile, /COPY scripts \.\/scripts/);
   assert.match(dockerfile, /COPY reader \.\/reader/);
-  assert.match(dockerfile, /apt-get install -y --no-install-recommends bubblewrap/);
+  assert.match(dockerfile, /apt-get install -y --no-install-recommends/);
+  assert.match(dockerfile, /bubblewrap/);
+  // ht_shell içinde apt-get/pip çağırmadan çalışsın: araçlar ve pip paketleri imajda hazır.
+  for (const pkg of ["python3", "python3-pip", "jq", "ripgrep", "tar", "unzip", "sqlite3", "dnsutils"]) assert.match(dockerfile, new RegExp(`\\b${pkg}\\b`), `${pkg} imajda olmalı`);
+  assert.match(dockerfile, /pip install --break-system-packages/);
+  assert.match(read("src/workspace-shell.ts"), /--ro-bind-try", "\/usr\/local\/lib"/, "pip paketleri izole kabukta görünmeli");
   assert.match(dockerfile, /COPY --from=build \/app\/bundle \.\/bundle/);
   assert.match(dockerfile, /ENTRYPOINT \["\/usr\/local\/bin\/hardtools-entrypoint"\]/);
   assert.match(dockerfile, /EXPOSE 8787/);

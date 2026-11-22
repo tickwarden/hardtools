@@ -106,6 +106,9 @@ async function main() {
       }
       const h = String(req.headers.host ?? "").toLowerCase();
       if (!allowedHosts.has(h)) return send(403, "host not allowed");                 // DNS-rebinding defence
+      // Capability URL for ht_user_input: a random one-time id, answered by the user's browser
+      // (so it must be checked before the browser-origin rejection below).
+      if (workspace.inputs.handle(req, res, path, oauth.origin(req))) return;
       // Machine-to-machine endpoint: browser origins are refused, except the consent page posting to itself.
       if (req.headers.origin && !(path === "/authorize" && req.headers.origin === oauth.origin(req))) return send(403, "browser origins are not allowed");
       const ip = req.socket.remoteAddress ?? "?"; const now = Date.now(); const b = hits.get(ip) ?? { n: 0, reset: now + 60_000 };

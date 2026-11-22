@@ -19,9 +19,21 @@ RUN npm run build && node build-bundle.mjs && test -s bundle/index.js
 FROM node:22-bookworm-slim AS runtime
 # bubblewrap: izole çalışma kabuğu (ht_shell). git/curl: izinli komutlar.
 # procps: ht_shell süreç ağacı ve süre denetimi. openssl: token üretimi için değil, TLS istemcileri için.
+# Kabuk araçları: ht_shell içinde apt-get/pip çağırmadan hazır olsun diye önceden kuruludur.
+# (Her biri bwrap altında /usr/bin ve /usr/lib ro-bind ile görünür.)
 RUN apt-get update \
- && apt-get install -y --no-install-recommends bubblewrap ca-certificates git curl procps \
- && rm -rf /var/lib/apt/lists/*
+ && apt-get install -y --no-install-recommends \
+      bubblewrap ca-certificates git curl wget procps \
+      python3 python3-pip python3-venv python3-dev \
+      jq ripgrep fd-find tree less file \
+      tar gzip xz-utils unzip zip sqlite3 \
+      iproute2 dnsutils netcat-openbsd openssh-client bsdextrautils \
+ && rm -rf /var/lib/apt/lists/* \
+ # Sık kullanılan Python paketleri; /usr/local altına kurulur ve çalışma kabuğuna
+ # ro-bind ile bağlanır (workspace-shell.ts).
+ && python3 -m pip install --break-system-packages --no-cache-dir \
+      requests httpx beautifulsoup4 pyyaml python-dateutil tabulate rich \
+ && rm -rf /root/.cache/pip
 WORKDIR /app
 COPY --from=build /app/bundle ./bundle
 COPY deploy/fly/config.json /etc/hardtools/config.json

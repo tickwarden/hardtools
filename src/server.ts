@@ -12,14 +12,17 @@ import { htSearch } from "./search.js";
 import { runShell, type ShellArgs } from "./shell.js";
 import { imageSearch, type ImageArgs } from "./image-search.js";
 import { Shares, SHARE_CWD, shareIdFromUri, shareTemplate, type ShareArgs } from "./share.js";
+import { createEnv, currentEnvName, envBase } from "./envs.js";
+import { htTransferFile, transferSources } from "./transfer.js";
+import { UserInputs } from "./user-input.js";
 import { Variables } from "./variables.js";
 import { VERSION } from "./version.js";
 import { ErrorCode, ListResourcesRequestSchema, ListResourceTemplatesRequestSchema, McpError, ReadResourceRequestSchema, type CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 
 // The HTTP worker can change its project tree. Do not race a running child against
 // host-side path checks (including cwd and stdin_file preparation for the next child).
-const usesProject = new Set(["ht_read", "ht_write", "ht_edit", "ht_glob", "ht_search", "ht_move", "ht_mkdir", "ht_trash", "ht_empty_trash", "ht_shell", "ht_share"]);
-export const createWorkspace = () => ({ vars: new Variables(), shares: new Shares(), projectReady: Promise.resolve() });
+const usesProject = new Set(["ht_transfer_file", "ht_new_shell_env", "ht_stop","ht_read", "ht_write", "ht_edit", "ht_glob", "ht_search", "ht_move", "ht_mkdir", "ht_trash", "ht_empty_trash", "ht_shell", "ht_share"]);
+export const createWorkspace = () => ({ vars: new Variables(), shares: new Shares(), inputs: new UserInputs(), projectReady: Promise.resolve() });
 const asText = (text: string): CallToolResult => ({ content: [{ type: "text", text }] });
 export function createServer(policy: Policy, audit: Audit, workspace = createWorkspace(), owner = "stdio", origin?: string): McpServer {
   const server = new McpServer({ name: "hardtools", version: VERSION });
@@ -52,7 +55,7 @@ export function createServer(policy: Policy, audit: Audit, workspace = createWor
     description: "Read a text file (with line numbers, line ranges, eol/BOM info and a sha256 to pass as if_hash when editing) or list a directory. Paths are confined to the configured roots; secrets files (.env, keys) are not readable.",
     inputSchema: { path: z.string().describe("Path relative to the first root, or absolute inside a root"), start_line: z.number().int().min(1).optional(), end_line: z.number().int().min(1).optional(), numbered: z.boolean().optional() },
     annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false },
-  }, wrap("ht_read", (a: any) => htRead(policy, a)));
+  }, wrap("ht_read", async (a: any) => workspace.inputs.mask(await htRead(policy, a))));
 
   server.registerTool("ht_edit", {
     title: "Atomic multi-file exact-match edit",
@@ -145,7 +148,46 @@ export function createServer(policy: Policy, audit: Audit, workspace = createWor
       max_output_bytes: z.number().int().positive().optional().describe("May only lower the profile's captured-output budget (bytes, before formatting)"),
     },
     annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true },
-  }, wrap("ht_shell", async (a: ShellArgs) => { const r = await runShell(policy, a, workspace.vars, owner); return { ...asText(r.text), isError: r.isError }; }));
+  }, wrap("ht_shell", async (a: ShellArgs) => {
+    // HT_USER_INPUT comes from ht_user_input and is never an MCP argument.
+    const r = await runShell(policy, { ...a, user_env: workspace.inputs.envFor(owner) }, workspace.vars, owner);
+    return { ...asText(workspace.inputs.mask(r.text)), isError: r.isError };
+  }));
+
+  server.registerTool("ht_user_input", {
+    title: "Ask the user for a value (browser form, secret-safe)",
+    description: "Ask the user a question through a one-time browser form and receive the answer as $HT_USER_INPUT in ht_shell (and, for non-secret answers, in this tool's reply). action=request creates the form and returns its URL — give that URL to the user. Use action=get to collect the answer after the user submits; secret answers are never returned to the model, only injected into commands, kept out of the audit log and masked in command output. Clear the value when it is no longer needed.",
+    inputSchema: {
+      action: z.enum(["request", "get", "clear"]).optional().describe("request (default when title is given), get, or clear"),
+      title: z.string().min(1).max(200).optional().describe("Question shown to the user"),
+      kind: z.enum(["string", "boolean", "number", "array", "null"]).optional().describe("Answer type; default string"),
+      secret: z.boolean().optional().describe("Hidden field: never returned to the model, masked in output, not audited"),
+      ttl_minutes: z.number().int().min(3).max(60).optional().describe("How long the form stays valid (default 10)"),
+      request_id: z.string().min(20).max(64).optional().describe("Target a specific open request"),
+    },
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
+  }, wrap("ht_user_input", (a: { action?: "request" | "get" | "clear"; title?: string; kind?: any; secret?: boolean; ttl_minutes?: number; request_id?: string }) => {
+    const action = a.action ?? (a.title ? "request" : "get");
+    if (action === "request") {
+      if (!origin) throw new PolicyError("unavailable", "the user input form needs the HTTP transport (stdio has no browser endpoint)");
+      if (!a.title) throw new PolicyError("bad_input", "title is required for action=request");
+      const req = workspace.inputs.create(owner, { title: a.title, kind: a.kind ?? "string", secret: Boolean(a.secret), ttlMs: (a.ttl_minutes ?? 10) * 60_000 });
+      audit.write({ ev: "input_request", kind: req.kind, secret: req.secret });
+      return JSON.stringify({
+        action: "request", request_id: req.id, kind: req.kind, secret: req.secret,
+        url: `${origin}/ui/input/${req.id}`, expires_in_s: Math.round((req.expiresAt - Date.now()) / 1000),
+        next: "Show the user this url. Then call ht_user_input with action=get to read the answer (secrets stay in $HT_USER_INPUT only).",
+      }, null, 2);
+    }
+    if (action === "clear") {
+      const cleared = workspace.inputs.clear(owner, a.request_id);
+      return JSON.stringify({ action: "clear", cleared });
+    }
+    const req = workspace.inputs.get(owner, a.request_id);
+    if (req.submittedAt === undefined) return JSON.stringify({ action: "get", status: "pending", request_id: req.id, expires_in_s: Math.round((req.expiresAt - Date.now()) / 1000), next: "Ask the user to open the url and submit the form, then call action=get again." }, null, 2);
+    if (req.secret) return JSON.stringify({ action: "get", status: "ready", secret: true, request_id: req.id, env: "HT_USER_INPUT", value: null, next: "Use $HT_USER_INPUT inside ht_shell; never print it. Call action=clear when done." }, null, 2);
+    return JSON.stringify({ action: "get", status: "ready", secret: false, request_id: req.id, kind: req.kind, value: req.value, env: "HT_USER_INPUT", next: "Use $HT_USER_INPUT inside ht_shell as well when convenient." }, null, 2);
+  }));
 
   server.registerTool("ht_share", {
     title: "Share a file with the user",
@@ -191,6 +233,67 @@ export function createServer(policy: Policy, audit: Audit, workspace = createWor
       `<untrusted_web_content url=${JSON.stringify(r.finalUrl)}>`, slice, `</untrusted_web_content>${more}`].join("\n");
   }));
 
+  server.registerTool("ht_new_shell_env", {
+    title: "Start a clean shell environment",
+    description: "Rotate the workspace to a brand-new empty root (a fresh /work) when the tree is in a bad state. By default the previous files are moved into a bounded recycle bin and the new environment starts empty; managed variables and any open ht_user_input answer are cleared. carry_files=true keeps the current files instead of starting empty.",
+    inputSchema: { label: z.string().regex(/^[a-z0-9][a-z0-9-]{0,23}$/).optional().describe("Optional short name for the environment (a-z, 0-9, -)"), carry_files: z.boolean().optional().describe("Keep the current files instead of starting empty") },
+    annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false },
+  }, wrap("ht_new_shell_env", (a: { label?: string; carry_files?: boolean }) => {
+    const info = createEnv(policy, { label: a.label, rotate: !a.carry_files });
+    const vars = workspace.vars.clear(owner);
+    workspace.inputs.clear(owner);
+    audit.write({ ev: "env_new", name: info.name, recycled: info.recycled ?? null });
+    return JSON.stringify({
+      action: "new_environment", name: info.name, root: info.root, base: envBase(policy),
+      previous_moved_to: info.recycled ?? null, files_moved: info.carriedFiles,
+      carried_files: Boolean(a.carry_files), variables_cleared: vars,
+      next: "ht_shell, ht_read and ht_write all use the new root now. Previous contents (if any) are in the recycle bin under the environment base.",
+    }, null, 2);
+  }));
+
+  server.registerTool("ht_stop", {
+    title: "Reset the session and end the conversation",
+    description: "Finish the session deliberately: optionally rotate to a fresh empty environment (previous files go to the recycle bin), clear variables and any user-input answer, and return a structured end_conversation directive carrying a title and a reason. MCP cannot close a chat by itself — the client must act on the returned directive.",
+    inputSchema: {
+      title: z.string().min(1).max(120).describe("Short title for this session, e.g. 'Refactor finished'"),
+      reason: z.string().min(1).max(500).describe("Why the conversation should end"),
+      reset_environment: z.boolean().optional().describe("Rotate to an empty environment (default true); false keeps the current files"),
+      directive: z.enum(["end_conversation", "none"]).optional().describe("Directive to emit; default end_conversation"),
+    },
+    annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false },
+  }, wrap("ht_stop", (a: { title: string; reason: string; reset_environment?: boolean; directive?: "end_conversation" | "none" }) => {
+    const rotate = a.reset_environment !== false;
+    const env = rotate ? createEnv(policy, { label: "stop", rotate: true }) : undefined;
+    const cleared = workspace.vars.clear(owner);
+    workspace.inputs.clear(owner);
+    audit.write({ ev: "stop", title: a.title.slice(0, 120), reason: a.reason.slice(0, 500), reset: rotate });
+    return JSON.stringify({
+      action: "stop",
+      title: a.title, reason: a.reason,
+      reset_environment: rotate,
+      environment: env ? { name: env.name, root: env.root, previous_moved_to: env.recycled ?? null, files_moved: env.carriedFiles } : null,
+      variables_cleared: cleared,
+      directive: a.directive === "none" ? null : {
+        name: "end_conversation", title: a.title, reason: a.reason,
+        instruction: "Stop working and close the conversation with this title and reason. Do not start new work.",
+      },
+      note: "The MCP server cannot close the chat; the client honours this directive.",
+    }, null, 2);
+  }));
+
+  server.registerTool("ht_transfer_file", {
+    title: "Copy a file from an upload directory into the sandbox",
+    description: "Bring a file that lives outside the workspace (for example an upload directory from a long conversation) into the sandbox. Only configured source directories are readable, only regular files are copied, size is capped, and the destination is still confined to the project root. Use action=sources to see which directories exist on this host.",
+    inputSchema: {
+      action: z.enum(["copy", "sources"]).optional().describe("copy (default) or sources"),
+      source_path: z.string().min(1).max(4096).optional().describe("Absolute path inside a configured source directory"),
+      dest_path: z.string().min(1).max(4096).optional().describe("Destination relative to the project root"),
+      overwrite: z.boolean().optional().describe("Replace an existing destination file"),
+      max_bytes: z.number().int().positive().max(64 << 20).optional().describe("Refuse sources larger than this (default 64 MiB)"),
+    },
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
+  }, wrap("ht_transfer_file", (a: { action?: "copy" | "sources"; source_path?: string; dest_path?: string; overwrite?: boolean; max_bytes?: number }) => htTransferFile(policy, a)));
+
   type StatusArgs = { audit_export?: boolean; audit_snapshot?: string; audit_offset?: number };
   server.registerTool("ht_status", {
     title: "Show active policy and audit-chain status",
@@ -202,15 +305,18 @@ export function createServer(policy: Policy, audit: Audit, workspace = createWor
       return { content: [{ type: "text", text: JSON.stringify(page.info) }, { type: "resource", resource: page.resource }] };
     }
     if (a.audit_snapshot !== undefined || a.audit_offset !== undefined) throw new PolicyError("bad_input", "audit cursors require audit_export=true");
-    return JSON.stringify({
+    return workspace.inputs.mask(JSON.stringify({
       version: VERSION, profile: policy.profile, roots: policy.roots,
       fs: { writeEnabled: policy.fs.writeEnabled, secretScan: policy.fs.secretScan, requireHashForOverwrite: policy.fs.requireHashForOverwrite, denyWrite: policy.fs.denyWrite },
       shell: { enabled: policy.shell.enabled, shellSyntax: policy.shell.enabled && policy.shell.allowShellSyntax, execution: policy.shell.enabled ? (policy.shellWorker ?? "host") : "disabled", ...(policy.shellWorker && { workspaceRoot: "/work", network: policy.workspaceHttps ? "public-https-proxy" : "isolated" }), denyCommands: policy.shell.denyCommands.length },
       net: { enabled: policy.net.enabled, schemes: policy.net.schemes, allowDomains: policy.net.allowDomains, needsAllowlist: policy.net.requireAllowDomains && policy.net.allowDomains.length === 0 },
       share: { cwd: SHARE_CWD, createEnabled: policy.fs.writeEnabled },
       variables: { enabled: policy.shell.enabled, inheritByDefault: false },
+      userInput: { env: "HT_USER_INPUT", active: Boolean(workspace.inputs.value(owner)), transport: origin ? "http" : "stdio" },
+      environment: { name: currentEnvName(policy), base: envBase(policy), recycled: ".recycle (last 3 kept)" },
+      transfer: { sources: transferSources() },
       audit: { file: audit.file, scope: audit.scope, chain: audit.verify(), export: { audit_export: true } },
-    }, null, 2);
+    }, null, 2));
   }));
 
   return server;

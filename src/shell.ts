@@ -73,6 +73,8 @@ export interface ShellArgs {
   argv?: string[]; command?: string; cwd?: string; timeout_ms?: number; stdin?: string;
   stdin_file?: string; capture?: "both" | "stdout" | "stderr"; output_format?: "text" | "json";
   expected_exit_codes?: number[]; inherit_vars?: string[]; max_output_bytes?: number;
+  /** Server-side only (never an MCP argument): extra child env, e.g. HT_USER_INPUT from ht_user_input. */
+  user_env?: Record<string, string>;
 }
 export interface ShellResult { text: string; isError: boolean }
 
@@ -127,7 +129,7 @@ export async function runShell(policy: Policy, a: ShellArgs, vars = new Variable
     [file, args] = process.platform === "win32" ? ["cmd.exe", ["/d", "/s", "/c", cmd]] : ["/bin/sh", ["-c", cmd]]; shown = cmd;
   }
 
-  const selected = vars.select(policy, owner, a.inherit_vars);
+  const selected = { ...vars.select(policy, owner, a.inherit_vars), ...(a.user_env ?? {}) };
   const started = Date.now();
   let lease: EgressLease | undefined;
   if (policy.shellWorker && policy.workspaceHttps) {
