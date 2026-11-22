@@ -39,6 +39,10 @@ function workspaceArgs(p: Policy, cwd: string, program: string, args: string[], 
     // pip/pipx ve benzeri /usr/local kurulumları da görünür olsun (salt okunur).
     "--ro-bind-try", "/usr/local/bin", "/usr/local/bin", "--ro-bind-try", "/usr/local/lib", "/usr/local/lib",
     "--ro-bind-try", "/usr/lib64", "/usr/lib64", "--ro-bind", "/usr/share", "/usr/share",
+    // Dağıtım kimliği: komutlar (ve kullanıcı) kabuğun Ubuntu/Debian tabanını görebilsin.
+    "--ro-bind-try", "/etc/os-release", "/etc/os-release",
+    "--ro-bind-try", "/etc/lsb-release", "/etc/lsb-release",
+    "--ro-bind-try", "/etc/debian_version", "/etc/debian_version",
     "--symlink", "usr/bin", "/bin", "--symlink", "usr/lib", "/lib", "--symlink", "usr/lib64", "/lib64",
     "--dir", "/runtime", "--ro-bind-fd", "3", "/runtime/node",
     ...(lease ? ["--ro-bind-fd", "4", "/runtime/https-bridge.mjs", "--ro-bind", lease.socketPath, "/runtime/https.sock",
