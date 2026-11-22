@@ -16936,6 +16936,7 @@ function redirectAllowed(uri, extra) {
   return false;
 }
 var OAuth = class {
+  // device-flow ticket -> bekleyen giriş
   constructor(o) {
     this.o = o;
     this.key = crypto3.createHash("sha256").update("hardtools-oauth-v1\0" + o.token).digest();
@@ -16953,6 +16954,7 @@ var OAuth = class {
   failures = [];
   extra;
   github;
+  ghPending = /* @__PURE__ */ new Map();
   // ---- signed blobs ---------------------------------------------------------------------
   sign(p) {
     const body = B64(JSON.stringify(p));
@@ -17124,6 +17126,10 @@ var OAuth = class {
       await this.githubCallback(req, res, origin);
       return true;
     }
+    if (path11 === "/oauth/github/poll") {
+      await this.githubPoll(req, res, origin);
+      return true;
+    }
     if (path11 === "/token") {
       await this.tokenEndpoint(req, res);
       return true;
@@ -17207,7 +17213,7 @@ var OAuth = class {
       st: typeof q.state === "string" ? q.state.slice(0, 512) : "",
       exp: this.now() + 600
     });
-    const u = new URL("https://github.com/login/oauth/authorize");
+    const u = new URL(`${this.ghWeb()}/login/oauth/authorize`);
     u.searchParams.set("client_id", this.github.clientId);
     u.searchParams.set("redirect_uri", `${origin}/oauth/github/callback`);
     u.searchParams.set("scope", "read:user user:email");
@@ -17225,19 +17231,144 @@ var OAuth = class {
       return null;
     }
   }
+  ghWeb() {
+    return (this.github?.webBase ?? "https://github.com").replace(/\/+$/, "");
+  }
+  ghApi() {
+    return (this.github?.apiBase ?? "https://api.github.com").replace(/\/+$/, "");
+  }
+  /** GitHub token'ından kimliği çöz ve izin listesiyle karşılaştır. */
+  async githubIdentity(ghToken) {
+    const headers = { authorization: `Bearer ${ghToken}`, accept: "application/vnd.github+json", "user-agent": "hardtools-oauth" };
+    const user = await this.ghJson(`${this.ghApi()}/user`, { headers });
+    const login = String(user?.login ?? "").toLowerCase();
+    let email2 = String(user?.email ?? "").toLowerCase();
+    if (!email2) {
+      const mails = await this.ghJson(`${this.ghApi()}/user/emails`, { headers });
+      if (Array.isArray(mails)) {
+        const primary = mails.find((m) => m?.primary && m?.verified) ?? mails.find((m) => m?.verified);
+        if (primary && typeof primary.email === "string") email2 = primary.email.toLowerCase();
+      }
+    }
+    const allowLogin = new Set((this.github?.allowedLogins ?? []).map((v) => v.trim().toLowerCase()).filter(Boolean));
+    const allowEmail = new Set((this.github?.allowedEmails ?? []).map((v) => v.trim().toLowerCase()).filter(Boolean));
+    return { login, email: email2, permitted: !!login && allowLogin.has(login) || !!email2 && allowEmail.has(email2) };
+  }
+  /** Device flow: GitHub'dan tek kullanımlık kod al ve bekleme sayfasını göster. */
+  async startGithubDevice(res, q) {
+    const dc = await this.ghJson(`${this.ghWeb()}/login/device/code`, {
+      method: "POST",
+      headers: { accept: "application/json", "content-type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({ client_id: this.github.clientId, scope: "read:user user:email" }).toString()
+    });
+    if (!dc || typeof dc.device_code !== "string" || typeof dc.user_code !== "string") {
+      this.o.audit?.({ ev: "oauth_authorize", ok: false, via: "github_device", error: "device_code" });
+      return this.infoPage(res, 502, "GitHub'dan giri\u015F kodu al\u0131namad\u0131. Birka\xE7 saniye sonra Claude'dan tekrar dene.", null);
+    }
+    const ticket = crypto3.randomBytes(18).toString("base64url");
+    const p = {
+      deviceCode: dc.device_code,
+      userCode: String(dc.user_code),
+      verifyUri: typeof dc.verification_uri === "string" ? dc.verification_uri : `${this.ghWeb()}/login/device`,
+      intervalS: Math.max(5, Math.min(30, Number(dc.interval) || 5)),
+      exp: this.now() + Math.max(60, Math.min(900, Number(dc.expires_in) || 900)),
+      cid: q.client_id,
+      ru: q.redirect_uri,
+      cc: q.code_challenge,
+      st: typeof q.state === "string" ? q.state.slice(0, 512) : "",
+      nextPoll: 0
+    };
+    this.ghPending.set(ticket, p);
+    for (const [k, v] of this.ghPending) if (v.exp < this.now() - 60 || this.ghPending.size > 64) this.ghPending.delete(k);
+    this.o.audit?.({ ev: "oauth_authorize", via: "github_device_start" });
+    return this.waitPage(res, 200, ticket, p, "");
+  }
+  /** Device flow bekleme sayfası: GitHub onayını yoklar, hazır olunca Claude'a yönlendirir. */
+  async githubPoll(req, res, origin) {
+    if (!this.github) return this.infoPage(res, 404, "GitHub giri\u015Fi bu sunucuda yap\u0131land\u0131r\u0131lmam\u0131\u015F.", null);
+    if (req.method !== "GET") return this.infoPage(res, 405, "Yaln\u0131z GET.", null);
+    const ticket = new URL(req.url ?? "/", origin).searchParams.get("t") ?? "";
+    const p = this.ghPending.get(ticket);
+    if (!p) return this.infoPage(res, 410, "Giri\u015F oturumu bulunamad\u0131 (sunucu yeniden ba\u015Flam\u0131\u015F olabilir). Claude'dan ba\u011Flant\u0131y\u0131 yeniden ba\u015Flat.", null);
+    if (p.exp < this.now()) {
+      this.ghPending.delete(ticket);
+      this.o.audit?.({ ev: "oauth_authorize", ok: false, via: "github_device", error: "expired" });
+      return this.infoPage(res, 410, "GitHub kodu s\xFCresi doldu. Ba\u011Flant\u0131y\u0131 yeniden ba\u015Flat.", null);
+    }
+    if (Date.now() < p.nextPoll) return this.waitPage(res, 200, ticket, p, "GitHub onay\u0131 bekleniyor\u2026");
+    p.nextPoll = Date.now() + p.intervalS * 1e3;
+    const tok = await this.ghJson(`${this.ghWeb()}/login/oauth/access_token`, {
+      method: "POST",
+      headers: { accept: "application/json", "content-type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({ client_id: this.github.clientId, device_code: p.deviceCode, grant_type: "urn:ietf:params:oauth:grant-type:device_code" }).toString()
+    });
+    const ghErr = typeof tok?.error === "string" ? tok.error : "";
+    if (ghErr === "authorization_pending" || ghErr === "slow_down") {
+      if (ghErr === "slow_down") p.intervalS = Math.min(30, p.intervalS + 5);
+      return this.waitPage(res, 200, ticket, p, "GitHub onay\u0131 bekleniyor\u2026");
+    }
+    if (!tok || typeof tok.access_token !== "string") {
+      this.ghPending.delete(ticket);
+      this.o.audit?.({ ev: "oauth_authorize", ok: false, via: "github_device", error: ghErr.slice(0, 40) || "token" });
+      const denied = ghErr === "access_denied" || ghErr === "expired_token";
+      return this.infoPage(res, denied ? 403 : 502, denied ? "GitHub giri\u015Fi reddedildi ya da kodun s\xFCresi doldu. Ba\u011Flant\u0131y\u0131 yeniden ba\u015Flat." : "GitHub eri\u015Fim anahtar\u0131 al\u0131namad\u0131. Tekrar dene.", null);
+    }
+    const who = await this.githubIdentity(tok.access_token);
+    if (!who.permitted) {
+      this.ghPending.delete(ticket);
+      this.o.audit?.({ ev: "oauth_authorize", ok: false, via: "github_device", login: who.login.slice(0, 64), reason: "not_allowed" });
+      return this.infoPage(res, 403, `Bu GitHub hesab\u0131na izin verilmiyor${who.login ? ` (${who.login.replace(/[<>"']/g, "")})` : ""}.`, null);
+    }
+    const code = this.sign({ t: "code", jti: crypto3.randomBytes(12).toString("base64url"), cid: p.cid, ru: p.ru, cc: p.cc, exp: this.now() + CODE_TTL_S });
+    this.ghPending.delete(ticket);
+    this.o.audit?.({ ev: "oauth_authorize", ok: true, via: "github_device", login: who.login.slice(0, 64) });
+    const back = new URL(p.ru);
+    back.searchParams.set("code", code);
+    if (p.st) back.searchParams.set("state", p.st);
+    res.writeHead(302, { location: back.toString(), "cache-control": "no-store", "referrer-policy": "no-referrer" });
+    res.end();
+  }
+  html(res, code, body, extra = {}) {
+    res.writeHead(code, {
+      "content-type": "text/html; charset=utf-8",
+      "cache-control": "no-store",
+      "x-frame-options": "DENY",
+      "referrer-policy": "no-referrer",
+      "content-security-policy": "default-src 'none'; style-src 'unsafe-inline'; frame-ancestors 'none'; base-uri 'none'",
+      ...extra
+    });
+    res.end(`<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>hardtools</title>
+<style>body{font:16px system-ui,sans-serif;max-width:32rem;margin:4rem auto;padding:0 1rem;line-height:1.5}code{font-size:1.4em;letter-spacing:.12em;background:#f2f2f2;padding:.2rem .5rem;border-radius:.3rem}.e{color:#b00020}.m{color:#555}</style>
+<h1>hardtools</h1>${body}`);
+  }
+  infoPage(res, code, message, _q) {
+    const esc2 = (v) => v.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
+    return this.html(res, code, `<p class="e">${esc2(message)}</p>`);
+  }
+  waitPage(res, code, ticket, p, note) {
+    const esc2 = (v) => v.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
+    const next = `/oauth/github/poll?t=${encodeURIComponent(ticket)}`;
+    return this.html(res, code, `<p>GitHub hesab\u0131nla giri\u015F yap:</p>
+<p>1. <a href="${esc2(p.verifyUri)}" target="_blank" rel="noreferrer">${esc2(p.verifyUri)}</a> adresini a\xE7.</p>
+<p>2. \u015Eu kodu gir: <code>${esc2(p.userCode)}</code></p>
+<p>3. Bu sayfa kendili\u011Finden devam eder; kapatma.</p>
+${note ? `<p class="m">${esc2(note)}</p>` : ""}
+<meta http-equiv="refresh" content="5;url=${esc2(next)}">`, {});
+  }
   /** GitHub dönüşü: kodu değiştir, hesabı allowlist ile karşılaştır, kendi kodumuzu üret. */
   async githubCallback(req, res, origin) {
-    if (!this.github) return this.page(res, 404, "GitHub giri\u015Fi bu sunucuda yap\u0131land\u0131r\u0131lmam\u0131\u015F.", null);
-    if (req.method !== "GET") return this.page(res, 405, "Yaln\u0131z GET.", null);
+    if (!this.github) return this.infoPage(res, 404, "GitHub giri\u015Fi bu sunucuda yap\u0131land\u0131r\u0131lmam\u0131\u015F.", null);
+    if (req.method !== "GET") return this.infoPage(res, 405, "Yaln\u0131z GET.", null);
     const q = Object.fromEntries(new URL(req.url ?? "/", origin).searchParams);
     const state = this.verify(q.state, "idp");
-    if (!state) return this.page(res, 400, "Giri\u015F iste\u011Fi ge\xE7ersiz veya s\xFCresi dolmu\u015F. Claude'dan ba\u011Flant\u0131y\u0131 yeniden ba\u015Flat.", null);
+    if (!state) return this.infoPage(res, 400, "Giri\u015F iste\u011Fi ge\xE7ersiz veya s\xFCresi dolmu\u015F. Claude'dan ba\u011Flant\u0131y\u0131 yeniden ba\u015Flat.", null);
     if (typeof q.error === "string") {
       this.o.audit?.({ ev: "oauth_authorize", ok: false, via: "github", error: q.error.slice(0, 40) });
-      return this.page(res, 400, "GitHub giri\u015Fi reddedildi.", null);
+      return this.infoPage(res, 400, "GitHub giri\u015Fi reddedildi.", null);
     }
-    if (typeof q.code !== "string" || !q.code) return this.page(res, 400, "GitHub yetkilendirme kodu gelmedi.", null);
-    const tok = await this.ghJson("https://github.com/login/oauth/access_token", {
+    if (typeof q.code !== "string" || !q.code) return this.infoPage(res, 400, "GitHub yetkilendirme kodu gelmedi.", null);
+    if (!this.github.clientSecret) return this.infoPage(res, 400, "Bu sunucu GitHub device flow kullan\u0131yor; /authorize \xFCzerinden giri\u015F yap.", null);
+    const tok = await this.ghJson(`${this.ghWeb()}/login/oauth/access_token`, {
       method: "POST",
       headers: { accept: "application/json", "content-type": "application/x-www-form-urlencoded" },
       body: new URLSearchParams({ client_id: this.github.clientId, client_secret: this.github.clientSecret, code: q.code, redirect_uri: `${origin}/oauth/github/callback` }).toString()
@@ -17245,25 +17376,14 @@ var OAuth = class {
     const ghToken = tok && typeof tok.access_token === "string" ? tok.access_token : "";
     if (!ghToken) {
       this.o.audit?.({ ev: "oauth_authorize", ok: false, via: "github", error: "token_exchange" });
-      return this.page(res, 400, "GitHub eri\u015Fim anahtar\u0131 al\u0131namad\u0131. Tekrar dene.", null);
+      return this.infoPage(res, 400, "GitHub eri\u015Fim anahtar\u0131 al\u0131namad\u0131. Tekrar dene.", null);
     }
-    const user = await this.ghJson("https://api.github.com/user", { headers: { authorization: `Bearer ${ghToken}`, accept: "application/vnd.github+json", "user-agent": "hardtools-oauth" } });
-    const login = String(user?.login ?? "").toLowerCase();
-    let email2 = String(user?.email ?? "").toLowerCase();
-    if (!email2) {
-      const mails = await this.ghJson("https://api.github.com/user/emails", { headers: { authorization: `Bearer ${ghToken}`, accept: "application/vnd.github+json", "user-agent": "hardtools-oauth" } });
-      if (Array.isArray(mails)) {
-        const primary = mails.find((m) => m?.primary && m?.verified) ?? mails.find((m) => m?.verified);
-        if (primary && typeof primary.email === "string") email2 = primary.email.toLowerCase();
-      }
+    const who = await this.githubIdentity(ghToken);
+    if (!who.permitted) {
+      this.o.audit?.({ ev: "oauth_authorize", ok: false, via: "github", login: who.login.slice(0, 64), reason: "not_allowed" });
+      return this.infoPage(res, 403, `Bu GitHub hesab\u0131na izin verilmiyor${who.login ? ` (${who.login.replace(/[<>"']/g, "")})` : ""}.`, null);
     }
-    const allowLogin = new Set(this.github.allowedLogins.map((v) => v.trim().toLowerCase()).filter(Boolean));
-    const allowEmail = new Set(this.github.allowedEmails.map((v) => v.trim().toLowerCase()).filter(Boolean));
-    const permitted = login && allowLogin.has(login) || email2 && allowEmail.has(email2);
-    if (!permitted) {
-      this.o.audit?.({ ev: "oauth_authorize", ok: false, via: "github", login: login.slice(0, 64), reason: "not_allowed" });
-      return this.page(res, 403, `Bu GitHub hesab\u0131na izin verilmiyor${login ? ` (${login.replace(/[<>"']/g, "")})` : ""}.`, null);
-    }
+    const login = who.login;
     const code = this.sign({ t: "code", jti: crypto3.randomBytes(12).toString("base64url"), cid: state.cid, ru: state.ru, cc: state.cc, exp: this.now() + CODE_TTL_S });
     this.o.audit?.({ ev: "oauth_authorize", ok: true, via: "github", login: login.slice(0, 64) });
     const backUrl = new URL(state.ru);
@@ -17303,7 +17423,10 @@ var OAuth = class {
         this.o.audit?.({ ev: "oauth_authorize", ok: true, via: "invite_session" });
         return back({ code: code2 });
       }
-      if (this.github) return this.redirectToGithub(res, origin, q);
+      if (this.github) {
+        if (this.github.clientSecret) return this.redirectToGithub(res, origin, q);
+        return this.startGithubDevice(res, q);
+      }
       return this.page(res, 200, "", q);
     }
     const now = Date.now();
@@ -27392,14 +27515,24 @@ async function main() {
   const ghLogins = (process.env.HARDTOOLS_OAUTH_ALLOWED_LOGINS ?? "").split(",").map((s) => s.trim()).filter(Boolean);
   const ghEmails = (process.env.HARDTOOLS_OAUTH_ALLOWED_EMAILS ?? "").split(",").map((s) => s.trim()).filter(Boolean);
   let github;
-  if (ghId && ghSecret) {
+  if (ghId) {
     if (!ghLogins.length && !ghEmails.length) {
       console.error("[hardtools] refusing to start: HARDTOOLS_OAUTH_GITHUB_CLIENT_ID is set but HARDTOOLS_OAUTH_ALLOWED_LOGINS/EMAILS is empty, so every login would be denied.");
       process.exit(1);
     }
-    github = { clientId: ghId, clientSecret: ghSecret, allowedLogins: ghLogins, allowedEmails: ghEmails };
-  } else if (ghId || ghSecret) {
-    console.error("[hardtools] ignoring half-configured GitHub login: set both HARDTOOLS_OAUTH_GITHUB_CLIENT_ID and _CLIENT_SECRET, or neither.");
+    const ghWeb = (process.env.HARDTOOLS_OAUTH_GITHUB_WEB_BASE ?? "").trim();
+    const ghApi = (process.env.HARDTOOLS_OAUTH_GITHUB_API_BASE ?? "").trim();
+    github = {
+      clientId: ghId,
+      ...ghSecret ? { clientSecret: ghSecret } : {},
+      allowedLogins: ghLogins,
+      allowedEmails: ghEmails,
+      ...ghWeb ? { webBase: ghWeb } : {},
+      ...ghApi ? { apiBase: ghApi } : {}
+    };
+    console.error(`[hardtools] GitHub login enabled (${ghSecret ? "authorization-code redirect" : "device flow, no client secret"}); allowlist ${ghLogins.length} login / ${ghEmails.length} e-mail.`);
+  } else if (ghSecret) {
+    console.error("[hardtools] ignoring HARDTOOLS_OAUTH_GITHUB_CLIENT_SECRET without HARDTOOLS_OAUTH_GITHUB_CLIENT_ID.");
   }
   const oauth = new OAuth({ token, audit: (e) => audit.write(e), extraRedirectUris: (process.env.HARDTOOLS_OAUTH_REDIRECT_URIS ?? "").split(",").map((s) => s.trim()).filter(Boolean), github });
   const inviteOrigin = process.env.HARDTOOLS_INVITE_ORIGIN ?? "";

@@ -66,22 +66,24 @@ GH_FILE="deploy/fly/.env.github"
 if [ -f "$GH_FILE" ]; then
   set -a; . "$GH_FILE"; set +a
 fi
-if [ -n "${HARDTOOLS_OAUTH_GITHUB_CLIENT_ID:-}" ] && [ -n "${HARDTOOLS_OAUTH_GITHUB_CLIENT_SECRET:-}" ]; then
+if [ -n "${HARDTOOLS_OAUTH_GITHUB_CLIENT_ID:-}" ]; then
   if [ -z "${HARDTOOLS_OAUTH_ALLOWED_LOGINS:-}${HARDTOOLS_OAUTH_ALLOWED_EMAILS:-}" ]; then
     echo "GitHub girişi: HARDTOOLS_OAUTH_ALLOWED_LOGINS/EMAILS boş; her giriş reddedilirdi. Durduruldu." >&2
     exit 1
   fi
-  flyctl secrets set \
-    HARDTOOLS_OAUTH_GITHUB_CLIENT_ID="$HARDTOOLS_OAUTH_GITHUB_CLIENT_ID" \
-    HARDTOOLS_OAUTH_GITHUB_CLIENT_SECRET="$HARDTOOLS_OAUTH_GITHUB_CLIENT_SECRET" \
-    -a "$APP" >/dev/null
+  flyctl secrets set HARDTOOLS_OAUTH_GITHUB_CLIENT_ID="$HARDTOOLS_OAUTH_GITHUB_CLIENT_ID" -a "$APP" >/dev/null
+  # Sır opsiyonel: verilirse tarayıcı yönlendirmeli akış, verilmezse device flow.
+  if [ -n "${HARDTOOLS_OAUTH_GITHUB_CLIENT_SECRET:-}" ]; then
+    flyctl secrets set HARDTOOLS_OAUTH_GITHUB_CLIENT_SECRET="$HARDTOOLS_OAUTH_GITHUB_CLIENT_SECRET" -a "$APP" >/dev/null
+  fi
   if [ -n "${HARDTOOLS_OAUTH_ALLOWED_LOGINS:-}" ]; then
     flyctl secrets set HARDTOOLS_OAUTH_ALLOWED_LOGINS="$HARDTOOLS_OAUTH_ALLOWED_LOGINS" -a "$APP" >/dev/null
   fi
   if [ -n "${HARDTOOLS_OAUTH_ALLOWED_EMAILS:-}" ]; then
     flyctl secrets set HARDTOOLS_OAUTH_ALLOWED_EMAILS="$HARDTOOLS_OAUTH_ALLOWED_EMAILS" -a "$APP" >/dev/null
   fi
-  echo "GitHub ile giriş açık. OAuth App callback: https://${DOMAIN:-$APP.fly.dev}/oauth/github/callback"
+  echo "GitHub ile giriş açık ($([ -n "${HARDTOOLS_OAUTH_GITHUB_CLIENT_SECRET:-}" ] && echo "yönlendirme + istemci sırrı" || echo "device flow — istemci sırrı gerekmez; OAuth App'te 'Enable Device Flow' işaretli olmalı"))."
+  echo "OAuth App callback (yalnız yönlendirme akışında gerekir): https://${DOMAIN:-$APP.fly.dev}/oauth/github/callback"
   echo "İzin listesi: ${HARDTOOLS_OAUTH_ALLOWED_LOGINS:-}${HARDTOOLS_OAUTH_ALLOWED_EMAILS:-}"
 else
   echo "GitHub girişi tanımlı değil: /authorize token formunu gösterir."

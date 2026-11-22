@@ -102,9 +102,11 @@ test("fly deploy: GitHub login is wired from a gitignored .env.github, never inl
   assert.match(example, /Authorization callback URL: https:\/\/hardtools-mcp\.fly\.dev\/oauth\/github\/callback/);
   assert.match(example, /^HARDTOOLS_OAUTH_GITHUB_CLIENT_SECRET=$/m, "örnek dosyada sır boş olmalı");
   // Sır hiçbir yerde ekrana basılmamalı.
+  // Sır yalnızca "tanımlı mı" diye sınanabilir; değeri ekrana basılamaz.
   const leaks = deploySh.split("\n")
     .filter((row) => !row.trimStart().startsWith("#"))
-    .filter((row) => /echo .*\$\{?HARDTOOLS_OAUTH_GITHUB_CLIENT_SECRET/.test(row));
+    .filter((row) => /echo /.test(row))
+    .filter((row) => /\$\{?HARDTOOLS_OAUTH_GITHUB_CLIENT_SECRET\}/.test(row) && !/\$\{HARDTOOLS_OAUTH_GITHUB_CLIENT_SECRET:-\}/.test(row));
   assert.deepEqual(leaks, [], "istemci sırrı stdout'a basılmamalı");
 });
 

@@ -143,13 +143,26 @@ test("github login: without configuration the token form stays available", async
   assert.equal(callback.status, 404, "yapılandırma yoksa callback kapalı olmalı");
 });
 
-test("github login: a half-configured provider falls back, an empty allowlist refuses to start", async (t) => {
-  const partial = await startServer(t, { HARDTOOLS_OAUTH_GITHUB_CLIENT_ID: "Iv1.testclient" });
-  const clientId = await registeredClient(partial.port);
-  const form = await request(partial.port, { target: authorizePath(clientId) });
-  assert.equal(form.status, 200, "secret yoksa token formuna dönülmeli");
-  assert.match(partial.output(), /ignoring half-configured GitHub login/);
+test("github login: a client id alone means device flow, a secret alone is ignored, an empty allowlist refuses to start", async (t) => {
+  // Yalnız CLIENT_ID: device flow (tarayıcı GitHub'a değil, kod gösterim sayfasına gider).
+  const deviceOnly = await startServer(t, { HARDTOOLS_OAUTH_GITHUB_CLIENT_ID: "Iv1.testclient", HARDTOOLS_OAUTH_ALLOWED_LOGINS: "tlegends231" });
+  const clientId = await registeredClient(deviceOnly.port);
+  const page = await request(deviceOnly.port, { target: authorizePath(clientId) });
+  // Sahte client_id ile gerçek GitHub'a gidilir: ya kod sayfası (200) ya da GitHub reddi (502);
+  // her hâlde token formu gösterilmez.
+  assert.ok([200, 502].includes(page.status), `beklenmeyen durum: ${page.status}`);
+  assert.doesNotMatch(page.body, /access token/);
+  assert.match(deviceOnly.output(), /device flow, no client secret/);
 
+  // Yalnız CLIENT_SECRET: yok sayılır, token formu kalır.
+  const secretOnly = await startServer(t, { HARDTOOLS_OAUTH_GITHUB_CLIENT_SECRET: "orphan-secret" });
+  const cid2 = await registeredClient(secretOnly.port);
+  const form = await request(secretOnly.port, { target: authorizePath(cid2) });
+  assert.equal(form.status, 200, "sır tek başına giriş açmamalı");
+  assert.match(form.body, /access token/);
+  assert.match(secretOnly.output(), /ignoring HARDTOOLS_OAUTH_GITHUB_CLIENT_SECRET without/);
+
+  // Boş izin listesi: açılış reddedilir.
   const audit = tmp("ht-gh-audit-");
   const cfg = path.join(audit, "config.json");
   fs.writeFileSync(cfg, JSON.stringify({ audit: { dir: audit } }));
@@ -158,7 +171,7 @@ test("github login: a half-configured provider falls back, an empty allowlist re
     env: {
       ...process.env, HARDTOOLS_ROOTS: tmp("ht-gh-root-"), HARDTOOLS_CONFIG: cfg,
       HARDTOOLS_HTTP_TOKEN: TOKEN, HARDTOOLS_ALLOWED_HOSTS: `127.0.0.1:${port}`,
-      HARDTOOLS_OAUTH_GITHUB_CLIENT_ID: "Iv1.testclient", HARDTOOLS_OAUTH_GITHUB_CLIENT_SECRET: "test-secret"
+      HARDTOOLS_OAUTH_GITHUB_CLIENT_ID: "Iv1.testclient"
     },
     stdio: ["ignore", "ignore", "pipe"]
   });

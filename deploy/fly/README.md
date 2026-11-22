@@ -56,35 +56,39 @@ Uygulama adı global olarak doluysa: `bash deploy/fly/deploy.sh --app hardtools-
 
 Sertifika durumu: `flyctl certs show mcp.ornek.dev -a hardtools-mcp` → `Status = Ready` olana kadar birkaç dakika sürebilir. **Alan adını ekledikten sonra `HARDTOOLS_ALLOWED_HOSTS` içinde de olmalı**, yoksa sunucu DNS-rebinding koruması gereği `403 host not allowed` döner; `deploy.sh --domain` bunu senin için ayarlar.
 
-## 4. GitHub ile giriş (önerilen OAuth)
+## 4. GitHub ile giriş (önerilen OAuth, istemci sırrı gerekmez)
 
-Onay ekranında token yapıştırmak yerine normal **"GitHub ile giriş"** akışı kullanılır. Sunucu kendi OAuth kodlarını üretmeye devam eder; GitHub yalnızca "kim olduğunu" doğrular.
+Onay ekranında token yapıştırmak yerine GitHub girişi kullanılır. Sunucu kendi OAuth kodlarını üretmeye devam eder; GitHub yalnızca "kim olduğunu" doğrular.
+
+**Varsayılan akış GitHub device flow'dur:** istemci sırrı hiçbir yerde saklanmaz. Sunucu `/authorize` ekranında tek kullanımlık bir kod gösterir, kullanıcı https://github.com/login/device adresine girer, sayfa onayı yoklar ve hazır olunca Claude'a kodla döner.
 
 1. GitHub → **Settings → Developer settings → OAuth Apps → New OAuth App**
    - Application name: `hardtools-mcp`
    - Homepage URL: `https://hardtools-mcp.fly.dev`
-   - **Authorization callback URL: `https://hardtools-mcp.fly.dev/oauth/github/callback`** (özel alan adı kullanacaksan o adresi de ayrı bir OAuth App olarak ekle)
-2. `Client ID` ve `Client secret` değerlerini al.
+   - Authorization callback URL: `https://hardtools-mcp.fly.dev/oauth/github/callback` (yalnız yönlendirme akışını kullanacaksan gerekir)
+   - ✔ **Enable Device Flow** ← sırsız akış için şart
+2. Sadece **Client ID**'yi kopyala (sır değildir, paylaşılması güvenli).
 3. `deploy/fly/.env.github` dosyasını oluştur (`.example` dosyasını kopyala, izinler `0600`):
 
 ```bash
 install -m 600 deploy/fly/.env.github.example deploy/fly/.env.github
-$EDITOR deploy/fly/.env.github     # CLIENT_ID, CLIENT_SECRET, ALLOWED_LOGINS (GitHub kullanıcı adın)
+$EDITOR deploy/fly/.env.github     # CLIENT_ID + ALLOWED_LOGINS (GitHub kullanıcı adın)
 bash deploy/fly/deploy.sh --app hardtools-mcp
 ```
 
-`deploy.sh` bu dosyayı (ya da aynı adlı ortam değişkenlerini) Fly **secrets** olarak yazar; dosya `.gitignore` içinde, sır hiçbir zaman stdout'a basılmaz.
+`deploy.sh` bu dosyayı (ya da aynı adlı ortam değişkenlerini) Fly **secrets** olarak yazar; dosya `.gitignore` içinde, hiçbir değer stdout'a basılmaz.
 
 | Değişken | Zorunlu | Ne işe yarar |
 | --- | --- | --- |
-| `HARDTOOLS_OAUTH_GITHUB_CLIENT_ID` | evet | OAuth App istemci kimliği |
-| `HARDTOOLS_OAUTH_GITHUB_CLIENT_SECRET` | evet (secret) | istemci sırrı |
+| `HARDTOOLS_OAUTH_GITHUB_CLIENT_ID` | evet | OAuth App istemci kimliği (sır değil) |
+| `HARDTOOLS_OAUTH_GITHUB_CLIENT_SECRET` | **hayır** | Doldurulursa device flow yerine tarayıcı yönlendirme akışı kullanılır |
 | `HARDTOOLS_OAUTH_ALLOWED_LOGINS` | biri | virgülle GitHub kullanıcı adları |
 | `HARDTOOLS_OAUTH_ALLOWED_EMAILS` | biri | virgülle doğrulanmış e-posta adresleri |
 
-- İkisi de boşsa sunucu **açılmaz** (`ALLOWED_LOGINS` hatası verir) — yanlışlıkla "herkes girebilir" durumuna düşmeyi engeller.
-- Yalnız `CLIENT_ID` ya da yalnız `CLIENT_SECRET` verilirse giriş yok sayılır ve onay ekranı token formuna döner (kırık yarım yapılandırma olmaz).
-- GitHub girişi tanımlı değilken `/authorize` eski token formunu gösterir; `HARDTOOLS_HTTP_TOKEN` yalnızca **yedek** yoldur (Claude Code/Desktop başlığı, betikler).
+- İzin listesi boşsa sunucu **açılmaz** — "herkes girebilir" durumu oluşamaz.
+- Yalnız `CLIENT_SECRET` verilirse yok sayılır (eksik yapılandırma yolu açmaz) ve token formu kalır.
+- GitHub tanımlı değilken `/authorize` eski token formunu gösterir; `HARDTOOLS_HTTP_TOKEN` yalnızca **yedek** yoldur (Claude Code/Desktop başlığı, betikler).
+- Güvenlik: `/oauth/github/poll` bileti 18 baytlık rastgele, imzalı state'e bağlı, tek kullanımlık ve GitHub'ın verdiği ömürle sınırlı (en fazla 15 dk). İzin listesinde olmayan hesap kod almaz; GitHub reddi/yeniden kullanım 403/410 ile kapanır, yönlendirme yapılmaz.
 
 ## 5. Claude'a bağla
 
