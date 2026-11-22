@@ -1,0 +1,12 @@
+{
+  "name": "hardtools-marketplace",
+  "owner": { "name": "tickwarden" },
+  "metadata": { "description": "Install the hardtools workspace MCP plugin from its project repository." },
+  "plugins": [
+    {
+      "name": "hardtools",
+      "source": "./",
+      "description": "MCP workspace tools for files, shell commands, web access and audit."
+    }
+  ]
+}

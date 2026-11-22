@@ -2,7 +2,7 @@
 
 Claude'un yerleşik dosya/arama/kabuk/web araçlarının **sınırlandırılmış, denetlenebilir** karşılıkları. Tek bir MCP sunucusu; Claude Code, Claude Desktop (stdio) ve uzak MCP (HTTP) üzerinden çalışır.
 
-> **Durum:** v0.4.0, kod AI tarafından yazıldı (bkz. `CREDITS.md`). Otomatik testler var; bağımsız insan güvenlik incelemesi yapılmadı. Claude Code / Desktop / claude.ai içinde **gerçek yükleme burada denenmedi**; testler MCP SDK istemcisi ve ham HTTP ile yapıldı.
+> **Durum:** v0.4.0, kod AI tarafından yazıldı (bkz. `CREDITS.md`). Otomatik testler var; bağımsız insan güvenlik incelemesi yapılmadı. Pazar yerinden kurulum Claude Code CLI ile doğrulandı. MCP testleri SDK istemcisi ve ham HTTP ile yapılır; Claude Desktop ve claude.ai arayüzlerinde uçtan uca kurulum burada denenmedi.
 
 ## Araçlar
 
@@ -95,8 +95,20 @@ npm ci && npm test               # kilitli bağımlılıklar + testler (derleme 
 npm run bundle                   # bundle/index.js (node_modules gerekmez)
 ```
 
-### Claude Code (plugin)
-Klasörü plugin olarak yükle (`.claude-plugin/plugin.json` + `.mcp.json` hazır; sunucu `${CLAUDE_PLUGIN_ROOT}/bundle/index.js` ile başlar). Yerelde denemek için `claude --plugin-dir ./hardtools`; yükleme sorunlarında `claude --debug`. Kök dizin varsayılan olarak sunucunun çalışma dizinidir; `strict` ve `balanced` profilleri `/` ve ev dizininin kendisini reddeder.
+### Pazar yerinden kurulum
+
+**Eklentiler → Ekle → Pazar yeri ekle** penceresinde URL olarak `tickwarden/hardtools` girip **Eşitle**’yi seç. Katalog adı `hardtools-marketplace`, listelenen eklenti `hardtools`’dur. Bu alan GitHub depo adresini kullanır; buraya `/mcp` adresi, davet bağlantısı veya token yazılmaz.
+
+Claude Code içinde aynı katalogdan yüklemek için:
+
+```text
+/plugin marketplace add tickwarden/hardtools
+/plugin install hardtools@hardtools-marketplace
+```
+
+Bu eklenti **yerel stdio** kullanır: çalıştırıldığı ortamda Node.js 20+ gerekir; paketlenmiş `${CLAUDE_PLUGIN_ROOT}/bundle/index.js` için `npm install` gerekmez. **Amacın claude.ai’yi çalışan uzak MCP’ye bağlamaksa** pazar yeri yerine **Bağdaştırıcılar → Özel bağdaştırıcı ekle**’yi kullan; o oturumun `BAGLAN.html` kartındaki **MCP adresini** (`…/mcp`) gir. [Bağlantı adımları aşağıda.](#github-actions-tek-dosyayla-bağlan)
+
+Yerel geliştirmede bir proje klasöründen `claude --plugin-dir /hardtools/deposunun/yolu` ile de deneyebilirsin; yükleme sorunlarında `claude --debug` kullan. Kök dizin varsayılan olarak sunucunun çalışma dizinidir; `strict` ve `balanced` profilleri `/` ve ev dizininin kendisini reddeder.
 **Önemli:** yerleşik `Bash/Edit/Write/WebFetch` kapatılmazsa Claude onları kullanmaya devam eder ve bu eklenti güvenliği artırmaz, sadece seçenek ekler. `claude-code-settings.example.json`'a bak (sözdizimini sürümünde doğrula).
 
 ### Claude Desktop (stdio)
