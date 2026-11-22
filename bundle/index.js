@@ -27263,7 +27263,10 @@ var LABEL = /^[a-z0-9][a-z0-9-]{0,23}$/;
 function envBase(policy) {
   const fromEnv = (process.env.HARDTOOLS_ENVS_DIR ?? "").trim();
   if (fromEnv) return path11.resolve(fromEnv);
-  return path11.join(path11.dirname(policy.roots[0]), "envs");
+  const root = policy.roots[0];
+  const parent = path11.dirname(root);
+  if (path11.basename(parent) === "envs") return parent;
+  return path11.join(parent, "envs");
 }
 function currentEnvName(policy) {
   const root = policy.roots[0];
