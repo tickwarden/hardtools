@@ -1,0 +1,52 @@
+# Hardtools MCP — 7/24 uzak sunucu (Fly.io)
+# Alan adı bağlamak için deploy.sh --domain kullan; HARDTOOLS_ALLOWED_HOSTS
+# o adresi de içermelidir, aksi halde istekler 403 döner.
+app = "hardtools-mcp"
+primary_region = "fra"
+
+kill_signal = "SIGINT"
+kill_timeout = "10s"
+
+[build]
+  dockerfile = "deploy/fly/Dockerfile"
+
+[env]
+  NODE_ENV = "production"
+  HARDTOOLS_CONFIG = "/etc/hardtools/config.json"
+  HARDTOOLS_ROOTS = "/data/work"
+  HARDTOOLS_PROFILE = "balanced"
+
+# Özel alan adı eklerken burayı güncelle (ya da deploy.sh kullan):
+#   fly secrets set HARDTOOLS_ALLOWED_HOSTS="hardtools-mcp.fly.dev,mcp.ornek.dev,127.0.0.1:8787"
+
+[http_service]
+  internal_port = 8787
+  force_https = true
+  # 7/24: makine boşta durdurulmaz ve en az bir makine açık kalır.
+  auto_stop_machines = "off"
+  auto_start_machines = true
+  min_machines_running = 1
+  processes = ["app"]
+
+  # Fly bir makineyi yalnızca bu kontrol geçince sağlıklı sayar.
+  [[http_service.checks]]
+    method = "GET"
+    path = "/healthz"
+    interval = "30s"
+    timeout = "5s"
+    grace_period = "20s"
+
+[http_service.concurrency]
+  type = "requests"
+  soft_limit = 60
+  hard_limit = 100
+
+[[vm]]
+  cpu_kind = "shared"
+  cpus = 1
+  memory = "512mb"
+
+# Kalıcı hacim: /data/work proje kökü, /data/audit denetim kaydı.
+[[mounts]]
+  source = "hardtools_data"
+  destination = "/data"

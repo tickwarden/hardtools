@@ -67,9 +67,22 @@ async function main() {
   const srv = http.createServer(async (req, res) => {
     const send = (code: number, msg: string, headers: Record<string, string> = {}) => { res.writeHead(code, { "content-type": "application/json", ...headers }); res.end(JSON.stringify({ error: msg })); };
     try {
+      const path = (req.url ?? "").split("?")[0];
+      // Liveness probe for 7/24 hosts (Fly.io, systemd, Docker). It answers before the Host
+      // allowlist so a monitor with an unexpected Host header cannot mark a healthy machine down.
+      // It exposes no roots, tokens, paths or policy details.
+      if (path === "/healthz") {
+        res.writeHead(200, { "content-type": "application/json", "cache-control": "no-store" });
+        res.end(JSON.stringify({
+          ok: true, version: VERSION,
+          shell: policy.shell.enabled ? (policy.shellWorker ?? "host") : "disabled",
+          write: policy.fs.writeEnabled,
+          uptime_s: Math.round(process.uptime()),
+        }));
+        return;
+      }
       const h = String(req.headers.host ?? "").toLowerCase();
       if (!allowedHosts.has(h)) return send(403, "host not allowed");                 // DNS-rebinding defence
-      const path = (req.url ?? "").split("?")[0];
       // Machine-to-machine endpoint: browser origins are refused, except the consent page posting to itself.
       if (req.headers.origin && !(path === "/authorize" && req.headers.origin === oauth.origin(req))) return send(403, "browser origins are not allowed");
       const ip = req.socket.remoteAddress ?? "?"; const now = Date.now(); const b = hits.get(ip) ?? { n: 0, reset: now + 60_000 };

@@ -27316,9 +27316,20 @@ async function main() {
       res.end(JSON.stringify({ error: msg }));
     };
     try {
+      const path11 = (req.url ?? "").split("?")[0];
+      if (path11 === "/healthz") {
+        res.writeHead(200, { "content-type": "application/json", "cache-control": "no-store" });
+        res.end(JSON.stringify({
+          ok: true,
+          version: VERSION,
+          shell: policy.shell.enabled ? policy.shellWorker ?? "host" : "disabled",
+          write: policy.fs.writeEnabled,
+          uptime_s: Math.round(process.uptime())
+        }));
+        return;
+      }
       const h = String(req.headers.host ?? "").toLowerCase();
       if (!allowedHosts.has(h)) return send(403, "host not allowed");
-      const path11 = (req.url ?? "").split("?")[0];
       if (req.headers.origin && !(path11 === "/authorize" && req.headers.origin === oauth.origin(req))) return send(403, "browser origins are not allowed");
       const ip = req.socket.remoteAddress ?? "?";
       const now = Date.now();

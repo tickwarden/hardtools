@@ -1,0 +1,12 @@
+# Docker derleme bağlamı: yalnızca kaynak, kilit dosyası ve deploy varlıkları gerekir.
+node_modules
+dist
+.git
+.github
+test
+uploads
+*.log
+.ht-trash
+harttools-*.txt
+harttools-*.zip
+deploy/fly/.env.local

@@ -1,0 +1,5 @@
+{
+  "audit": { "dir": "/data/audit", "failClosed": true },
+  "fs": { "writeEnabled": true, "secretScan": "block" },
+  "shell": { "enabled": true }
+}
