@@ -10,6 +10,9 @@ COPY package.json package-lock.json ./
 RUN npm ci --no-audit --no-fund
 COPY tsconfig.json build-bundle.mjs ./
 COPY src ./src
+# build-bundle.mjs, scripts/build-reader.mjs uzerinden reader/ dosyalarini da derler.
+COPY scripts ./scripts
+COPY reader ./reader
 # bundle/index.js node_modules gerektirmez; çalışma imajına yalnızca bu çıktı gider.
 RUN npm run build && node build-bundle.mjs && test -s bundle/index.js
 

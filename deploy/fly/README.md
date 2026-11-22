@@ -14,7 +14,7 @@ claude.ai / Claude Code  ──HTTPS──►  https://<alan-adın>/mcp   (Fly p
 
 | Hazır (bu klasörde) | Senin hesabında olması gereken |
 |---|---|
-| `Dockerfile` (Node 22 + bubblewrap + git/curl), `fly.toml` (7/24 ayarları, health check, volume) | Fly.io hesabı + kart |
+| `Dockerfile` (Node 22 + bubblewrap + git/curl), depo kökündeki `fly.toml` (7/24 ayarları, health check, volume) | Fly.io hesabı + kart |
 | `entrypoint.sh` (hacmi hazırlar, token denetler), `config.json` (yazma + izole kabuk) | Alan adı (istersen) ve DNS erişimi |
 | `deploy.sh` (uygulama/hacim/secret/sertifika/doğrulama) | `flyctl auth login` onayı |
 | `/healthz` uç noktası (Host denetiminden önce yanıtlar) | — |
@@ -44,7 +44,7 @@ bash deploy/fly/deploy.sh --domain mcp.ornek.dev --region fra --size 3
 
 Betik sırayla: uygulamayı oluşturur → `hardtools_data` hacmini açar → `HARDTOOLS_HTTP_TOKEN` üretir (ekrana basmaz, `deploy/fly/.env.local` dosyasına `0600` yazar) → `HARDTOOLS_ALLOWED_HOSTS` ayarlar → `flyctl deploy` → alan adı verildiyse sertifika ister → `/healthz` ile doğrular.
 
-Uygulama adı global olarak doluysa: `bash deploy/fly/deploy.sh --app hardtools-mcp-$(openssl rand -hex 2)` ve `fly.toml` içindeki `app` değerini aynı adla güncelle.
+Uygulama adı global olarak doluysa: `bash deploy/fly/deploy.sh --app hardtools-mcp-$(openssl rand -hex 2)` ve depo kökündeki `fly.toml` içindeki `app` değerini aynı adla güncelle.
 
 ## 3. Özel alan adı + DNS
 

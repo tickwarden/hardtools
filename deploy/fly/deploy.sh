@@ -29,6 +29,9 @@ while [ $# -gt 0 ]; do
 done
 
 command -v flyctl >/dev/null 2>&1 || { echo "flyctl gerekli: https://fly.io/docs/flyctl/install/" >&2; exit 1; }
+# flyctl Docker baglamini config dosyasinin klasorunden alir; config depo kokunde olmali.
+cd "$(cd "$(dirname "$0")/../.." && pwd)"
+[ -f fly.toml ] || { echo "fly.toml bulunamadi (depo koku)" >&2; exit 1; }
 flyctl auth whoami >/dev/null 2>&1 || { echo "önce 'flyctl auth login' (cihaz akışı) çalıştır" >&2; exit 1; }
 
 echo "== uygulama ve hacim"
@@ -58,7 +61,7 @@ if [ -n "$CONFIG_OVERRIDE" ]; then
 fi
 
 echo "== dağıtım (7/24: auto_stop kapalı, min_machines_running=1)"
-flyctl deploy -a "$APP" --ha=false
+flyctl deploy -a "$APP" --config fly.toml --ha=false
 
 if [ -n "$DOMAIN" ]; then
   echo "== özel alan adı sertifikası"

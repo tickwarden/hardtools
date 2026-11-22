@@ -1,4 +1,6 @@
 # Hardtools MCP — 7/24 uzak sunucu (Fly.io)
+# Bu dosya depo kökünde olmalı: flyctl Docker bağlamını config dosyasının
+# bulunduğu klasörden alır, imaj ise deploy/fly/Dockerfile ile derlenir.
 # Alan adı bağlamak için deploy.sh --domain kullan; HARDTOOLS_ALLOWED_HOSTS
 # o adresi de içermelidir, aksi halde istekler 403 döner.
 app = "hardtools-mcp"

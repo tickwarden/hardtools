@@ -10,7 +10,7 @@ import { spawn } from "node:child_process";
 
 const root = new URL("../", import.meta.url);
 const read = (name) => fs.readFileSync(new URL(name, root), "utf8");
-const flyToml = read("deploy/fly/fly.toml");
+const flyToml = read("fly.toml");
 const dockerfile = read("deploy/fly/Dockerfile");
 const entrypoint = read("deploy/fly/entrypoint.sh");
 const deploySh = read("deploy/fly/deploy.sh");
@@ -39,6 +39,9 @@ test("fly deploy: the machine never sleeps and Fly probes /healthz", () => {
 test("fly deploy: image ships the bundle, bubblewrap and a health probe", () => {
   assert.match(dockerfile, /FROM node:22-bookworm-slim AS build/);
   assert.match(dockerfile, /RUN npm run build && node build-bundle\.mjs/);
+  // Derleme, scripts/build-reader.mjs ve reader/ olmadan Docker içinde düşer.
+  assert.match(dockerfile, /COPY scripts \.\/scripts/);
+  assert.match(dockerfile, /COPY reader \.\/reader/);
   assert.match(dockerfile, /apt-get install -y --no-install-recommends bubblewrap/);
   assert.match(dockerfile, /COPY --from=build \/app\/bundle \.\/bundle/);
   assert.match(dockerfile, /ENTRYPOINT \["\/usr\/local\/bin\/hardtools-entrypoint"\]/);
@@ -72,7 +75,8 @@ test("fly deploy: the script hides the token, pins hosts and verifies the deploy
   assert.match(deploySh, /install -m 600 \/dev\/null deploy\/fly\/\.env\.local/);
   assert.match(deploySh, /HARDTOOLS_ALLOWED_HOSTS="\$HOSTS"/);
   assert.match(deploySh, /HOSTS="\$APP\.fly\.dev,127\.0\.0\.1:8787"/);
-  assert.match(deploySh, /flyctl deploy -a "\$APP" --ha=false/);
+  assert.match(deploySh, /flyctl deploy -a "\$APP" --config fly\.toml --ha=false/);
+  assert.match(deploySh, /cd "\$\(cd "\$\(dirname "\$0"\)\/\.\.\/\.\." && pwd\)"/, "betik depo kökünden çalışmalı");
   assert.match(deploySh, /flyctl certs add "\$DOMAIN"/);
   assert.match(deploySh, /curl -fsS "https:\/\/\$APP\.fly\.dev\/healthz"/);
   assert.match(deploySh, /--readwrite/);
