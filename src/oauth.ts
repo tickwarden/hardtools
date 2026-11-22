@@ -42,10 +42,21 @@ function redirectAllowed(uri: string, extra: Set<string>): boolean {
   return false;
 }
 
+export interface GithubIdp {
+  clientId: string;
+  clientSecret: string;
+  /** GitHub kullanıcı adları (küçük/büyük harf farkı yok). Boş liste: yalnız e-posta eşleşmesi. */
+  allowedLogins: string[];
+  /** Doğrulanmış birincil e-postalar; logins boşsa kullanılır. */
+  allowedEmails: string[];
+}
+
 export interface OAuthOptions {
   token: string;
   audit?: (entry: Record<string, unknown>) => void;
   extraRedirectUris?: string[];
+  /** Verilirse /authorize, token formu yerine GitHub girişine yönlendirir. */
+  github?: GithubIdp;
 }
 
 export class OAuth {
@@ -55,11 +66,13 @@ export class OAuth {
   private sessions     = new Map<string, number>(); // sessionId -> exp (invite → consent bridge)
   private failures: number[] = [];
   private extra: Set<string>;
+  private github?: GithubIdp;
 
   constructor(private o: OAuthOptions) {
     // Existing v1 HMAC key schedule for a random per-run master key. Keeping it preserves signed grants on restart.
     this.key = crypto.createHash("sha256").update("hardtools-oauth-v1\0" + o.token).digest();
     this.extra = new Set(o.extraRedirectUris ?? []);
+    this.github = o.github;
   }
 
   // ---- signed blobs ---------------------------------------------------------------------
@@ -206,6 +219,7 @@ export class OAuth {
     }
     if (path === "/register")           { await this.register(req, res); return true; }
     if (path === "/authorize")          { await this.authorize(req, res, origin); return true; }
+    if (path === "/oauth/github/callback") { await this.githubCallback(req, res, origin); return true; }
     if (path === "/token")              { await this.tokenEndpoint(req, res); return true; }
     if (path.startsWith("/invite/"))    { await this.handleInvite(req, res, path, origin); return true; }
     return false;
@@ -262,6 +276,78 @@ export class OAuth {
     try { const j = JSON.parse(raw.toString("utf8")); return j && typeof j === "object" && !Array.isArray(j) ? j : null; } catch { return null; }
   }
 
+  // ---- upstream GitHub identity (removes the token-paste form) ---------------------------
+  /** GitHub'a yönlendir; orijinal istek imzalı state içinde taşınır. */
+  private redirectToGithub(res: http.ServerResponse, origin: string, q: Record<string, string>) {
+    const state = this.sign({
+      t: "idp", jti: crypto.randomBytes(12).toString("base64url"),
+      cid: q.client_id, ru: q.redirect_uri, cc: q.code_challenge,
+      st: typeof q.state === "string" ? q.state.slice(0, 512) : "",
+      exp: this.now() + 600,
+    });
+    const u = new URL("https://github.com/login/oauth/authorize");
+    u.searchParams.set("client_id", this.github!.clientId);
+    u.searchParams.set("redirect_uri", `${origin}/oauth/github/callback`);
+    u.searchParams.set("scope", "read:user user:email");
+    u.searchParams.set("state", state);
+    u.searchParams.set("allow_signup", "false");
+    this.o.audit?.({ ev: "oauth_authorize", via: "github_redirect" });
+    res.writeHead(302, { location: u.toString(), "cache-control": "no-store", "referrer-policy": "no-referrer" });
+    res.end();
+  }
+
+  private async ghJson(url: string, init: RequestInit): Promise<any | null> {
+    try {
+      const r = await fetch(url, { ...init, signal: AbortSignal.timeout(10_000) });
+      return await r.json();
+    } catch { return null; }
+  }
+
+  /** GitHub dönüşü: kodu değiştir, hesabı allowlist ile karşılaştır, kendi kodumuzu üret. */
+  private async githubCallback(req: http.IncomingMessage, res: http.ServerResponse, origin: string) {
+    if (!this.github) return this.page(res, 404, "GitHub girişi bu sunucuda yapılandırılmamış.", null);
+    if (req.method !== "GET") return this.page(res, 405, "Yalnız GET.", null);
+    const q = Object.fromEntries(new URL(req.url ?? "/", origin).searchParams);
+    const state = this.verify(q.state, "idp");
+    if (!state) return this.page(res, 400, "Giriş isteği geçersiz veya süresi dolmuş. Claude'dan bağlantıyı yeniden başlat.", null);
+    if (typeof q.error === "string") { this.o.audit?.({ ev: "oauth_authorize", ok: false, via: "github", error: q.error.slice(0, 40) }); return this.page(res, 400, "GitHub girişi reddedildi.", null); }
+    if (typeof q.code !== "string" || !q.code) return this.page(res, 400, "GitHub yetkilendirme kodu gelmedi.", null);
+
+    const tok = await this.ghJson("https://github.com/login/oauth/access_token", {
+      method: "POST",
+      headers: { accept: "application/json", "content-type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({ client_id: this.github.clientId, client_secret: this.github.clientSecret, code: q.code, redirect_uri: `${origin}/oauth/github/callback` }).toString(),
+    });
+    const ghToken = tok && typeof tok.access_token === "string" ? tok.access_token : "";
+    if (!ghToken) { this.o.audit?.({ ev: "oauth_authorize", ok: false, via: "github", error: "token_exchange" }); return this.page(res, 400, "GitHub erişim anahtarı alınamadı. Tekrar dene.", null); }
+
+    const user = await this.ghJson("https://api.github.com/user", { headers: { authorization: `Bearer ${ghToken}`, accept: "application/vnd.github+json", "user-agent": "hardtools-oauth" } });
+    const login = String(user?.login ?? "").toLowerCase();
+    let email = String(user?.email ?? "").toLowerCase();
+    if (!email) {
+      const mails = await this.ghJson("https://api.github.com/user/emails", { headers: { authorization: `Bearer ${ghToken}`, accept: "application/vnd.github+json", "user-agent": "hardtools-oauth" } });
+      if (Array.isArray(mails)) {
+        const primary = mails.find((m: any) => m?.primary && m?.verified) ?? mails.find((m: any) => m?.verified);
+        if (primary && typeof primary.email === "string") email = primary.email.toLowerCase();
+      }
+    }
+    const allowLogin = new Set(this.github.allowedLogins.map(v => v.trim().toLowerCase()).filter(Boolean));
+    const allowEmail = new Set(this.github.allowedEmails.map(v => v.trim().toLowerCase()).filter(Boolean));
+    const permitted = (login && allowLogin.has(login)) || (email && allowEmail.has(email));
+    if (!permitted) {
+      this.o.audit?.({ ev: "oauth_authorize", ok: false, via: "github", login: login.slice(0, 64), reason: "not_allowed" });
+      return this.page(res, 403, `Bu GitHub hesabına izin verilmiyor${login ? ` (${login.replace(/[<>"']/g, "")})` : ""}.`, null);
+    }
+
+    const code = this.sign({ t: "code", jti: crypto.randomBytes(12).toString("base64url"), cid: state.cid, ru: state.ru, cc: state.cc, exp: this.now() + CODE_TTL_S });
+    this.o.audit?.({ ev: "oauth_authorize", ok: true, via: "github", login: login.slice(0, 64) });
+    const backUrl = new URL(state.ru);
+    backUrl.searchParams.set("code", code);
+    if (state.st) backUrl.searchParams.set("state", String(state.st));
+    res.writeHead(302, { location: backUrl.toString(), "cache-control": "no-store", "referrer-policy": "no-referrer" });
+    res.end();
+  }
+
   // ---- authorization endpoint -----------------------------------------------------------
   private async authorize(req: http.IncomingMessage, res: http.ServerResponse, origin: string) {
     let q: Record<string, string>;
@@ -293,6 +379,7 @@ export class OAuth {
         this.o.audit?.({ ev: "oauth_authorize", ok: true, via: "invite_session" });
         return back({ code });
       }
+      if (this.github) return this.redirectToGithub(res, origin, q);
       return this.page(res, 200, "", q);
     }
 
@@ -315,7 +402,7 @@ export class OAuth {
     const keep = ["response_type", "client_id", "redirect_uri", "state", "code_challenge", "code_challenge_method", "scope", "resource"];
     const hidden = q ? keep.filter(k => typeof q[k] === "string").map(k => `<input type="hidden" name="${k}" value="${esc(q[k])}">`).join("") : "";
     const form = q ? `<p>Enter the access token only, without the <code>Bearer</code> prefix. Do not paste a connection password, encrypted text, invite URL or private key.</p>
-<p>GitHub Actions: open <strong>BAGLAN.html</strong> from this run’s hardtools-connect ZIP on your computer. In the “Access token” section, match this page’s address and copy the token.</p>
+<p>Where the token comes from: a <code>fly secrets</code> deployment stores it in the server’s <code>HARDTOOLS_HTTP_TOKEN</code> secret (for example <code>deploy/fly/.env.local</code> on the machine that deployed it). A GitHub Actions publish shows it in <strong>BAGLAN.html</strong> from that run’s hardtools-connect ZIP.</p>
 <form method="post" action="/authorize" autocomplete="off">${hidden}<input type="password" name="access_token" autocomplete="off" autofocus required placeholder="access token"><button type="submit">Authorize</button></form>` : "";
     res.writeHead(code, {
       "content-type": "text/html; charset=utf-8", "cache-control": "no-store", "x-frame-options": "DENY",

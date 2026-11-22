@@ -60,6 +60,34 @@ if [ -n "$CONFIG_OVERRIDE" ]; then
   echo "kabuk kapalı yapılandırma seçildi: $CONFIG_OVERRIDE"
 fi
 
+# GitHub ile giriş (önerilen): dört değer ortamda ya da deploy/fly/.env.github içinde.
+# Dosya 0600 olmalı ve depoya girmez. Tanımlıysa /authorize token formu yerine GitHub'a gider.
+GH_FILE="deploy/fly/.env.github"
+if [ -f "$GH_FILE" ]; then
+  set -a; . "$GH_FILE"; set +a
+fi
+if [ -n "${HARDTOOLS_OAUTH_GITHUB_CLIENT_ID:-}" ] && [ -n "${HARDTOOLS_OAUTH_GITHUB_CLIENT_SECRET:-}" ]; then
+  if [ -z "${HARDTOOLS_OAUTH_ALLOWED_LOGINS:-}${HARDTOOLS_OAUTH_ALLOWED_EMAILS:-}" ]; then
+    echo "GitHub girişi: HARDTOOLS_OAUTH_ALLOWED_LOGINS/EMAILS boş; her giriş reddedilirdi. Durduruldu." >&2
+    exit 1
+  fi
+  flyctl secrets set \
+    HARDTOOLS_OAUTH_GITHUB_CLIENT_ID="$HARDTOOLS_OAUTH_GITHUB_CLIENT_ID" \
+    HARDTOOLS_OAUTH_GITHUB_CLIENT_SECRET="$HARDTOOLS_OAUTH_GITHUB_CLIENT_SECRET" \
+    -a "$APP" >/dev/null
+  if [ -n "${HARDTOOLS_OAUTH_ALLOWED_LOGINS:-}" ]; then
+    flyctl secrets set HARDTOOLS_OAUTH_ALLOWED_LOGINS="$HARDTOOLS_OAUTH_ALLOWED_LOGINS" -a "$APP" >/dev/null
+  fi
+  if [ -n "${HARDTOOLS_OAUTH_ALLOWED_EMAILS:-}" ]; then
+    flyctl secrets set HARDTOOLS_OAUTH_ALLOWED_EMAILS="$HARDTOOLS_OAUTH_ALLOWED_EMAILS" -a "$APP" >/dev/null
+  fi
+  echo "GitHub ile giriş açık. OAuth App callback: https://${DOMAIN:-$APP.fly.dev}/oauth/github/callback"
+  echo "İzin listesi: ${HARDTOOLS_OAUTH_ALLOWED_LOGINS:-}${HARDTOOLS_OAUTH_ALLOWED_EMAILS:-}"
+else
+  echo "GitHub girişi tanımlı değil: /authorize token formunu gösterir."
+  echo "Açmak için: deploy/fly/.env.github (örnek: deploy/fly/.env.github.example) ya da ortam değişkenleri."
+fi
+
 echo "== dağıtım (7/24: auto_stop kapalı, min_machines_running=1)"
 flyctl deploy -a "$APP" --config fly.toml --ha=false
 
@@ -75,3 +103,6 @@ echo -n "fly.dev sağlık: "; curl -fsS "https://$APP.fly.dev/healthz" || echo "
 echo
 [ -n "$DOMAIN" ] && { echo -n "$DOMAIN sağlık: "; curl -fsS "https://$DOMAIN/healthz" || echo "(sertifika/DNS beklemede olabilir)"; echo; }
 echo "Claude bağdaştırıcısı için adres: https://${DOMAIN:-$APP.fly.dev}/mcp"
+if [ -n "${HARDTOOLS_OAUTH_GITHUB_CLIENT_ID:-}" ]; then
+  echo "Giriş akışını dene: https://${DOMAIN:-$APP.fly.dev}/authorize (GitHub'a yönlenmeli)"
+fi

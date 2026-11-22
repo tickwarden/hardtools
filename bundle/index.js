@@ -16940,6 +16940,7 @@ var OAuth = class {
     this.o = o;
     this.key = crypto3.createHash("sha256").update("hardtools-oauth-v1\0" + o.token).digest();
     this.extra = new Set(o.extraRedirectUris ?? []);
+    this.github = o.github;
   }
   o;
   key;
@@ -16951,6 +16952,7 @@ var OAuth = class {
   // sessionId -> exp (invite → consent bridge)
   failures = [];
   extra;
+  github;
   // ---- signed blobs ---------------------------------------------------------------------
   sign(p) {
     const body = B64(JSON.stringify(p));
@@ -17118,6 +17120,10 @@ var OAuth = class {
       await this.authorize(req, res, origin);
       return true;
     }
+    if (path11 === "/oauth/github/callback") {
+      await this.githubCallback(req, res, origin);
+      return true;
+    }
     if (path11 === "/token") {
       await this.tokenEndpoint(req, res);
       return true;
@@ -17189,6 +17195,83 @@ var OAuth = class {
       return null;
     }
   }
+  // ---- upstream GitHub identity (removes the token-paste form) ---------------------------
+  /** GitHub'a yönlendir; orijinal istek imzalı state içinde taşınır. */
+  redirectToGithub(res, origin, q) {
+    const state = this.sign({
+      t: "idp",
+      jti: crypto3.randomBytes(12).toString("base64url"),
+      cid: q.client_id,
+      ru: q.redirect_uri,
+      cc: q.code_challenge,
+      st: typeof q.state === "string" ? q.state.slice(0, 512) : "",
+      exp: this.now() + 600
+    });
+    const u = new URL("https://github.com/login/oauth/authorize");
+    u.searchParams.set("client_id", this.github.clientId);
+    u.searchParams.set("redirect_uri", `${origin}/oauth/github/callback`);
+    u.searchParams.set("scope", "read:user user:email");
+    u.searchParams.set("state", state);
+    u.searchParams.set("allow_signup", "false");
+    this.o.audit?.({ ev: "oauth_authorize", via: "github_redirect" });
+    res.writeHead(302, { location: u.toString(), "cache-control": "no-store", "referrer-policy": "no-referrer" });
+    res.end();
+  }
+  async ghJson(url, init) {
+    try {
+      const r = await fetch(url, { ...init, signal: AbortSignal.timeout(1e4) });
+      return await r.json();
+    } catch {
+      return null;
+    }
+  }
+  /** GitHub dönüşü: kodu değiştir, hesabı allowlist ile karşılaştır, kendi kodumuzu üret. */
+  async githubCallback(req, res, origin) {
+    if (!this.github) return this.page(res, 404, "GitHub giri\u015Fi bu sunucuda yap\u0131land\u0131r\u0131lmam\u0131\u015F.", null);
+    if (req.method !== "GET") return this.page(res, 405, "Yaln\u0131z GET.", null);
+    const q = Object.fromEntries(new URL(req.url ?? "/", origin).searchParams);
+    const state = this.verify(q.state, "idp");
+    if (!state) return this.page(res, 400, "Giri\u015F iste\u011Fi ge\xE7ersiz veya s\xFCresi dolmu\u015F. Claude'dan ba\u011Flant\u0131y\u0131 yeniden ba\u015Flat.", null);
+    if (typeof q.error === "string") {
+      this.o.audit?.({ ev: "oauth_authorize", ok: false, via: "github", error: q.error.slice(0, 40) });
+      return this.page(res, 400, "GitHub giri\u015Fi reddedildi.", null);
+    }
+    if (typeof q.code !== "string" || !q.code) return this.page(res, 400, "GitHub yetkilendirme kodu gelmedi.", null);
+    const tok = await this.ghJson("https://github.com/login/oauth/access_token", {
+      method: "POST",
+      headers: { accept: "application/json", "content-type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({ client_id: this.github.clientId, client_secret: this.github.clientSecret, code: q.code, redirect_uri: `${origin}/oauth/github/callback` }).toString()
+    });
+    const ghToken = tok && typeof tok.access_token === "string" ? tok.access_token : "";
+    if (!ghToken) {
+      this.o.audit?.({ ev: "oauth_authorize", ok: false, via: "github", error: "token_exchange" });
+      return this.page(res, 400, "GitHub eri\u015Fim anahtar\u0131 al\u0131namad\u0131. Tekrar dene.", null);
+    }
+    const user = await this.ghJson("https://api.github.com/user", { headers: { authorization: `Bearer ${ghToken}`, accept: "application/vnd.github+json", "user-agent": "hardtools-oauth" } });
+    const login = String(user?.login ?? "").toLowerCase();
+    let email2 = String(user?.email ?? "").toLowerCase();
+    if (!email2) {
+      const mails = await this.ghJson("https://api.github.com/user/emails", { headers: { authorization: `Bearer ${ghToken}`, accept: "application/vnd.github+json", "user-agent": "hardtools-oauth" } });
+      if (Array.isArray(mails)) {
+        const primary = mails.find((m) => m?.primary && m?.verified) ?? mails.find((m) => m?.verified);
+        if (primary && typeof primary.email === "string") email2 = primary.email.toLowerCase();
+      }
+    }
+    const allowLogin = new Set(this.github.allowedLogins.map((v) => v.trim().toLowerCase()).filter(Boolean));
+    const allowEmail = new Set(this.github.allowedEmails.map((v) => v.trim().toLowerCase()).filter(Boolean));
+    const permitted = login && allowLogin.has(login) || email2 && allowEmail.has(email2);
+    if (!permitted) {
+      this.o.audit?.({ ev: "oauth_authorize", ok: false, via: "github", login: login.slice(0, 64), reason: "not_allowed" });
+      return this.page(res, 403, `Bu GitHub hesab\u0131na izin verilmiyor${login ? ` (${login.replace(/[<>"']/g, "")})` : ""}.`, null);
+    }
+    const code = this.sign({ t: "code", jti: crypto3.randomBytes(12).toString("base64url"), cid: state.cid, ru: state.ru, cc: state.cc, exp: this.now() + CODE_TTL_S });
+    this.o.audit?.({ ev: "oauth_authorize", ok: true, via: "github", login: login.slice(0, 64) });
+    const backUrl = new URL(state.ru);
+    backUrl.searchParams.set("code", code);
+    if (state.st) backUrl.searchParams.set("state", String(state.st));
+    res.writeHead(302, { location: backUrl.toString(), "cache-control": "no-store", "referrer-policy": "no-referrer" });
+    res.end();
+  }
   // ---- authorization endpoint -----------------------------------------------------------
   async authorize(req, res, origin) {
     let q;
@@ -17220,6 +17303,7 @@ var OAuth = class {
         this.o.audit?.({ ev: "oauth_authorize", ok: true, via: "invite_session" });
         return back({ code: code2 });
       }
+      if (this.github) return this.redirectToGithub(res, origin, q);
       return this.page(res, 200, "", q);
     }
     const now = Date.now();
@@ -17241,7 +17325,7 @@ var OAuth = class {
     const keep = ["response_type", "client_id", "redirect_uri", "state", "code_challenge", "code_challenge_method", "scope", "resource"];
     const hidden = q ? keep.filter((k) => typeof q[k] === "string").map((k) => `<input type="hidden" name="${k}" value="${esc2(q[k])}">`).join("") : "";
     const form = q ? `<p>Enter the access token only, without the <code>Bearer</code> prefix. Do not paste a connection password, encrypted text, invite URL or private key.</p>
-<p>GitHub Actions: open <strong>BAGLAN.html</strong> from this run\u2019s hardtools-connect ZIP on your computer. In the \u201CAccess token\u201D section, match this page\u2019s address and copy the token.</p>
+<p>Where the token comes from: a <code>fly secrets</code> deployment stores it in the server\u2019s <code>HARDTOOLS_HTTP_TOKEN</code> secret (for example <code>deploy/fly/.env.local</code> on the machine that deployed it). A GitHub Actions publish shows it in <strong>BAGLAN.html</strong> from that run\u2019s hardtools-connect ZIP.</p>
 <form method="post" action="/authorize" autocomplete="off">${hidden}<input type="password" name="access_token" autocomplete="off" autofocus required placeholder="access token"><button type="submit">Authorize</button></form>` : "";
     res.writeHead(code, {
       "content-type": "text/html; charset=utf-8",
@@ -27303,7 +27387,21 @@ async function main() {
   const port = Number(arg("--port") ?? 8787);
   const allowedHosts = new Set((process.env.HARDTOOLS_ALLOWED_HOSTS ?? `127.0.0.1:${port},localhost:${port}`).split(",").map((s) => s.trim().toLowerCase()).filter(Boolean));
   const hits = /* @__PURE__ */ new Map();
-  const oauth = new OAuth({ token, audit: (e) => audit.write(e), extraRedirectUris: (process.env.HARDTOOLS_OAUTH_REDIRECT_URIS ?? "").split(",").map((s) => s.trim()).filter(Boolean) });
+  const ghId = (process.env.HARDTOOLS_OAUTH_GITHUB_CLIENT_ID ?? "").trim();
+  const ghSecret = (process.env.HARDTOOLS_OAUTH_GITHUB_CLIENT_SECRET ?? "").trim();
+  const ghLogins = (process.env.HARDTOOLS_OAUTH_ALLOWED_LOGINS ?? "").split(",").map((s) => s.trim()).filter(Boolean);
+  const ghEmails = (process.env.HARDTOOLS_OAUTH_ALLOWED_EMAILS ?? "").split(",").map((s) => s.trim()).filter(Boolean);
+  let github;
+  if (ghId && ghSecret) {
+    if (!ghLogins.length && !ghEmails.length) {
+      console.error("[hardtools] refusing to start: HARDTOOLS_OAUTH_GITHUB_CLIENT_ID is set but HARDTOOLS_OAUTH_ALLOWED_LOGINS/EMAILS is empty, so every login would be denied.");
+      process.exit(1);
+    }
+    github = { clientId: ghId, clientSecret: ghSecret, allowedLogins: ghLogins, allowedEmails: ghEmails };
+  } else if (ghId || ghSecret) {
+    console.error("[hardtools] ignoring half-configured GitHub login: set both HARDTOOLS_OAUTH_GITHUB_CLIENT_ID and _CLIENT_SECRET, or neither.");
+  }
+  const oauth = new OAuth({ token, audit: (e) => audit.write(e), extraRedirectUris: (process.env.HARDTOOLS_OAUTH_REDIRECT_URIS ?? "").split(",").map((s) => s.trim()).filter(Boolean), github });
   const inviteOrigin = process.env.HARDTOOLS_INVITE_ORIGIN ?? "";
   if (inviteOrigin) {
     const inviteUrl = oauth.mintInvite(inviteOrigin);

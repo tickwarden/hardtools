@@ -91,6 +91,49 @@ test("fly deploy: the script hides the token, pins hosts and verifies the deploy
   assert.ok(!/^deploy$/m.test(dockerignore), "deploy klasörü bağlama dahil olmalı");
 });
 
+test("fly deploy: GitHub login is wired from a gitignored .env.github, never inlined", () => {
+  assert.match(deploySh, /GH_FILE="deploy\/fly\/\.env\.github"/);
+  assert.match(deploySh, /HARDTOOLS_OAUTH_GITHUB_CLIENT_ID="\$HARDTOOLS_OAUTH_GITHUB_CLIENT_ID"/);
+  assert.match(deploySh, /HARDTOOLS_OAUTH_GITHUB_CLIENT_SECRET="\$HARDTOOLS_OAUTH_GITHUB_CLIENT_SECRET"/);
+  assert.match(deploySh, /HARDTOOLS_OAUTH_ALLOWED_LOGINS="\$HARDTOOLS_OAUTH_ALLOWED_LOGINS"/);
+  assert.match(deploySh, /oauth\/github\/callback/);
+  assert.match(read(".gitignore"), /^deploy\/fly\/\.env\.github$/m, "istemci sırrı depoya girmemeli");
+  const example = read("deploy/fly/.env.github.example");
+  assert.match(example, /Authorization callback URL: https:\/\/hardtools-mcp\.fly\.dev\/oauth\/github\/callback/);
+  assert.match(example, /^HARDTOOLS_OAUTH_GITHUB_CLIENT_SECRET=$/m, "örnek dosyada sır boş olmalı");
+  // Sır hiçbir yerde ekrana basılmamalı.
+  const leaks = deploySh.split("\n")
+    .filter((row) => !row.trimStart().startsWith("#"))
+    .filter((row) => /echo .*\$\{?HARDTOOLS_OAUTH_GITHUB_CLIENT_SECRET/.test(row));
+  assert.deepEqual(leaks, [], "istemci sırrı stdout'a basılmamalı");
+});
+
+test("http: a deploy configured with GitHub sends /authorize to github.com", async (t) => {
+  const { port } = await startHttp(t, {
+    HARDTOOLS_OAUTH_GITHUB_CLIENT_ID: "Iv1.flytest",
+    HARDTOOLS_OAUTH_GITHUB_CLIENT_SECRET: "fly-secret",
+    HARDTOOLS_OAUTH_ALLOWED_EMAILS: "tlegends231@gmail.com"
+  });
+  const reg = await request(port, {
+    method: "POST", path: "/register",
+    headers: { "content-type": "application/json" },
+    body: { redirect_uris: ["https://claude.ai/api/mcp/auth_callback"], client_name: "fly" }
+  });
+  assert.equal(reg.status, 201, reg.body);
+  const clientId = JSON.parse(reg.body).client_id;
+  const target = "/authorize?" + new URLSearchParams({
+    response_type: "code", client_id: clientId,
+    redirect_uri: "https://claude.ai/api/mcp/auth_callback",
+    state: "s", code_challenge: "a".repeat(43), code_challenge_method: "S256"
+  }).toString();
+  const res = await request(port, { path: target });
+  assert.equal(res.status, 302);
+  const location = new URL(String(res.headers.location));
+  assert.equal(location.host, "github.com");
+  assert.equal(location.searchParams.get("client_id"), "Iv1.flytest");
+  assert.equal(location.searchParams.get("redirect_uri"), `http://127.0.0.1:${port}/oauth/github/callback`);
+});
+
 function request(port, { method = "GET", path: target = "/", headers = {}, body = null }) {
   return new Promise((resolve, reject) => {
     const req = http.request({ host: "127.0.0.1", port, path: target, method, headers }, (res) => {

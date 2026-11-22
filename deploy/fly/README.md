@@ -16,7 +16,7 @@ claude.ai / Claude Code  ──HTTPS──►  https://<alan-adın>/mcp   (Fly p
 |---|---|
 | `Dockerfile` (Node 22 + bubblewrap + git/curl), depo kökündeki `fly.toml` (7/24 ayarları, health check, volume) | Fly.io hesabı + kart |
 | `entrypoint.sh` (hacmi hazırlar, token denetler), `config.json` (yazma + izole kabuk) | Alan adı (istersen) ve DNS erişimi |
-| `deploy.sh` (uygulama/hacim/secret/sertifika/doğrulama) | `flyctl auth login` onayı |
+| `deploy.sh` (uygulama/hacim/secret/sertifika/doğrulama) + `.env.github.example` (GitHub girişi) | `flyctl auth login` onayı ve bir **GitHub OAuth App** (client ID + secret) |
 | `/healthz` uç noktası (Host denetiminden önce yanıtlar) | — |
 
 **Alan adı:** kayıt (satın alma) senin hesabında yapılır; ben ödeme/registrar işlemi yapamam. Alan adı yoksa `https://hardtools-mcp.fly.dev/mcp` adresi de geçerlidir ve claude.ai bağdaştırıcısıyla çalışır. Alan adı aldığında `--domain` ile aynı sunucuya bağlarsın.
@@ -56,10 +56,40 @@ Uygulama adı global olarak doluysa: `bash deploy/fly/deploy.sh --app hardtools-
 
 Sertifika durumu: `flyctl certs show mcp.ornek.dev -a hardtools-mcp` → `Status = Ready` olana kadar birkaç dakika sürebilir. **Alan adını ekledikten sonra `HARDTOOLS_ALLOWED_HOSTS` içinde de olmalı**, yoksa sunucu DNS-rebinding koruması gereği `403 host not allowed` döner; `deploy.sh --domain` bunu senin için ayarlar.
 
-## 4. Claude'a bağla
+## 4. GitHub ile giriş (önerilen OAuth)
 
-- **claude.ai (web):** Ayarlar → **Bağdaştırıcılar → Özel bağdaştırıcı ekle** → ad `hardtools`, URL `https://mcp.ornek.dev/mcp` → devam → onay ekranında `HARDTOOLS_HTTP_TOKEN` değerini gir (`deploy/fly/.env.local`). OAuth keşfi (`/.well-known/oauth-authorization-server`, `/register`, PKCE S256) sunucuda hazır; istemci alanlarını boş bırak.
-- **Claude Code / Desktop:** MCP listesine ekle:
+Onay ekranında token yapıştırmak yerine normal **"GitHub ile giriş"** akışı kullanılır. Sunucu kendi OAuth kodlarını üretmeye devam eder; GitHub yalnızca "kim olduğunu" doğrular.
+
+1. GitHub → **Settings → Developer settings → OAuth Apps → New OAuth App**
+   - Application name: `hardtools-mcp`
+   - Homepage URL: `https://hardtools-mcp.fly.dev`
+   - **Authorization callback URL: `https://hardtools-mcp.fly.dev/oauth/github/callback`** (özel alan adı kullanacaksan o adresi de ayrı bir OAuth App olarak ekle)
+2. `Client ID` ve `Client secret` değerlerini al.
+3. `deploy/fly/.env.github` dosyasını oluştur (`.example` dosyasını kopyala, izinler `0600`):
+
+```bash
+install -m 600 deploy/fly/.env.github.example deploy/fly/.env.github
+$EDITOR deploy/fly/.env.github     # CLIENT_ID, CLIENT_SECRET, ALLOWED_LOGINS (GitHub kullanıcı adın)
+bash deploy/fly/deploy.sh --app hardtools-mcp
+```
+
+`deploy.sh` bu dosyayı (ya da aynı adlı ortam değişkenlerini) Fly **secrets** olarak yazar; dosya `.gitignore` içinde, sır hiçbir zaman stdout'a basılmaz.
+
+| Değişken | Zorunlu | Ne işe yarar |
+| --- | --- | --- |
+| `HARDTOOLS_OAUTH_GITHUB_CLIENT_ID` | evet | OAuth App istemci kimliği |
+| `HARDTOOLS_OAUTH_GITHUB_CLIENT_SECRET` | evet (secret) | istemci sırrı |
+| `HARDTOOLS_OAUTH_ALLOWED_LOGINS` | biri | virgülle GitHub kullanıcı adları |
+| `HARDTOOLS_OAUTH_ALLOWED_EMAILS` | biri | virgülle doğrulanmış e-posta adresleri |
+
+- İkisi de boşsa sunucu **açılmaz** (`ALLOWED_LOGINS` hatası verir) — yanlışlıkla "herkes girebilir" durumuna düşmeyi engeller.
+- Yalnız `CLIENT_ID` ya da yalnız `CLIENT_SECRET` verilirse giriş yok sayılır ve onay ekranı token formuna döner (kırık yarım yapılandırma olmaz).
+- GitHub girişi tanımlı değilken `/authorize` eski token formunu gösterir; `HARDTOOLS_HTTP_TOKEN` yalnızca **yedek** yoldur (Claude Code/Desktop başlığı, betikler).
+
+## 5. Claude'a bağla
+
+- **claude.ai (web):** Ayarlar → **Bağdaştırıcılar → Özel bağdaştırıcı ekle** → ad `hardtools`, URL `https://mcp.ornek.dev/mcp` → devam → onay ekranında **GitHub ile giriş yap** (izin listesindeki hesap) → izin ver. OAuth keşfi (`/.well-known/oauth-authorization-server`, `/register`, PKCE S256) sunucuda hazır; istemci alanlarını boş bırak.
+- **Claude Code / Desktop (token başlığı):**
 
 ```bash
 claude mcp add --transport http hardtools https://mcp.ornek.dev/mcp \
@@ -68,28 +98,31 @@ claude mcp add --transport http hardtools https://mcp.ornek.dev/mcp \
 
 Doğrulama: sohbette `ht_status` çağır → `transport: http`, `shell.execution: workspace`, `shell.network: isolated` görünmeli.
 
-## 5. 7/24 davranışı
+Bağlantı "zaten var" hatası verirse claude.ai'deki eski/yarım kalmış `hardtools` kaydını sil ("Devam et" ile yarım kayıt oluşmuş olabilir), sonra tekrar ekle.
+
+## 6. 7/24 davranışı
 
 - `min_machines_running = 1` + `auto_stop_machines = "off"`: makine istek gelmese de açık kalır.
 - `[[http_service.checks]] path = "/healthz"`: 30 sn'de bir kontrol; üst üste başarısız olursa Fly makineyi değiştirir. `/healthz` yalnız sürüm, mod ve çalışma süresini döner; token, yol veya politika sızdırmaz.
 - Sağlık kontrolü Host allowlist'inden **önce** yanıtlar; böylece beklenmeyen bir `Host` başlığı sağlıklı makineyi düşürmüş gibi göstermez.
 - Makine yeniden başlarsa OAuth oturumları ve statik bearer geçerli kalır (token `secret` olarak saklanır); `/data` hacmi kalıcıdır.
 
-## 6. Kalıcılık ve yedek
+## 7. Kalıcılık ve yedek
 
 - `/data/work` → proje kökü (`HARDTOOLS_ROOTS`), `/data/audit` → denetim kaydı (`failClosed: true`, yani yazılamazsa işlem reddedilir).
 - Fly hacim anlık görüntüleri: `flyctl volumes snapshots list hardtools_data -a hardtools-mcp`, elle: `flyctl volumes snapshots create hardtools_data -a hardtools-mcp`.
 - Hacim tek bölgeye bağlıdır; bölge değiştirmek yeni hacim + veri taşıma ister.
 
-## 7. Güvenlik notları
+## 8. Güvenlik notları
 
 - Konteyner içinde süreç **root** çalışır (bubblewrap kullanıcı ad alanı ve `/data` yazımı için). Dışarıya yalnız 8787 açılır; TLS'i Fly proxy sonlandırır.
 - HTTP modunda yazma ve kabuk yalnızca `HARDTOOLS_HTTP_ALLOW_LOCAL_TOOLS=1` ile açılır (imajda varsayılan). Kapalı salt okunur mod için bu değişkeni `0` yap: `flyctl secrets set HARDTOOLS_HTTP_ALLOW_LOCAL_TOOLS=0 -a hardtools-mcp`.
 - `ht_shell` komutları ayrı PID/ağ ad alanında, proje kökü `/work` olarak bağlanmış şekilde çalışır; host ağı ve metadata kapalıdır. Genel HTTPS çıkışı için `HARDTOOLS_WORKSPACE_HTTPS=1` (varsayılan kapalı).
 - `HARDTOOLS_HTTP_TOKEN` 32+ rastgele karakter; yalnız `flyctl secrets` içinde. Rotasyon: `flyctl secrets set HARDTOOLS_HTTP_TOKEN=$(openssl rand -hex 32)` → tüm istemcileri yeniden yetkilendir.
-- Tek kullanıcı için tasarlandı. Birden çok kişiye açacaksan OAuth onay ekranındaki parolayı paylaşma; kişi başına ayrı sunucu ya da ayrı token kullan.
+- Tek kullanıcı için tasarlandı. Erişim `HARDTOOLS_OAUTH_ALLOWED_LOGINS`/`_EMAILS` ile sınırlanır; listeden çıkarmak o kişinin bir sonraki girişini engeller (verilmiş oturumlar `flyctl secrets set HARDTOOLS_HTTP_TOKEN=$(openssl rand -hex 32)` ile topluca iptal edilir).
+- GitHub client secret yalnız `flyctl secrets` ve `deploy/fly/.env.github` (0600, gitignore) içinde tutulur; ekran görüntüsüne/log'a düşürülmemeli.
 
-## 8. Sorun giderme
+## 9. Sorun giderme
 
 | Belirti | Neden / çözüm |
 |---|---|

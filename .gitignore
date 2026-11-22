@@ -16,3 +16,4 @@ hardtools-baglanti-parolasi*.txt
 
 # Fly dağıtımında üretilen bearer token (0600); depoya girmez.
 deploy/fly/.env.local
+deploy/fly/.env.github
