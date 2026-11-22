@@ -40,7 +40,7 @@ RUN apt-get update \
  && apt-get install -y --no-install-recommends \
       bubblewrap ca-certificates libstdc++6 libatomic1 git curl wget procps openssl \
       python3 python3-pip python3-venv python3-dev \
-      jq ripgrep fd-find tree less file \
+      jq ripgrep fd-find tree less file which \
       tar gzip xz-utils unzip zip sqlite3 \
       iproute2 bind9-dnsutils netcat-openbsd openssh-client bsdextrautils \
  && rm -rf /var/lib/apt/lists/* \
