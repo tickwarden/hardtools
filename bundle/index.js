@@ -3367,8 +3367,8 @@ var require_utils = __commonJS({
       }
       return ind;
     }
-    function removeDotSegments(path11) {
-      let input = path11;
+    function removeDotSegments(path13) {
+      let input = path13;
       const output = [];
       let nextSlash = -1;
       let len = 0;
@@ -3442,11 +3442,11 @@ var require_utils = __commonJS({
       }
       return output.join("");
     }
-    function removeDotSegmentsRelative(path11) {
-      if (path11 === "" || path11[0] === "/") {
-        return removeDotSegments(path11);
+    function removeDotSegmentsRelative(path13) {
+      if (path13 === "" || path13[0] === "/") {
+        return removeDotSegments(path13);
       }
-      const segments = path11.split("/");
+      const segments = path13.split("/");
       const last = segments.length - 1;
       const output = [];
       let trailingDirectory = false;
@@ -3809,8 +3809,8 @@ var require_schemes = __commonJS({
       }
       if (wsComponent.resourceName) {
         const queryIndex = wsComponent.resourceName.indexOf("?");
-        const path11 = queryIndex === -1 ? wsComponent.resourceName : wsComponent.resourceName.slice(0, queryIndex);
-        wsComponent.path = path11 && path11 !== "/" ? path11 : void 0;
+        const path13 = queryIndex === -1 ? wsComponent.resourceName : wsComponent.resourceName.slice(0, queryIndex);
+        wsComponent.path = path13 && path13 !== "/" ? path13 : void 0;
         wsComponent.query = queryIndex === -1 ? void 0 : wsComponent.resourceName.slice(queryIndex + 1);
         wsComponent.resourceName = void 0;
       }
@@ -7347,12 +7347,12 @@ var require_dist = __commonJS({
         throw new Error(`Unknown format "${name}"`);
       return f;
     };
-    function addFormats(ajv, list, fs10, exportName) {
+    function addFormats(ajv, list, fs12, exportName) {
       var _a3;
       var _b;
       (_a3 = (_b = ajv.opts.code).formats) !== null && _a3 !== void 0 ? _a3 : _b.formats = (0, codegen_1._)`require("ajv-formats/dist/formats").${exportName}`;
       for (const f of list)
-        ajv.addFormat(f, fs10[f]);
+        ajv.addFormat(f, fs12[f]);
     }
     module.exports = exports = formatsPlugin;
     Object.defineProperty(exports, "__esModule", { value: true });
@@ -7597,10 +7597,10 @@ function mergeDefs(...defs) {
 function cloneDef(schema) {
   return mergeDefs(schema._zod.def);
 }
-function getElementAtPath(obj, path11) {
-  if (!path11)
+function getElementAtPath(obj, path13) {
+  if (!path13)
     return obj;
-  return path11.reduce((acc, key) => acc?.[key], obj);
+  return path13.reduce((acc, key) => acc?.[key], obj);
 }
 function promiseAllObject(promisesObj) {
   const keys = Object.keys(promisesObj);
@@ -7940,11 +7940,11 @@ function explicitlyAborted(x, startIndex = 0) {
   }
   return false;
 }
-function prefixIssues(path11, issues) {
+function prefixIssues(path13, issues) {
   return issues.map((iss) => {
     var _a3;
     (_a3 = iss).path ?? (_a3.path = []);
-    iss.path.unshift(path11);
+    iss.path.unshift(path13);
     return iss;
   });
 }
@@ -8402,16 +8402,16 @@ function flattenError(error2, mapper = (issue2) => issue2.message) {
 }
 function formatError(error2, mapper = (issue2) => issue2.message) {
   const fieldErrors = { _errors: [] };
-  const processError = (error3, path11 = []) => {
+  const processError = (error3, path13 = []) => {
     for (const issue2 of error3.issues) {
       if (issue2.code === "invalid_union" && issue2.errors.length) {
-        issue2.errors.map((issues) => processError({ issues }, [...path11, ...issue2.path]));
+        issue2.errors.map((issues) => processError({ issues }, [...path13, ...issue2.path]));
       } else if (issue2.code === "invalid_key") {
-        processError({ issues: issue2.issues }, [...path11, ...issue2.path]);
+        processError({ issues: issue2.issues }, [...path13, ...issue2.path]);
       } else if (issue2.code === "invalid_element") {
-        processError({ issues: issue2.issues }, [...path11, ...issue2.path]);
+        processError({ issues: issue2.issues }, [...path13, ...issue2.path]);
       } else {
-        const fullpath = [...path11, ...issue2.path];
+        const fullpath = [...path13, ...issue2.path];
         if (fullpath.length === 0) {
           fieldErrors._errors.push(mapper(issue2));
         } else {
@@ -16429,8 +16429,8 @@ var Audit = class _Audit {
       fs2.chmodSync(dir, 448);
     } catch {
     }
-    const stamp = (/* @__PURE__ */ new Date()).toISOString().replace(/[:.]/g, "-");
-    this.file = path2.join(dir, `${stamp}-${process.pid}-${crypto2.randomUUID()}.jsonl`);
+    const stamp2 = (/* @__PURE__ */ new Date()).toISOString().replace(/[:.]/g, "-");
+    this.file = path2.join(dir, `${stamp2}-${process.pid}-${crypto2.randomUUID()}.jsonl`);
     const fd = fs2.openSync(this.file, "wx", 384);
     try {
       this.identity = fs2.fstatSync(fd);
@@ -17086,10 +17086,10 @@ var OAuth = class {
   // ---- routing --------------------------------------------------------------------------
   /** Returns true when the request was an OAuth/discovery/invite route and has been fully handled. */
   async handle(req, res) {
-    const path11 = (req.url ?? "").split("?")[0];
+    const path13 = (req.url ?? "").split("?")[0];
     const method = req.method ?? "GET";
     const origin = this.origin(req);
-    if (path11 === "/.well-known/oauth-protected-resource" || path11 === "/.well-known/oauth-protected-resource/mcp") {
+    if (path13 === "/.well-known/oauth-protected-resource" || path13 === "/.well-known/oauth-protected-resource/mcp") {
       if (method !== "GET") {
         this.oerr(res, 405, "invalid_request", "GET only");
         return true;
@@ -17097,7 +17097,7 @@ var OAuth = class {
       this.json(res, 200, { resource: `${origin}/mcp`, authorization_servers: [origin], bearer_methods_supported: ["header"] });
       return true;
     }
-    if (path11 === "/.well-known/oauth-authorization-server" || path11 === "/.well-known/oauth-authorization-server/mcp") {
+    if (path13 === "/.well-known/oauth-authorization-server" || path13 === "/.well-known/oauth-authorization-server/mcp") {
       if (method !== "GET") {
         this.oerr(res, 405, "invalid_request", "GET only");
         return true;
@@ -17114,39 +17114,39 @@ var OAuth = class {
       });
       return true;
     }
-    if (path11 === "/register") {
+    if (path13 === "/register") {
       await this.register(req, res);
       return true;
     }
-    if (path11 === "/authorize") {
+    if (path13 === "/authorize") {
       await this.authorize(req, res, origin);
       return true;
     }
-    if (path11 === "/oauth/github/callback") {
+    if (path13 === "/oauth/github/callback") {
       await this.githubCallback(req, res, origin);
       return true;
     }
-    if (path11 === "/oauth/github/poll") {
+    if (path13 === "/oauth/github/poll") {
       await this.githubPoll(req, res, origin);
       return true;
     }
-    if (path11 === "/token") {
+    if (path13 === "/token") {
       await this.tokenEndpoint(req, res);
       return true;
     }
-    if (path11.startsWith("/invite/")) {
-      await this.handleInvite(req, res, path11, origin);
+    if (path13.startsWith("/invite/")) {
+      await this.handleInvite(req, res, path13, origin);
       return true;
     }
     return false;
   }
   // ---- /invite/<code> -------------------------------------------------------------------
-  async handleInvite(req, res, path11, origin) {
+  async handleInvite(req, res, path13, origin) {
     if (req.method !== "GET") {
       this.oerr(res, 405, "invalid_request", "GET only");
       return;
     }
-    const code = decodeURIComponent(path11.slice("/invite/".length));
+    const code = decodeURIComponent(path13.slice("/invite/".length));
     const sessionId = this.redeemInvite(code);
     if (!sessionId) {
       this.page(res, 410, "Bu davet kullan\u0131lm\u0131\u015F veya s\xFCresi dolmu\u015F. Daveti az \xF6nce a\xE7t\u0131ysan ayn\u0131 taray\u0131c\u0131 profilinde Claude\u2019dan devam et. Aksi halde yay\u0131n sahibiyle ileti\u015Fime ge\xE7.", null);
@@ -17872,8 +17872,8 @@ function getErrorMap() {
 
 // node_modules/zod/v3/helpers/parseUtil.js
 var makeIssue = (params) => {
-  const { data, path: path11, errorMaps, issueData } = params;
-  const fullPath = [...path11, ...issueData.path || []];
+  const { data, path: path13, errorMaps, issueData } = params;
+  const fullPath = [...path13, ...issueData.path || []];
   const fullIssue = {
     ...issueData,
     path: fullPath
@@ -17988,11 +17988,11 @@ var errorUtil;
 
 // node_modules/zod/v3/types.js
 var ParseInputLazyPath = class {
-  constructor(parent, value, path11, key) {
+  constructor(parent, value, path13, key) {
     this._cachedPath = [];
     this.parent = parent;
     this.data = value;
-    this._path = path11;
+    this._path = path13;
     this._key = key;
   }
   get path() {
@@ -21543,11 +21543,11 @@ function normalizeObjectSchema(schema) {
   }
   return void 0;
 }
-function getDotPath(path11) {
-  if (path11.length === 0) {
+function getDotPath(path13) {
+  if (path13.length === 0) {
     return "object root";
   }
-  return path11.reduce((acc, seg, index) => {
+  return path13.reduce((acc, seg, index) => {
     if (index === 0) {
       return String(seg);
     }
@@ -26477,6 +26477,12 @@ var Variables = class {
     vars.set(key, a.value);
     return `SET ${key}; pass its name in ht_shell.inherit_vars to use it`;
   }
+  /** Drop every variable of this scope (used when the environment is reset). */
+  clear(owner) {
+    const s = this.scopes.get(owner);
+    this.scopes.delete(owner);
+    return s ? s.vars.size : 0;
+  }
   list(p, owner) {
     return JSON.stringify({ names: [...this.scope(p, owner)?.keys() ?? []].sort() });
   }
@@ -27248,8 +27254,167 @@ ${text}` }] : [{ type: "text", text }, { type: "resource", resource: resource(s)
   }
 };
 
-// src/user-input.ts
+// src/envs.ts
+import fs10 from "node:fs";
+import path11 from "node:path";
+var ENV_PREFIX = "env-";
+var KEEP_RECYCLED = 3;
+var LABEL = /^[a-z0-9][a-z0-9-]{0,23}$/;
+function envBase(policy) {
+  const fromEnv = (process.env.HARDTOOLS_ENVS_DIR ?? "").trim();
+  if (fromEnv) return path11.resolve(fromEnv);
+  return path11.join(path11.dirname(policy.roots[0]), "envs");
+}
+function currentEnvName(policy) {
+  const root = policy.roots[0];
+  return isInside(envBase(policy), root) ? path11.basename(root) : null;
+}
+function stamp() {
+  return (/* @__PURE__ */ new Date()).toISOString().replace(/[:.]/g, "-").replace("T", "-").replace("Z", "");
+}
+function realOrSelf(p) {
+  try {
+    return fs10.realpathSync(p);
+  } catch {
+    return p;
+  }
+}
+function recycleRoot(policy, base) {
+  const root = policy.roots[0];
+  let entries;
+  try {
+    entries = fs10.readdirSync(root);
+  } catch {
+    return { files: 0 };
+  }
+  if (!entries.length) return { files: 0 };
+  const bin = path11.join(base, ".recycle");
+  fs10.mkdirSync(bin, { recursive: true, mode: 448 });
+  const dest = path11.join(bin, `${path11.basename(root)}-${stamp()}`);
+  fs10.mkdirSync(dest, { recursive: true, mode: 448 });
+  let moved = 0;
+  for (const entry of entries) {
+    try {
+      fs10.renameSync(path11.join(root, entry), path11.join(dest, entry));
+      moved++;
+    } catch {
+    }
+  }
+  const kept = fs10.readdirSync(bin).sort();
+  for (const old of kept.slice(0, Math.max(0, kept.length - KEEP_RECYCLED))) {
+    try {
+      fs10.rmSync(path11.join(bin, old), { recursive: true, force: true });
+    } catch {
+    }
+  }
+  return { recycled: dest, files: moved };
+}
+function createEnv(policy, o = {}) {
+  if (policy.roots.length !== 1) throw new PolicyError("bad_env", "environment rotation needs exactly one project root");
+  if (!policy.fs.writeEnabled) throw new PolicyError("read_only", "environment rotation needs write access");
+  const base = envBase(policy);
+  const current = policy.roots[0];
+  if (base === current || isInside(current, base)) throw new PolicyError("bad_env_dir", "the environment directory must be outside the current workspace");
+  if (policy.protectedDirs.some((d) => isInside(d, base) || isInside(base, d))) throw new PolicyError("bad_env_dir", "the environment directory overlaps an audit or configuration directory");
+  if (o.label !== void 0 && !LABEL.test(o.label)) throw new PolicyError("bad_input", "label must be 1\u201324 chars of a-z, 0-9 and '-'");
+  fs10.mkdirSync(base, { recursive: true, mode: 448 });
+  const name = `${ENV_PREFIX}${stamp()}${o.label ? `-${o.label}` : ""}`;
+  const root = path11.join(base, name);
+  fs10.mkdirSync(root, { recursive: true, mode: 448 });
+  let recycled;
+  let carriedFiles = 0;
+  if (o.rotate) ({ recycled, files: carriedFiles } = recycleRoot(policy, base));
+  else {
+    for (const entry of (() => {
+      try {
+        return fs10.readdirSync(current);
+      } catch {
+        return [];
+      }
+    })()) {
+      try {
+        fs10.renameSync(path11.join(current, entry), path11.join(root, entry));
+        carriedFiles++;
+      } catch {
+      }
+    }
+  }
+  policy.roots = [realOrSelf(root)];
+  return { name, root: policy.roots[0], createdAt: Date.now(), ...recycled ? { recycled } : {}, carriedFiles };
+}
+
+// src/transfer.ts
 import crypto8 from "node:crypto";
+import fs11 from "node:fs";
+import path12 from "node:path";
+var DEFAULT_SOURCES = ["/home/claude", "/mnt/user-data/uploads", "/mnt/user-data", "/data/uploads"];
+var MAX_TRANSFER = 64 << 20;
+function transferSources() {
+  const raw = (process.env.HARDTOOLS_TRANSFER_SOURCES ?? "").trim();
+  const list = raw ? raw.split(/[,:]/).map((s) => s.trim()).filter(Boolean) : DEFAULT_SOURCES;
+  const seen = /* @__PURE__ */ new Set();
+  for (const p of list) {
+    try {
+      seen.add(fs11.realpathSync(p));
+    } catch {
+      seen.add(path12.resolve(p));
+    }
+  }
+  return [...seen];
+}
+function realpathOrNull(p) {
+  try {
+    return fs11.realpathSync(p);
+  } catch {
+    return null;
+  }
+}
+function htTransferFile(policy, a) {
+  const sources = transferSources();
+  if ((a.action ?? "copy") === "sources") {
+    return JSON.stringify({
+      sources: sources.map((dir) => ({ dir, exists: fs11.existsSync(dir) })),
+      hint: "Set HARDTOOLS_TRANSFER_SOURCES (comma-separated) to add more. On a remote host only paths that exist on that host can be read."
+    }, null, 2);
+  }
+  if (!a.source_path || !a.dest_path) throw new PolicyError("bad_input", "source_path and dest_path are required");
+  if (!path12.isAbsolute(a.source_path)) throw new PolicyError("bad_input", "source_path must be absolute and inside a configured source directory");
+  const source = realpathOrNull(a.source_path);
+  if (!source) throw new PolicyError("not_found", `source does not exist on this host: ${a.source_path}`);
+  const owner = sources.find((dir) => isInside(dir, source));
+  if (!owner) throw new PolicyError("source_denied", `source is outside the transfer sources (${sources.join(", ")})`);
+  let st;
+  try {
+    st = fs11.statSync(source);
+  } catch {
+    throw new PolicyError("not_found", "source is not readable");
+  }
+  if (!st.isFile()) throw new PolicyError("not_a_file", "only regular files can be transferred");
+  const limit = Math.min(MAX_TRANSFER, Math.max(1, a.max_bytes ?? MAX_TRANSFER));
+  if (st.size > limit) throw new PolicyError("too_large", `source is ${st.size} bytes; limit is ${limit}`);
+  const dest = resolveSafe(policy, a.dest_path, "write");
+  if (dest.exists && !a.overwrite) throw new PolicyError("exists", `destination exists: ${a.dest_path} (pass overwrite=true to replace it)`);
+  const data = fs11.readFileSync(source, { flag: "r" });
+  if (data.length > limit) throw new PolicyError("too_large", `source grew past the limit while reading (${data.length} bytes)`);
+  const sha256 = crypto8.createHash("sha256").update(data).digest("hex");
+  fs11.mkdirSync(path12.dirname(dest.abs), { recursive: true });
+  const tmp = `${dest.abs}.ht-transfer-${process.pid}-${crypto8.randomBytes(4).toString("hex")}`;
+  fs11.writeFileSync(tmp, data, { mode: 420, flag: "wx" });
+  fs11.renameSync(tmp, dest.abs);
+  return JSON.stringify({
+    action: "copy",
+    from: source,
+    into: dest.abs,
+    source_dir: owner,
+    bytes: data.length,
+    sha256,
+    created: !dest.exists,
+    external: !isInside(policy.roots[0], source)
+  }, null, 2);
+}
+
+// src/user-input.ts
+import crypto9 from "node:crypto";
 var MAX_TEXT = 8192;
 var MAX_ARRAY_ITEMS = 100;
 var MAX_ARRAY_BYTES = 32768;
@@ -27305,7 +27470,7 @@ var UserInputs = class {
     if (!title || title.length > 200) throw new PolicyError("bad_input", "title must be 1\u2013200 characters");
     this.prune();
     if (this.byId.size >= MAX_REQUESTS) throw new PolicyError("too_many_requests", "too many open input requests; clear one first");
-    const id = crypto8.randomBytes(24).toString("base64url");
+    const id = crypto9.randomBytes(24).toString("base64url");
     const now = Date.now();
     const req = { id, title, kind: o.kind, secret: o.secret, createdAt: now, expiresAt: now + Math.max(6e4, Math.min(36e5, o.ttlMs)) };
     this.byId.set(id, req);
@@ -27377,8 +27542,8 @@ var UserInputs = class {
   }
   // ---- browser UI -------------------------------------------------------------------
   /** Serve /ui/input/<id>. Returns false when the path is not ours. */
-  handle(req, res, path11, origin) {
-    const m = /^\/ui\/input\/([A-Za-z0-9_-]{20,64})$/.exec(path11);
+  handle(req, res, path13, origin) {
+    const m = /^\/ui\/input\/([A-Za-z0-9_-]{20,64})$/.exec(path13);
     if (!m) return false;
     const id = m[1];
     const req_ = this.byId.get(id);
@@ -27412,7 +27577,7 @@ var UserInputs = class {
         try {
           value = this.submit(id, params.get("value") ?? params.get("secret") ?? "");
         } catch (e) {
-          return page(400, shell(`<p class="e">${esc2(e.message)}</p><p class="m"><a href="${esc2(path11)}">Geri d\xF6n</a></p>`));
+          return page(400, shell(`<p class="e">${esc2(e.message)}</p><p class="m"><a href="${esc2(path13)}">Geri d\xF6n</a></p>`));
         }
         if (!value.secret) return page(200, shell(`<p>Kaydedildi. Sohbete d\xF6n; de\u011Fer <code>$HT_USER_INPUT</code> olarak kullan\u0131labilir.</p>`));
         page(200, shell(`<p>Gizli de\u011Fer kaydedildi. Sohbete d\xF6n.</p><p class="m">De\u011Fer bu sayfada tekrar g\xF6sterilmez, modelin g\xF6rece\u011Fi \xE7\u0131kt\u0131da maskelenir.</p>`));
@@ -27425,14 +27590,14 @@ var UserInputs = class {
     if (req.method !== "GET") return page(405, shell(`<p class="e">Yaln\u0131z GET/POST.</p>`)), true;
     const field = req_.secret ? `<input type="password" name="secret" autocomplete="off" autofocus required>` : req_.kind === "boolean" ? `<select name="value" autofocus><option value="true">true</option><option value="false">false</option></select>` : req_.kind === "array" ? `<textarea name="value" rows="4" autofocus placeholder='["a","b"]'></textarea>` : req_.kind === "null" ? `<input type="text" name="value" value="" placeholder="(bo\u015F b\u0131rak)" autofocus>` : `<input type="text" name="value" autofocus ${req_.kind === "number" ? 'inputmode="decimal"' : ""}>`;
     page(200, shell(`<p><strong>${esc2(req_.title)}</strong></p>
-<form method="post" action="${esc2(path11)}" autocomplete="off">${field}<button type="submit">G\xF6nder</button></form>
+<form method="post" action="${esc2(path13)}" autocomplete="off">${field}<button type="submit">G\xF6nder</button></form>
 <p class="m">${req_.secret ? "Bu de\u011Fer gizli kabul edilir: sohbete geri d\xF6nmez, denetim kayd\u0131na yaz\u0131lmaz, komut \xE7\u0131kt\u0131s\u0131nda maskelenir." : `T\xFCr: ${esc2(req_.kind)}. De\u011Fer <code>$HT_USER_INPUT</code> olarak komutlara ge\xE7er.`}</p>`));
     return true;
   }
 };
 
 // src/server.ts
-var usesProject = /* @__PURE__ */ new Set(["ht_read", "ht_write", "ht_edit", "ht_glob", "ht_search", "ht_move", "ht_mkdir", "ht_trash", "ht_empty_trash", "ht_shell", "ht_share"]);
+var usesProject = /* @__PURE__ */ new Set(["ht_transfer_file", "ht_new_shell_env", "ht_stop", "ht_read", "ht_write", "ht_edit", "ht_glob", "ht_search", "ht_move", "ht_mkdir", "ht_trash", "ht_empty_trash", "ht_shell", "ht_share"]);
 var createWorkspace = () => ({ vars: new Variables(), shares: new Shares(), inputs: new UserInputs(), projectReady: Promise.resolve() });
 var asText = (text) => ({ content: [{ type: "text", text }] });
 function createServer(policy, audit, workspace = createWorkspace(), owner = "stdio", origin) {
@@ -27664,6 +27829,72 @@ function createServer(policy, audit, workspace = createWorkspace(), owner = "std
       `</untrusted_web_content>${more}`
     ].join("\n");
   }));
+  server.registerTool("ht_new_shell_env", {
+    title: "Start a clean shell environment",
+    description: "Rotate the workspace to a brand-new empty root (a fresh /work) when the tree is in a bad state. By default the previous files are moved into a bounded recycle bin and the new environment starts empty; managed variables and any open ht_user_input answer are cleared. carry_files=true keeps the current files instead of starting empty.",
+    inputSchema: { label: string2().regex(/^[a-z0-9][a-z0-9-]{0,23}$/).optional().describe("Optional short name for the environment (a-z, 0-9, -)"), carry_files: boolean2().optional().describe("Keep the current files instead of starting empty") },
+    annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false }
+  }, wrap("ht_new_shell_env", (a) => {
+    const info = createEnv(policy, { label: a.label, rotate: !a.carry_files });
+    const vars = workspace.vars.clear(owner);
+    workspace.inputs.clear(owner);
+    audit.write({ ev: "env_new", name: info.name, recycled: info.recycled ?? null });
+    return JSON.stringify({
+      action: "new_environment",
+      name: info.name,
+      root: info.root,
+      base: envBase(policy),
+      previous_moved_to: info.recycled ?? null,
+      files_moved: info.carriedFiles,
+      carried_files: Boolean(a.carry_files),
+      variables_cleared: vars,
+      next: "ht_shell, ht_read and ht_write all use the new root now. Previous contents (if any) are in the recycle bin under the environment base."
+    }, null, 2);
+  }));
+  server.registerTool("ht_stop", {
+    title: "Reset the session and end the conversation",
+    description: "Finish the session deliberately: optionally rotate to a fresh empty environment (previous files go to the recycle bin), clear variables and any user-input answer, and return a structured end_conversation directive carrying a title and a reason. MCP cannot close a chat by itself \u2014 the client must act on the returned directive.",
+    inputSchema: {
+      title: string2().min(1).max(120).describe("Short title for this session, e.g. 'Refactor finished'"),
+      reason: string2().min(1).max(500).describe("Why the conversation should end"),
+      reset_environment: boolean2().optional().describe("Rotate to an empty environment (default true); false keeps the current files"),
+      directive: _enum(["end_conversation", "none"]).optional().describe("Directive to emit; default end_conversation")
+    },
+    annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false }
+  }, wrap("ht_stop", (a) => {
+    const rotate = a.reset_environment !== false;
+    const env = rotate ? createEnv(policy, { label: "stop", rotate: true }) : void 0;
+    const cleared = workspace.vars.clear(owner);
+    workspace.inputs.clear(owner);
+    audit.write({ ev: "stop", title: a.title.slice(0, 120), reason: a.reason.slice(0, 500), reset: rotate });
+    return JSON.stringify({
+      action: "stop",
+      title: a.title,
+      reason: a.reason,
+      reset_environment: rotate,
+      environment: env ? { name: env.name, root: env.root, previous_moved_to: env.recycled ?? null, files_moved: env.carriedFiles } : null,
+      variables_cleared: cleared,
+      directive: a.directive === "none" ? null : {
+        name: "end_conversation",
+        title: a.title,
+        reason: a.reason,
+        instruction: "Stop working and close the conversation with this title and reason. Do not start new work."
+      },
+      note: "The MCP server cannot close the chat; the client honours this directive."
+    }, null, 2);
+  }));
+  server.registerTool("ht_transfer_file", {
+    title: "Copy a file from an upload directory into the sandbox",
+    description: "Bring a file that lives outside the workspace (for example an upload directory from a long conversation) into the sandbox. Only configured source directories are readable, only regular files are copied, size is capped, and the destination is still confined to the project root. Use action=sources to see which directories exist on this host.",
+    inputSchema: {
+      action: _enum(["copy", "sources"]).optional().describe("copy (default) or sources"),
+      source_path: string2().min(1).max(4096).optional().describe("Absolute path inside a configured source directory"),
+      dest_path: string2().min(1).max(4096).optional().describe("Destination relative to the project root"),
+      overwrite: boolean2().optional().describe("Replace an existing destination file"),
+      max_bytes: number2().int().positive().max(64 << 20).optional().describe("Refuse sources larger than this (default 64 MiB)")
+    },
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false }
+  }, wrap("ht_transfer_file", (a) => htTransferFile(policy, a)));
   server.registerTool("ht_status", {
     title: "Show active policy and audit-chain status",
     description: "Show policy and verify the current audit segment. With audit_export=true return a fixed-prefix JSONL attachment for offline verification (HTTP: this authorization only). For larger files continue with audit_snapshot and audit_offset=next_offset. No public link.",
@@ -27685,6 +27916,8 @@ function createServer(policy, audit, workspace = createWorkspace(), owner = "std
       share: { cwd: SHARE_CWD, createEnabled: policy.fs.writeEnabled },
       variables: { enabled: policy.shell.enabled, inheritByDefault: false },
       userInput: { env: "HT_USER_INPUT", active: Boolean(workspace.inputs.value(owner)), transport: origin ? "http" : "stdio" },
+      environment: { name: currentEnvName(policy), base: envBase(policy), recycled: ".recycle (last 3 kept)" },
+      transfer: { sources: transferSources() },
       audit: { file: audit.file, scope: audit.scope, chain: audit.verify(), export: { audit_export: true } }
     }, null, 2));
   }));
@@ -27776,8 +28009,8 @@ async function main() {
       res.end(JSON.stringify({ error: msg }));
     };
     try {
-      const path11 = (req.url ?? "").split("?")[0];
-      if (path11 === "/healthz") {
+      const path13 = (req.url ?? "").split("?")[0];
+      if (path13 === "/healthz") {
         res.writeHead(200, { "content-type": "application/json", "cache-control": "no-store" });
         res.end(JSON.stringify({
           ok: true,
@@ -27790,8 +28023,8 @@ async function main() {
       }
       const h = String(req.headers.host ?? "").toLowerCase();
       if (!allowedHosts.has(h)) return send(403, "host not allowed");
-      if (workspace.inputs.handle(req, res, path11, oauth.origin(req))) return;
-      if (req.headers.origin && !(path11 === "/authorize" && req.headers.origin === oauth.origin(req))) return send(403, "browser origins are not allowed");
+      if (workspace.inputs.handle(req, res, path13, oauth.origin(req))) return;
+      if (req.headers.origin && !(path13 === "/authorize" && req.headers.origin === oauth.origin(req))) return send(403, "browser origins are not allowed");
       const ip = req.socket.remoteAddress ?? "?";
       const now = Date.now();
       const b = hits.get(ip) ?? { n: 0, reset: now + 6e4 };
@@ -27802,9 +28035,9 @@ async function main() {
       b.n++;
       hits.set(ip, b);
       if (b.n > 120) return send(429, "rate limited");
-      if (workspace.shares.download(req, res, path11)) return;
+      if (workspace.shares.download(req, res, path13)) return;
       if (await oauth.handle(req, res)) return;
-      if (path11 !== "/mcp") return send(404, "not found");
+      if (path13 !== "/mcp") return send(404, "not found");
       const m = /^Bearer (.+)$/.exec(String(req.headers.authorization ?? ""));
       const owner = m && (equalSecret(m[1], token) ? "static" : oauth.accessScope(m[1]));
       if (!owner) return send(401, "unauthorized", { "www-authenticate": `Bearer resource_metadata="${oauth.resourceMetadataUrl(req)}"` });

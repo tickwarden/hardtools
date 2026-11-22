@@ -104,6 +104,17 @@ Doğrulama: sohbette `ht_status` çağır → `transport: http`, `shell.executio
 
 Bağlantı "zaten var" hatası verirse claude.ai'deki eski/yarım kalmış `hardtools` kaydını sil ("Devam et" ile yarım kayıt oluşmuş olabilir), sonra tekrar ekle.
 
+## 6. Yeni araçlar (çalışma ortamı)
+
+| Araç | Ne yapar |
+| --- | --- |
+| `ht_user_input` | Kullanıcıdan **tarayıcı formu** ile değer alır (`string`, `boolean`, `number`, `array`, `null`). Cevap komutlarda **`$HT_USER_INPUT`** olarak kullanılır. `secret:true` ise değer modele dönmez, denetim kaydına yazılmaz ve komut çıktısında `[redacted:HT_USER_INPUT]` olarak maskelenir. Form tek kullanımlık yetenek URL'sidir (varsayılan 10 dk). |
+| `ht_new_shell_env` | Bozuk çalışma ağacı için **yeni ve boş bir kök** açar; eski içerik `<kök>/../envs/.recycle` altında saklanır (son 3 tur tutulur). `carry_files=true` dosyaları yeni köke taşır. Yönetilen değişkenler ve açık kullanıcı girdisi temizlenir. |
+| `ht_stop` | Oturumu bilinçli bitirir: ortamı sıfırlar (varsayılan), değişkenleri temizler ve **`{title, reason}`** taşıyan yapılandırılmış `end_conversation` direktifi döner. MCP sohbeti kapatamaz; istemci bu direktifi uygular. |
+| `ht_transfer_file` | Yapılandırılmış kaynak dizinlerinden (`HARDTOOLS_TRANSFER_SOURCES`, varsayılan `/home/claude`, `/mnt/user-data/uploads`,… ) sandbox'a dosya kopyalar. Yalnız normal dosyalar, en fazla 64 MiB, hedef yine proje köküne sınırlı. **Uzak sunucuda** bu yolların çoğu yoktur (`action=sources` hangilerinin var olduğunu gösterir); asıl yararı yerel stdio kurulumundadır. |
+
+Ortam kökü varsayılan olarak `<proje kökünün ebeveyni>/envs/env-<zaman>` altında açılır; `HARDTOOLS_ENVS_DIR` ile değiştirilebilir.
+
 ## 6. 7/24 davranışı
 
 - `min_machines_running = 1` + `auto_stop_machines = "off"`: makine istek gelmese de açık kalır.

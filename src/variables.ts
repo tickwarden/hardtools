@@ -36,6 +36,12 @@ export class Variables {
     vars.set(key, a.value);
     return `SET ${key}; pass its name in ht_shell.inherit_vars to use it`;
   }
+  /** Drop every variable of this scope (used when the environment is reset). */
+  clear(owner: string): number {
+    const s = this.scopes.get(owner);
+    this.scopes.delete(owner);
+    return s ? s.vars.size : 0;
+  }
   list(p: Policy, owner: string): string {
     return JSON.stringify({ names: [...(this.scope(p, owner)?.keys() ?? [])].sort() });
   }
