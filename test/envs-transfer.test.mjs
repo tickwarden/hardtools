@@ -76,6 +76,20 @@ test("ht_new_shell_env: carry_files=true keeps the tree, and bad labels are refu
   assert.ok(bad.isError, "geçersiz etiket reddedilmeli");
 });
 
+test("ht_new_shell_env: the default base stays put across rotations", async (t) => {
+  const root = tmp("ht-env-root-");
+  const { client } = await connect(t, { root });
+  const first = JSON.parse(text(await client.callTool({ name: "ht_new_shell_env", arguments: {} })));
+  const second = JSON.parse(text(await client.callTool({ name: "ht_new_shell_env", arguments: {} })));
+  assert.equal(first.base, second.base, "taban her rotasyonda aynı kalmalı");
+  assert.equal(first.base, path.join(path.dirname(root), "envs"));
+  assert.ok(second.name.startsWith("env-"));
+  assert.ok(second.root.startsWith(second.base + path.sep));
+  const status = JSON.parse(text(await client.callTool({ name: "ht_status", arguments: {} })));
+  assert.equal(status.environment.name, second.name, "aktif ortam adı görünmeli");
+  assert.equal(status.environment.base, second.base);
+});
+
 test("ht_stop: reset + yapılandırılmış end_conversation direktifi", async (t) => {
   const root = tmp("ht-env-root-"); const envs = tmp("ht-env-base-"); const audit = tmp("ht-env-audit-");
   const { client } = await connect(t, { root, envs, audit });

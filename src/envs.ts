@@ -15,7 +15,12 @@ export interface EnvInfo { name: string; root: string; createdAt: number; recycl
 export function envBase(policy: Policy): string {
   const fromEnv = (process.env.HARDTOOLS_ENVS_DIR ?? "").trim();
   if (fromEnv) return path.resolve(fromEnv);
-  return path.join(path.dirname(policy.roots[0]), "envs");
+  const root = policy.roots[0];
+  const parent = path.dirname(root);
+  // Kök zaten bir ortam diziniyse (…/envs/env-…) taban onun ebeveynidir; aksi hâlde
+  // her rotasyonda …/envs/envs gibi iç içe bir taban oluşurdu.
+  if (path.basename(parent) === "envs") return parent;
+  return path.join(parent, "envs");
 }
 
 export function currentEnvName(policy: Policy): string | null {
