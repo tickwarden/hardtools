@@ -137,3 +137,8 @@ Bağlantı "zaten var" hatası verirse claude.ai'deki eski/yarım kalmış `hard
 | OAuth onay ekranı açılmıyor | URL'nin `/mcp` ile bittiğini doğrula; `curl https://<adres>/.well-known/oauth-authorization-server` JSON dönmeli. |
 | Sertifika `Not verified` | DNS kayıtları henüz yayılmamış; `flyctl certs show <domain>` çıktısını izle. |
 | Token sızdı | Yeni token üret, eski istemcileri kaldır; audit kaydı `/data/audit` altında. |
+| Onay ekranında hâlâ token formu | `HARDTOOLS_OAUTH_GITHUB_CLIENT_ID` makineye ulaşmamış. `flyctl secrets list` “Staged” diyorsa `flyctl secrets deploy`; sonra `flyctl secrets set` ile herhangi bir değeri yeniden yaz (secret enjeksiyonu bazen ilk denemede görünmez). |
+| `GitHub'dan giriş kodu alınamadı` | İki olası sebep: (1) secret'ta **Client ID değil** uygulama numarası var (`/settings/applications/4043388` gibi 7 hane); Client ID 20 karakterdir ve `Ov23li…` ile başlar. (2) OAuth App'te **Enable Device Flow** işaretsiz (General sekmesi → `Update application`). |
+| Device flow'un açık olduğunu doğrula | `curl -s -X POST https://github.com/login/device/code -H 'Accept: application/json' -d "client_id=<CID>&scope=read:user"` → `device_code` dönerse hazır; `invalid_scope` ID geçerli demektir (geçersiz kapsamla denenebilir); `Not Found` ise ID yanlış. |
+| GitHub hesabı reddedildi (`403`) | Giriş yapan hesap `HARDTOOLS_OAUTH_ALLOWED_LOGINS`/`_EMAILS` listesinde değil. Listeyi güncelledikten sonra `flyctl secrets deploy`. |
+| `Makine 5 dk’da bir duruyor` | Fly hesabı **deneme (trial)** modunda: logda `Trial machine stopping. To run for longer than 5m0s, add a credit card`. Çözüm hesap sahibinin kart eklemesidir; `fly.toml` ayarları bunu engellemez. |
