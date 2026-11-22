@@ -7,7 +7,7 @@ import http from "node:http";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js";
 import { Audit, verifyAuditFile } from "./audit.js";
-import { loadPolicy, type Policy, type ProfileName } from "./config.js";
+import { envFlag, loadPolicy, type Policy, type ProfileName } from "./config.js";
 import { OAuth } from "./oauth.js";
 import { createServer, createWorkspace } from "./server.js";
 import { VERSION } from "./version.js";
@@ -26,14 +26,14 @@ async function main() {
   const httpMode = process.argv.includes("--http");
   let policy: Policy = loadPolicy({ profile });
   if (httpMode) {
-    if (process.env.HARDTOOLS_HTTP_ALLOW_LOCAL_TOOLS !== "1") {
+    if (!envFlag("HARDTOOLS_HTTP_ALLOW_LOCAL_TOOLS")) {
       policy = { ...policy, fs: { ...policy.fs, writeEnabled: false }, shell: { ...policy.shell, enabled: false } };
     } else if (policy.shell.enabled) {
       // Opt-in enables both shell forms in the dedicated workspace, never on the HTTP host.
       policy.shellWorker = "workspace";
       probeWorkspaceShell(policy);
     }
-    if (process.env.HARDTOOLS_WORKSPACE_HTTPS === "1") {
+    if (envFlag("HARDTOOLS_WORKSPACE_HTTPS")) {
       policy.workspaceHttps = true;
       await probeWorkspaceHttps(policy); // fails closed if shell, net policy or isolation isn't available
     }

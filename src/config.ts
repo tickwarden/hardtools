@@ -217,7 +217,7 @@ export function loadPolicy(opts: LoadOptions = {}): Policy {
   const protectedDirs = [auditDir, path.join(os.homedir(), ".hardtools")];
   if (usedConfig) protectedDirs.push(path.dirname(usedConfig));
 
-  return {
+  const policy: Policy = {
     profile, roots,
     protectedDirs: [...new Set(protectedDirs.map(d => safeReal(d)))],
     fs: { ...base.fs, ...(o.fs ?? {}) },
@@ -228,6 +228,25 @@ export function loadPolicy(opts: LoadOptions = {}): Policy {
     search: { ...base.search, ...(o.search ?? {}) },
     audit: { ...base.audit, ...(o.audit ?? {}), dir: auditDir },
   };
+  // The plugin's `allow_local_tools` user option is wired to HARDTOOLS_ALLOW_LOCAL_TOOLS.
+  // Only an explicit "off" value changes anything: the default stays as the profile decided,
+  // so a plain `node bundle/index.js` behaves exactly as before.
+  if (localToolsDisabled()) {
+    return { ...policy, fs: { ...policy.fs, writeEnabled: false }, shell: { ...policy.shell, enabled: false } };
+  }
+  return policy;
+}
+
+/** True only for explicit false-y spellings; unset or true keep the profile defaults. */
+export function localToolsDisabled(): boolean {
+  const raw = (process.env.HARDTOOLS_ALLOW_LOCAL_TOOLS ?? "").trim().toLowerCase();
+  return raw === "0" || raw === "false" || raw === "no" || raw === "off";
+}
+
+/** Accepts "1" as before plus the "true"/"yes"/"on" spellings a plugin boolean option produces. */
+export function envFlag(name: string): boolean {
+  const raw = (process.env[name] ?? "").trim().toLowerCase();
+  return raw === "1" || raw === "true" || raw === "yes" || raw === "on";
 }
 
 function safeReal(p: string): string {

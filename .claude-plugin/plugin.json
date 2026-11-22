@@ -3,5 +3,74 @@
   "version": "0.4.0",
   "author": { "name": "hardtools contributors", "url": "https://github.com/tickwarden/hardtools/blob/main/CREDITS.md" },
   "description": "MCP workspace tools for files, shell, variables, sharing and sourced images, with configurable policies and verifiable audit exports.",
-  "keywords": ["mcp", "security", "tools", "audit"]
+  "homepage": "https://github.com/tickwarden/hardtools",
+  "repository": "https://github.com/tickwarden/hardtools",
+  "license": "MIT",
+  "keywords": ["mcp", "security", "tools", "audit", "connector"],
+  "userConfig": {
+    "profile": {
+      "type": "string",
+      "title": "Politika profili",
+      "description": "Sunucunun izin seti. balanced varsayılandır; strict daha azını açar, open yalnızca güvenilir tek kullanıcılı makineler içindir.",
+      "options": ["balanced", "strict", "open"],
+      "default": "balanced"
+    },
+    "workspace_root": {
+      "type": "directory",
+      "title": "Proje klasörü (kök)",
+      "description": "hardtools'un erişebileceği tek proje klasörü. Boş bırakılırsa çalışma dizini kullanılır; / ve ev dizininin kendisi reddedilir."
+    },
+    "allow_local_tools": {
+      "type": "boolean",
+      "title": "Yerel araçlar (yazma ve kabuk)",
+      "description": "Kapalıyken sunucu salt okunur başlar: ht_write, ht_edit ve ht_shell reddedilir. Açıkken profil kuralları geçerlidir.",
+      "default": true
+    },
+    "allow_workspace_https": {
+      "type": "boolean",
+      "title": "İzole işlemlerde genel HTTPS çıkışı",
+      "description": "Yalnızca HTTP/izole çalışma modunda etkilidir. Açıkken ht_status.shell.network değeri public-https-proxy olur; varsayılan kapalıdır.",
+      "default": false
+    },
+    "workspace_name": {
+      "type": "string",
+      "title": "Yayın çalışma klasörü adı",
+      "description": "Yalnızca GitHub Actions serve yayını için (1-48 ASCII harf/rakam, _ veya -, harf ya da rakamla başlar). Yerel sunucuyu etkilemez.",
+      "default": "project"
+    },
+    "auto_renew": {
+      "type": "boolean",
+      "title": "Yayını otomatik yenile",
+      "description": "Yalnızca GitHub Actions yayını için. Yenileme yeni adres ve token üretir; dosyaları taşımaz. Yerel sunucuyu etkilemez.",
+      "default": false
+    },
+    "mcp_url": {
+      "type": "string",
+      "title": "Uzak MCP adresi",
+      "description": "Çalışan bir yayının /mcp ile biten adresi. Yalnızca uzak bağlayıcı tarafından kullanılır; davet bağlantısı veya GitHub adresi değildir."
+    },
+    "mcp_token": {
+      "type": "string",
+      "title": "Uzak MCP erişim token'ı",
+      "description": "OAuth kullanmayan istemciler için yalın bearer token. Güvenli kimlik deposunda tutulur; parola veya GitHub token'ı değildir.",
+      "sensitive": true
+    }
+  },
+  "mcpServers": {
+    "hardtools": {
+      "command": "node",
+      "args": ["${CLAUDE_PLUGIN_ROOT}/bundle/index.js"],
+      "env": {
+        "HARDTOOLS_PROFILE": "${user_config.profile}",
+        "HARDTOOLS_ROOTS": "${user_config.workspace_root}",
+        "HARDTOOLS_ALLOW_LOCAL_TOOLS": "${user_config.allow_local_tools}",
+        "HARDTOOLS_WORKSPACE_HTTPS": "${user_config.allow_workspace_https}"
+      }
+    },
+    "hardtools-remote": {
+      "type": "http",
+      "url": "${user_config.mcp_url}",
+      "headers": { "Authorization": "Bearer ${user_config.mcp_token}" }
+    }
+  }
 }
