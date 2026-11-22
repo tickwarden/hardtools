@@ -16852,7 +16852,7 @@ function loadPolicy(opts = {}) {
   const auditDir = path3.resolve(o.audit?.dir ?? base.audit.dir ?? path3.join(os.homedir(), ".hardtools", "audit"));
   const protectedDirs = [auditDir, path3.join(os.homedir(), ".hardtools")];
   if (usedConfig) protectedDirs.push(path3.dirname(usedConfig));
-  return {
+  const policy = {
     profile,
     roots,
     protectedDirs: [...new Set(protectedDirs.map((d) => safeReal(d)))],
@@ -16864,6 +16864,18 @@ function loadPolicy(opts = {}) {
     search: { ...base.search, ...o.search ?? {} },
     audit: { ...base.audit, ...o.audit ?? {}, dir: auditDir }
   };
+  if (localToolsDisabled()) {
+    return { ...policy, fs: { ...policy.fs, writeEnabled: false }, shell: { ...policy.shell, enabled: false } };
+  }
+  return policy;
+}
+function localToolsDisabled() {
+  const raw = (process.env.HARDTOOLS_ALLOW_LOCAL_TOOLS ?? "").trim().toLowerCase();
+  return raw === "0" || raw === "false" || raw === "no" || raw === "off";
+}
+function envFlag(name) {
+  const raw = (process.env[name] ?? "").trim().toLowerCase();
+  return raw === "1" || raw === "true" || raw === "yes" || raw === "on";
 }
 function safeReal(p) {
   let probe = path3.resolve(p);
@@ -27264,13 +27276,13 @@ async function main() {
   const httpMode = process.argv.includes("--http");
   let policy = loadPolicy({ profile });
   if (httpMode) {
-    if (process.env.HARDTOOLS_HTTP_ALLOW_LOCAL_TOOLS !== "1") {
+    if (!envFlag("HARDTOOLS_HTTP_ALLOW_LOCAL_TOOLS")) {
       policy = { ...policy, fs: { ...policy.fs, writeEnabled: false }, shell: { ...policy.shell, enabled: false } };
     } else if (policy.shell.enabled) {
       policy.shellWorker = "workspace";
       probeWorkspaceShell(policy);
     }
-    if (process.env.HARDTOOLS_WORKSPACE_HTTPS === "1") {
+    if (envFlag("HARDTOOLS_WORKSPACE_HTTPS")) {
       policy.workspaceHttps = true;
       await probeWorkspaceHttps(policy);
     }

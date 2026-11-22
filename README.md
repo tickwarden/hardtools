@@ -111,6 +111,28 @@ Bu eklenti **yerel stdio** kullanır: çalıştırıldığı ortamda Node.js 20+
 Yerel geliştirmede bir proje klasöründen `claude --plugin-dir /hardtools/deposunun/yolu` ile de deneyebilirsin; yükleme sorunlarında `claude --debug` kullan. Kök dizin varsayılan olarak sunucunun çalışma dizinidir; `strict` ve `balanced` profilleri `/` ve ev dizininin kendisini reddeder.
 **Önemli:** yerleşik `Bash/Edit/Write/WebFetch` kapatılmazsa Claude onları kullanmaya devam eder ve bu eklenti güvenliği artırmaz, sadece seçenek ekler. `claude-code-settings.example.json`'a bak (sözdizimini sürümünde doğrula).
 
+#### Eklenti ayarları (`userConfig`)
+
+Manifest artık yalnızca zorunlu alanları değil, **kullanıcıdan istenen ayarları ve iki MCP sunucusunu** bildirir. Claude Code eklentiyi etkinleştirirken bu alanları sorar; her seçenek `/config` panelinde satır olarak da görünür (`sensitive` ve çoklu seçim hariç). Değerler `settings.json` içindeki `pluginConfigs` altında, hassas olanlar platformun güvenli kimlik deposunda tutulur.
+
+| Seçenek | Tip / varsayılan | Sunucudaki karşılığı | Nerede etkili |
+|---|---|---|---|
+| `profile` | `string`, `balanced` (`balanced`/`strict`/`open`) | `HARDTOOLS_PROFILE` | Yerel ve uzak sunucu |
+| `workspace_root` | `directory` (boş: çalışma dizini) | `HARDTOOLS_ROOTS` | Yerel sunucu |
+| `allow_local_tools` | `boolean`, `true` | `HARDTOOLS_ALLOW_LOCAL_TOOLS` | **Kapalıyken salt okunur**: `ht_write`, `ht_edit`, `ht_shell` reddedilir |
+| `allow_workspace_https` | `boolean`, `false` | `HARDTOOLS_WORKSPACE_HTTPS` | HTTP/izole çalışma modu; `ht_status.shell.network` |
+| `workspace_name` | `string`, `project` | – (Actions girdisi) | Yalnızca `serve` yayını |
+| `auto_renew` | `boolean`, `false` | – (Actions girdisi) | Yalnızca `serve` yayını |
+| `mcp_url` | `string` | uzak sunucunun `url` alanı | Uzak bağlayıcı |
+| `mcp_token` | `string`, `sensitive` | uzak sunucunun `Authorization: Bearer` başlığı | OAuth kullanmayan istemciler |
+
+Manifestteki sunucular:
+
+- `hardtools` — yerel `stdio`, `node ${CLAUDE_PLUGIN_ROOT}/bundle/index.js`; yukarıdaki `env` değerleri `${user_config.…}` ile doldurulur. Bu kayıt `.mcp.json`'daki eşdeğerini eklenti içinde geçersiz kılar; `.mcp.json` eklenti dışı kullanım (düz `claude mcp add`, elle çalıştırma) için aynen durur.
+- `hardtools-remote` — `http`, adresi `${user_config.mcp_url}`, başlığı `${user_config.mcp_token}`. OAuth 2.1 akışı (RFC 9728/8414/7591 + PKCE) sunucu tarafında zaten var; istemci bağlanırken keşfeder, manifestte ayrıca OAuth alanı yoktur.
+
+**Önemli sınır:** claude.ai **Chat**, adresi `${user_config.…}` içeren uzak sunucuyu ve yerel `stdio` sunucusunu yüklemez (Anthropic belgeleri: *Ignored when the URL contains the reference*). Bu yüzden yukarıdaki ayarlar Claude Code, Cowork ve masaüstü istemcisinde çalışır; **web sohbeti** için hâlâ **sabit bir HTTPS `/mcp` adresi** ve **Bağdaştırıcılar → Özel bağdaştırıcı ekle** gerekir. Davranış değişikliği yalnızca açıkça kapatıldığında olur: `allow_local_tools` verilmezse sunucu eskisi gibi profil kurallarıyla yazma ve kabuk açar.
+
 ### Claude Desktop (stdio)
 `claude_desktop_config.example.json` içeriğini Desktop'un MCP yapılandırmasına ekle. Desktop'ta çalışma dizini proje olmadığı için `HARDTOOLS_ROOTS` **zorunlu** pratikte.
 
