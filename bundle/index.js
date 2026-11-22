@@ -26686,6 +26686,21 @@ function workspaceArgs(p, cwd, program, args, lease) {
     "--ro-bind",
     "/usr/share",
     "/usr/share",
+    // Dağıtım kimliği: komutlar (ve kullanıcı) kabuğun Ubuntu/Debian tabanını görebilsin.
+    "--ro-bind-try",
+    "/etc/os-release",
+    "/etc/os-release",
+    "--ro-bind-try",
+    "/etc/lsb-release",
+    "/etc/lsb-release",
+    "--ro-bind-try",
+    "/etc/debian_version",
+    "/etc/debian_version",
+    // Debian/Ubuntu'da pek çok araç (/usr/bin/which, awk, pager...) /etc/alternatives
+    // üzerinden symlink; bağlanmazsa "not found" görünür.
+    "--ro-bind-try",
+    "/etc/alternatives",
+    "/etc/alternatives",
     "--symlink",
     "usr/bin",
     "/bin",

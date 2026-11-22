@@ -37,7 +37,13 @@ test("fly deploy: the machine never sleeps and Fly probes /healthz", () => {
 });
 
 test("fly deploy: image ships the bundle, bubblewrap and a health probe", () => {
-  assert.match(dockerfile, /FROM node:22-bookworm-slim AS build/);
+  // Çalışma imajı Ubuntu 24.04; Node 22 ikilileri resmî imajdan taşınır (pinli sürüm).
+  assert.match(dockerfile, /FROM ubuntu:24\.04 AS build/, "derleme imajı Ubuntu olmalı");
+  assert.match(dockerfile, /FROM ubuntu:24\.04 AS runtime/, "çalışma imajı Ubuntu olmalı");
+  assert.match(dockerfile, /FROM node:22-bookworm-slim AS nodejs/);
+  assert.match(dockerfile, /COPY --from=nodejs \/usr\/local\/bin\/node \/usr\/local\/bin\/node/, "Node ikilisi taşınmalı");
+  assert.match(dockerfile, /ln -sf \.\.\/lib\/node_modules\/npm\/bin\/npm-cli\.js \/usr\/local\/bin\/npm/);
+  assert.ok(!/FROM (ubuntu:\S+ )?AS runtime[\s\S]*FROM node:22/.test(dockerfile), "çalışma katmanı Node imajına dönmemeli");
   assert.match(dockerfile, /RUN npm run build && node build-bundle\.mjs/);
   // Derleme, scripts/build-reader.mjs ve reader/ olmadan Docker içinde düşer.
   assert.match(dockerfile, /COPY scripts \.\/scripts/);

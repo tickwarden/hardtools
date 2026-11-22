@@ -14,7 +14,7 @@ claude.ai / Claude Code  ──HTTPS──►  https://<alan-adın>/mcp   (Fly p
 
 | Hazır (bu klasörde) | Senin hesabında olması gereken |
 |---|---|
-| `Dockerfile` (Node 22 + bubblewrap + git/curl), depo kökündeki `fly.toml` (7/24 ayarları, health check, volume) | Fly.io hesabı + kart |
+| `Dockerfile` (**Ubuntu 24.04** taban + Node 22 + bubblewrap + git/curl/python3/pip/jq/rg/sqlite3), depo kökündeki `fly.toml` (7/24 ayarları, health check, volume) | Fly.io hesabı + kart |
 | `entrypoint.sh` (hacmi hazırlar, token denetler), `config.json` (yazma + izole kabuk) | Alan adı (istersen) ve DNS erişimi |
 | `deploy.sh` (uygulama/hacim/secret/sertifika/doğrulama) + `.env.github.example` (GitHub girişi) | `flyctl auth login` onayı ve bir **GitHub OAuth App** (client ID + secret) |
 | `/healthz` uç noktası (Host denetiminden önce yanıtlar) | — |
@@ -115,20 +115,20 @@ Bağlantı "zaten var" hatası verirse claude.ai'deki eski/yarım kalmış `hard
 
 Ortam kökü varsayılan olarak `<proje kökünün ebeveyni>/envs/env-<zaman>` altında açılır; `HARDTOOLS_ENVS_DIR` ile değiştirilebilir.
 
-## 6. 7/24 davranışı
+## 7. 7/24 davranışı
 
 - `min_machines_running = 1` + `auto_stop_machines = "off"`: makine istek gelmese de açık kalır.
 - `[[http_service.checks]] path = "/healthz"`: 30 sn'de bir kontrol; üst üste başarısız olursa Fly makineyi değiştirir. `/healthz` yalnız sürüm, mod ve çalışma süresini döner; token, yol veya politika sızdırmaz.
 - Sağlık kontrolü Host allowlist'inden **önce** yanıtlar; böylece beklenmeyen bir `Host` başlığı sağlıklı makineyi düşürmüş gibi göstermez.
 - Makine yeniden başlarsa OAuth oturumları ve statik bearer geçerli kalır (token `secret` olarak saklanır); `/data` hacmi kalıcıdır.
 
-## 7. Kalıcılık ve yedek
+## 8. Kalıcılık ve yedek
 
 - `/data/work` → proje kökü (`HARDTOOLS_ROOTS`), `/data/audit` → denetim kaydı (`failClosed: true`, yani yazılamazsa işlem reddedilir).
 - Fly hacim anlık görüntüleri: `flyctl volumes snapshots list hardtools_data -a hardtools-mcp`, elle: `flyctl volumes snapshots create hardtools_data -a hardtools-mcp`.
 - Hacim tek bölgeye bağlıdır; bölge değiştirmek yeni hacim + veri taşıma ister.
 
-## 8. Güvenlik notları
+## 9. Güvenlik notları
 
 - Konteyner içinde süreç **root** çalışır (bubblewrap kullanıcı ad alanı ve `/data` yazımı için). Dışarıya yalnız 8787 açılır; TLS'i Fly proxy sonlandırır.
 - HTTP modunda yazma ve kabuk yalnızca `HARDTOOLS_HTTP_ALLOW_LOCAL_TOOLS=1` ile açılır (imajda varsayılan). Kapalı salt okunur mod için bu değişkeni `0` yap: `flyctl secrets set HARDTOOLS_HTTP_ALLOW_LOCAL_TOOLS=0 -a hardtools-mcp`.
@@ -137,7 +137,7 @@ Ortam kökü varsayılan olarak `<proje kökünün ebeveyni>/envs/env-<zaman>` a
 - Tek kullanıcı için tasarlandı. Erişim `HARDTOOLS_OAUTH_ALLOWED_LOGINS`/`_EMAILS` ile sınırlanır; listeden çıkarmak o kişinin bir sonraki girişini engeller (verilmiş oturumlar `flyctl secrets set HARDTOOLS_HTTP_TOKEN=$(openssl rand -hex 32)` ile topluca iptal edilir).
 - GitHub client secret yalnız `flyctl secrets` ve `deploy/fly/.env.github` (0600, gitignore) içinde tutulur; ekran görüntüsüne/log'a düşürülmemeli.
 
-## 9. Sorun giderme
+## 10. Sorun giderme
 
 | Belirti | Neden / çözüm |
 |---|---|
