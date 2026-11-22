@@ -26696,6 +26696,11 @@ function workspaceArgs(p, cwd, program, args, lease) {
     "--ro-bind-try",
     "/etc/debian_version",
     "/etc/debian_version",
+    // Debian/Ubuntu'da pek çok araç (/usr/bin/which, awk, pager...) /etc/alternatives
+    // üzerinden symlink; bağlanmazsa "not found" görünür.
+    "--ro-bind-try",
+    "/etc/alternatives",
+    "/etc/alternatives",
     "--symlink",
     "usr/bin",
     "/bin",

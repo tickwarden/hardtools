@@ -43,6 +43,9 @@ function workspaceArgs(p: Policy, cwd: string, program: string, args: string[], 
     "--ro-bind-try", "/etc/os-release", "/etc/os-release",
     "--ro-bind-try", "/etc/lsb-release", "/etc/lsb-release",
     "--ro-bind-try", "/etc/debian_version", "/etc/debian_version",
+    // Debian/Ubuntu'da pek çok araç (/usr/bin/which, awk, pager...) /etc/alternatives
+    // üzerinden symlink; bağlanmazsa "not found" görünür.
+    "--ro-bind-try", "/etc/alternatives", "/etc/alternatives",
     "--symlink", "usr/bin", "/bin", "--symlink", "usr/lib", "/lib", "--symlink", "usr/lib64", "/lib64",
     "--dir", "/runtime", "--ro-bind-fd", "3", "/runtime/node",
     ...(lease ? ["--ro-bind-fd", "4", "/runtime/https-bridge.mjs", "--ro-bind", lease.socketPath, "/runtime/https.sock",
