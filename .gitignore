@@ -13,3 +13,7 @@ hardtools-baglanti-parolasi*.txt
 .ht-trash/
 .ht-trash-index.lock
 .ht-trash-index-*.tmp
+
+# Fly dağıtımında üretilen bearer token (0600); depoya girmez.
+deploy/fly/.env.local
+deploy/fly/.env.github
