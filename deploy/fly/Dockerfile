@@ -1,10 +1,24 @@
 # syntax=docker/dockerfile:1.7
 # Hardtools MCP — 7/24 uzak sunucu imajı (Fly.io ve genel Docker).
+# Taban: Ubuntu 24.04 LTS (noble). Node 22 ikilileri resmî Node imajından taşınır;
+# böylece çalışma imajı Ubuntu paket dünyasında kalır, Node sürümü pinli olur.
 # Yerelde denemek için:
 #   docker build -f deploy/fly/Dockerfile -t hardtools-mcp .
 #   docker run --rm -p 8787:8787 -e HARDTOOLS_HTTP_TOKEN=$(openssl rand -hex 32) \
 #     -e HARDTOOLS_ALLOWED_HOSTS=127.0.0.1:8787 -v htdata:/data hardtools-mcp
-FROM node:22-bookworm-slim AS build
+
+# Yalnızca node/npm ikililerini taşımak için; çalışma imajına Debian katmanı girmez.
+FROM node:22-bookworm-slim AS nodejs
+
+FROM ubuntu:24.04 AS build
+ENV DEBIAN_FRONTEND=noninteractive
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends ca-certificates libstdc++6 libatomic1 \
+ && rm -rf /var/lib/apt/lists/*
+COPY --from=nodejs /usr/local/bin/node /usr/local/bin/node
+COPY --from=nodejs /usr/local/lib/node_modules /usr/local/lib/node_modules
+RUN ln -sf ../lib/node_modules/npm/bin/npm-cli.js /usr/local/bin/npm \
+ && ln -sf ../lib/node_modules/npm/bin/npx-cli.js /usr/local/bin/npx
 WORKDIR /app
 COPY package.json package-lock.json ./
 RUN npm ci --no-audit --no-fund
@@ -16,24 +30,31 @@ COPY reader ./reader
 # bundle/index.js node_modules gerektirmez; çalışma imajına yalnızca bu çıktı gider.
 RUN npm run build && node build-bundle.mjs && test -s bundle/index.js
 
-FROM node:22-bookworm-slim AS runtime
+FROM ubuntu:24.04 AS runtime
+ENV DEBIAN_FRONTEND=noninteractive
 # bubblewrap: izole çalışma kabuğu (ht_shell). git/curl: izinli komutlar.
 # procps: ht_shell süreç ağacı ve süre denetimi. openssl: token üretimi için değil, TLS istemcileri için.
 # Kabuk araçları: ht_shell içinde apt-get/pip çağırmadan hazır olsun diye önceden kuruludur.
 # (Her biri bwrap altında /usr/bin ve /usr/lib ro-bind ile görünür.)
 RUN apt-get update \
  && apt-get install -y --no-install-recommends \
-      bubblewrap ca-certificates git curl wget procps \
+      bubblewrap ca-certificates libstdc++6 libatomic1 git curl wget procps openssl \
       python3 python3-pip python3-venv python3-dev \
       jq ripgrep fd-find tree less file \
       tar gzip xz-utils unzip zip sqlite3 \
-      iproute2 dnsutils netcat-openbsd openssh-client bsdextrautils \
+      iproute2 bind9-dnsutils netcat-openbsd openssh-client bsdextrautils \
  && rm -rf /var/lib/apt/lists/* \
  # Sık kullanılan Python paketleri; /usr/local altına kurulur ve çalışma kabuğuna
- # ro-bind ile bağlanır (workspace-shell.ts).
+ # ro-bind ile bağlanır (workspace-shell.ts). Ubuntu 24.04 dışa yönetilen (PEP 668)
+ # Python getirdiği için --break-system-packages gerekir.
  && python3 -m pip install --break-system-packages --no-cache-dir \
       requests httpx beautifulsoup4 pyyaml python-dateutil tabulate rich \
  && rm -rf /root/.cache/pip
+COPY --from=nodejs /usr/local/bin/node /usr/local/bin/node
+COPY --from=nodejs /usr/local/lib/node_modules /usr/local/lib/node_modules
+RUN ln -sf ../lib/node_modules/npm/bin/npm-cli.js /usr/local/bin/npm \
+ && ln -sf ../lib/node_modules/npm/bin/npx-cli.js /usr/local/bin/npx \
+ && node --version
 WORKDIR /app
 COPY --from=build /app/bundle ./bundle
 COPY deploy/fly/config.json /etc/hardtools/config.json
