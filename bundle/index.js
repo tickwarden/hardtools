@@ -26118,7 +26118,7 @@ import net from "node:net";
 import zlib from "node:zlib";
 
 // src/version.ts
-var VERSION = "0.5.1";
+var VERSION = "0.5.2";
 
 // src/net.ts
 var blocked = new net.BlockList();
@@ -28285,18 +28285,21 @@ async function main() {
   const isPublic = ["1", "true", "open", "key"].includes(publicMode);
   const publicKey = (process.env.HARDTOOLS_PUBLIC_KEY ?? "").trim();
   const SAFE_TOOLS = ["ht_read", "ht_glob", "ht_search", "ht_status", "ht_user_input", "ht_image_search", "ht_fetch", "ht_share"];
+  const rawPublicTools = (process.env.HARDTOOLS_PUBLIC_TOOLS ?? "").trim().toLowerCase();
   let publicTools = null;
   if (isPublic) {
-    const raw = (process.env.HARDTOOLS_PUBLIC_TOOLS ?? "").trim().toLowerCase();
-    if (raw === "all") publicTools = null;
-    else if (raw && raw !== "safe") publicTools = new Set(raw.split(",").map((t) => t.trim()).filter(Boolean));
-    else publicTools = publicMode === "key" || publicMode === "1" || publicMode === "true" ? null : new Set(SAFE_TOOLS);
+    if (publicMode === "key") publicTools = null;
+    else if (rawPublicTools === "all" || rawPublicTools === "") publicTools = null;
+    else if (rawPublicTools === "safe") publicTools = new Set(SAFE_TOOLS);
+    else publicTools = new Set(rawPublicTools.split(",").map((t) => t.trim()).filter(Boolean));
     if (publicMode === "key" && publicKey.length < 32) {
       console.error("[hardtools] refusing to start: HARDTOOLS_PUBLIC=key needs HARDTOOLS_PUBLIC_KEY of at least 32 characters (openssl rand -hex 32).");
       process.exit(1);
     }
-    console.error(`[hardtools] public connector mode=${publicMode}; tools=${publicTools ? [...publicTools].join(",") : "all"}; no OAuth challenge`);
   }
+  const loginFree = isPublic && (publicMode === "key" || publicTools !== null);
+  const loginRequired = isPublic && !loginFree;
+  if (isPublic) console.error(`[hardtools] public connector mode=${publicMode}; tools=${publicTools ? [...publicTools].join(",") : "all"}; ${loginFree ? "no OAuth challenge" : "login required (bearer or OAuth)"}`);
   const keyId = publicKey ? crypto10.createHash("sha256").update(publicKey).digest("hex").slice(0, 12) : "open";
   const publicOwner = (viaKey) => viaKey ? `public:${keyId}` : "public";
   const token = process.env.HARDTOOLS_HTTP_TOKEN ?? "";
@@ -28334,6 +28337,9 @@ async function main() {
   } else if (ghSecret) {
     console.error("[hardtools] ignoring HARDTOOLS_OAUTH_GITHUB_CLIENT_SECRET without HARDTOOLS_OAUTH_GITHUB_CLIENT_ID.");
   }
+  if (loginRequired && !hasToken && !github) {
+    console.error("[hardtools] warning: HARDTOOLS_PUBLIC=open with the full tool set needs a login, but neither HARDTOOLS_HTTP_TOKEN nor GitHub OAuth is configured \u2014 every MCP request will be rejected. Set a token, configure OAuth, or use HARDTOOLS_PUBLIC_TOOLS=safe for the login-free read-only connector.");
+  }
   const oauth = new OAuth({ token, audit: (e) => audit.write(e), extraRedirectUris: (process.env.HARDTOOLS_OAUTH_REDIRECT_URIS ?? "").split(",").map((s) => s.trim()).filter(Boolean), github });
   const inviteOrigin = process.env.HARDTOOLS_INVITE_ORIGIN ?? "";
   if (inviteOrigin) {
@@ -28356,6 +28362,7 @@ async function main() {
           shell: policy.shell.enabled ? policy.shellWorker ?? "host" : "disabled",
           write: policy.fs.writeEnabled,
           public: isPublic ? publicMode : "off",
+          login: isPublic ? loginFree ? "none" : "required" : "token",
           uptime_s: Math.round(process.uptime())
         }));
         return;
@@ -28378,7 +28385,7 @@ async function main() {
       hits.set(ip, b);
       if (b.n > 120) return send(429, "rate limited");
       if (workspace.shares.download(req, res, path13)) return;
-      if (isPublic) {
+      if (loginFree) {
         if (/^\/(?:\.well-known\/|register$|authorize$|token$|oauth\/|invite\/)/.test(path13)) return send(404, "not found");
         if (req.method === "GET" && (path13 === "/connect" || /^\/c\/[A-Za-z0-9_-]{16,128}$/.test(path13))) return connectPage(req, res, path13, publicMode === "key" && publicKey ? publicKey : "");
       } else if (await oauth.handle(req, res)) return;
@@ -28387,15 +28394,15 @@ async function main() {
       if (!isMcpPath) return send(404, "not found");
       const m = /^Bearer (.+)$/.exec(String(req.headers.authorization ?? ""));
       let owner = m ? hasToken && equalSecret(m[1], token) ? "static" : oauth.accessScope(m[1]) : null;
-      if (!owner && isPublic) {
+      if (!owner && loginFree) {
         if (keyPath && publicKey && equalSecret(keyPath[1], publicKey)) owner = publicOwner(true);
         else if (path13 === "/mcp" && publicMode !== "key") owner = publicOwner(false);
       }
       if (!owner) {
         return send(
           401,
-          isPublic ? "unauthorized: this connector needs its /c/<key> url" : "unauthorized",
-          isPublic ? {} : { "www-authenticate": `Bearer resource_metadata="${oauth.resourceMetadataUrl(req)}"` }
+          publicMode === "key" ? "unauthorized: this connector needs its /c/<key> url" : "unauthorized",
+          publicMode === "key" ? {} : { "www-authenticate": `Bearer resource_metadata="${oauth.resourceMetadataUrl(req)}"` }
         );
       }
       if (req.method !== "POST") return send(405, "stateless server: POST only", { allow: "POST" });

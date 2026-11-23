@@ -1,5 +1,7 @@
-// 0.5.1 — oturum açmadan bağlanma: /mcp asla 401 dönmez, OAuth keşfi yayınlanmaz,
-// araç listesi public modda sınırlıdır, /c/<key> adresi tam yetki açar.
+// 0.5.2 — public modlar:
+//   open         -> tüm araçlar, GİRİŞ ZORUNLU (statik bearer veya OAuth; keşif yayınlanır)
+//   open + liste -> girişsiz, sadece izin verilen araçlar (OAuth keşfi 404)
+//   key          -> /c/<key> adresi tam yetki açar, giriş istenmez
 import test from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
@@ -55,32 +57,64 @@ async function start(t, extraEnv, { token = TOKEN } = {}) {
   return { port, err };
 }
 
-test("public mode (open): /mcp never challenges, discovery is 404, tool list is restricted", async (t) => {
+test("public mode (open): full tool set stays behind the login gate", async (t) => {
   const { port } = await start(t, { HARDTOOLS_PUBLIC: "open" });
 
   const health = JSON.parse((await request(port, { target: "/healthz" })).body);
   assert.equal(health.ok, true);
   assert.equal(health.public, "open");
+  assert.equal(health.login, "required", "open + tam araç seti = giriş zorunlu");
 
-  // OAuth keşfi yayınlanmaz: claude.ai "Oturum açma gerekli" göstermez.
+  // Giriş gerektiği için OAuth keşfi yayınlanır: claude.ai "Oturum açma gerekli" gösterebilir.
+  const meta = await request(port, { target: "/.well-known/oauth-protected-resource" });
+  assert.equal(meta.status, 200, "keşif yayınlanmalı: " + meta.body);
+
+  // Kimliksiz istek reddedilir ve istemciye girişe giden başlık verilir.
+  const anon = await rpc(port, "/mcp", { jsonrpc: "2.0", id: 1, method: "initialize", params: { protocolVersion: "2025-06-18", capabilities: {}, clientInfo: { name: "t", version: "1" } } });
+  assert.equal(anon.status, 401);
+  assert.match(String(anon.headers["www-authenticate"] ?? ""), /^Bearer .*resource_metadata=/, "OAuth'a yönlendiren başlık gelmeli");
+
+  // Statik bearer ile TÜM araçlar açık.
+  const withBearer = await request(port, {
+    method: "POST", target: "/mcp",
+    headers: { "content-type": "application/json", accept: "application/json, text/event-stream", authorization: `Bearer ${TOKEN}` },
+    body: JSON.stringify({ jsonrpc: "2.0", id: 2, method: "tools/list", params: {} }),
+  });
+  assert.equal(withBearer.status, 200, withBearer.body);
+  const names = parse(withBearer).result.tools.map((t2) => t2.name);
+  for (const wanted of ["ht_read", "ht_write", "ht_edit", "ht_shell", "ht_transfer_file", "ht_new_shell_env", "ht_add_var"]) {
+    assert.ok(names.includes(wanted), `${wanted} açık olmalı; gelenler: ${names.join(",")}`);
+  }
+});
+
+test("public mode (open + safe list): login-free read-only connector keeps the old behaviour", async (t) => {
+  const { port } = await start(t, { HARDTOOLS_PUBLIC: "open", HARDTOOLS_PUBLIC_TOOLS: "safe" });
+
+  const health = JSON.parse((await request(port, { target: "/healthz" })).body);
+  assert.equal(health.login, "none");
+
+  // Girişsiz modda OAuth keşfi yayınlanmaz: claude.ai giriş ekranı açmaz.
   for (const p of ["/.well-known/oauth-protected-resource", "/.well-known/oauth-authorization-server", "/authorize", "/register", "/token"]) {
     const r = await request(port, { target: p });
     assert.equal(r.status, 404, `${p} → ${r.status}`);
   }
 
-  // Anahtarsız, başlıksız MCP: 200 ve oturum açma başlığı yok.
   const init = await rpc(port, "/mcp", { jsonrpc: "2.0", id: 1, method: "initialize", params: { protocolVersion: "2025-06-18", capabilities: {}, clientInfo: { name: "t", version: "1" } } });
   assert.equal(init.status, 200, init.body);
   assert.equal(init.headers["www-authenticate"], undefined);
 
-  const tools = parse(await rpc(port, "/mcp", { jsonrpc: "2.0", id: 2, method: "tools/list", params: {} }));
-  const names = tools.result.tools.map(t2 => t2.name).sort();
+  const names = parse(await rpc(port, "/mcp", { jsonrpc: "2.0", id: 2, method: "tools/list", params: {} })).result.tools.map((t2) => t2.name).sort();
   assert.ok(names.includes("ht_read"), names.join(","));
   assert.ok(names.includes("ht_user_input"), names.join(","));
-  // Sınırlı mod: kabuk/yazma araçları listelenmez.
   for (const forbidden of ["ht_shell", "ht_write", "ht_edit", "ht_transfer_file", "ht_new_shell_env"]) {
     assert.equal(names.includes(forbidden), false, `${forbidden} sızmamalı`);
   }
+});
+
+test("public mode (open + custom list): only the listed tools, still no login", async (t) => {
+  const { port } = await start(t, { HARDTOOLS_PUBLIC: "open", HARDTOOLS_PUBLIC_TOOLS: "ht_read,ht_status" });
+  const names = parse(await rpc(port, "/mcp", { jsonrpc: "2.0", id: 1, method: "tools/list", params: {} })).result.tools.map((t2) => t2.name).sort();
+  assert.deepEqual(names, ["ht_read", "ht_status"]);
 });
 
 test("public mode (key): /mcp needs the key url, /c/<key> exposes the full tool set", async (t) => {
@@ -96,8 +130,7 @@ test("public mode (key): /mcp needs the key url, /c/<key> exposes the full tool 
   const ok = await rpc(port, `/c/${KEY}`, { jsonrpc: "2.0", id: 1, method: "initialize", params: { protocolVersion: "2025-06-18", capabilities: {}, clientInfo: { name: "t", version: "1" } } });
   assert.equal(ok.status, 200, ok.body);
 
-  const tools = parse(await rpc(port, `/c/${KEY}`, { jsonrpc: "2.0", id: 2, method: "tools/list", params: {} }));
-  const names = tools.result.tools.map(t2 => t2.name);
+  const names = parse(await rpc(port, `/c/${KEY}`, { jsonrpc: "2.0", id: 2, method: "tools/list", params: {} })).result.tools.map((t2) => t2.name);
   assert.ok(names.includes("ht_shell"), names.join(","));
 
   const page = await request(port, { target: "/connect" });
@@ -105,32 +138,17 @@ test("public mode (key): /mcp needs the key url, /c/<key> exposes the full tool 
   assert.match(page.body, /\/c\//);
 });
 
-test("public mode: the static bearer still works and discovery stays off", async (t) => {
-  const { port } = await start(t, { HARDTOOLS_PUBLIC: "open" });
-  const r = await rpc(port, "/mcp", { jsonrpc: "2.0", id: 1, method: "tools/list", params: {} });
-  assert.equal(r.status, 200);
-  const withBearer = await request(port, {
-    method: "POST", target: "/mcp",
-    headers: { "content-type": "application/json", accept: "application/json, text/event-stream", authorization: `Bearer ${TOKEN}` },
-    body: JSON.stringify({ jsonrpc: "2.0", id: 2, method: "tools/list", params: {} }),
-  });
-  assert.equal(withBearer.status, 200);
-  const names = parse(withBearer).result.tools.map((t2) => t2.name);
-  assert.ok(names.includes("ht_shell"), "statik bearer tam yetkiyi korur");
-});
+test("public mode: open without any token still refuses anonymous access (no accidental open door)", async (t) => {
+  const { port, err } = await start(t, { HARDTOOLS_PUBLIC: "open" }, { token: "" });
+  assert.match(err, /neither HARDTOOLS_HTTP_TOKEN nor GitHub OAuth/);
 
-test("public mode: starts without any static bearer token at all", async (t) => {
-  const { port } = await start(t, { HARDTOOLS_PUBLIC: "open" }, { token: "" });
-  const init = await rpc(port, "/mcp", { jsonrpc: "2.0", id: 1, method: "initialize", params: { protocolVersion: "2025-06-18", capabilities: {}, clientInfo: { name: "t", version: "1" } } });
-  assert.equal(init.status, 200, init.body);
-  // Token tanımlı değilken uydurma bir bearer "static" sayılmamalı: istek yine public
-  // kimliğiyle ve sınırlı araç kümesiyle yanıtlanır.
+  const init = await rpc(port, "/mcp", { jsonrpc: "2.0", id: 1, method: "initialize", params: {} });
+  assert.equal(init.status, 401, "token yoksa anonim istek geçmemeli");
+
   const fake = await request(port, {
     method: "POST", target: "/mcp",
     headers: { "content-type": "application/json", accept: "application/json, text/event-stream", authorization: "Bearer x" },
     body: JSON.stringify({ jsonrpc: "2.0", id: 2, method: "tools/list", params: {} }),
   });
-  assert.equal(fake.status, 200);
-  const names = parse(fake).result.tools.map((t2) => t2.name);
-  assert.equal(names.includes("ht_shell"), false, "uydurma bearer tam yetki vermemeli");
+  assert.equal(fake.status, 401, "uydurma bearer kimlik kazandırmamalı");
 });
