@@ -96,9 +96,12 @@ async function main() {
   const ghSecret = (process.env.HARDTOOLS_OAUTH_GITHUB_CLIENT_SECRET ?? "").trim();
   const ghLogins = (process.env.HARDTOOLS_OAUTH_ALLOWED_LOGINS ?? "").split(",").map(s => s.trim()).filter(Boolean);
   const ghEmails = (process.env.HARDTOOLS_OAUTH_ALLOWED_EMAILS ?? "").split(",").map(s => s.trim()).filter(Boolean);
+  // HARDTOOLS_OAUTH_ALLOW_ANY=1 ya da allowlist'te "*": her GitHub hesabı giriş yapabilir.
+  const ghAllowAny = ["1", "true", "yes", "*"].includes((process.env.HARDTOOLS_OAUTH_ALLOW_ANY ?? "").trim().toLowerCase()) ||
+    ghLogins.includes("*") || ghEmails.includes("*");
   let github: GithubIdp | undefined;
   if (ghId) {
-    if (!ghLogins.length && !ghEmails.length) {
+    if (!ghLogins.length && !ghEmails.length && !ghAllowAny) {
       console.error("[hardtools] refusing to start: HARDTOOLS_OAUTH_GITHUB_CLIENT_ID is set but HARDTOOLS_OAUTH_ALLOWED_LOGINS/EMAILS is empty, so every login would be denied.");
       process.exit(1);
     }
@@ -106,10 +109,11 @@ async function main() {
     const ghWeb = (process.env.HARDTOOLS_OAUTH_GITHUB_WEB_BASE ?? "").trim();
     const ghApi = (process.env.HARDTOOLS_OAUTH_GITHUB_API_BASE ?? "").trim();
     github = {
-      clientId: ghId, ...(ghSecret ? { clientSecret: ghSecret } : {}), allowedLogins: ghLogins, allowedEmails: ghEmails,
+      clientId: ghId, ...(ghSecret ? { clientSecret: ghSecret } : {}), allowedLogins: ghLogins.filter(v => v !== "*"), allowedEmails: ghEmails.filter(v => v !== "*"), ...(ghAllowAny ? { allowAny: true } : {}),
       ...(ghWeb ? { webBase: ghWeb } : {}), ...(ghApi ? { apiBase: ghApi } : {}),
     };
-    console.error(`[hardtools] GitHub login enabled (${ghSecret ? "authorization-code redirect" : "device flow, no client secret"}); allowlist ${ghLogins.length} login / ${ghEmails.length} e-mail.`);
+    if (ghAllowAny) console.error("[hardtools] uyarı: HARDTOOLS_OAUTH_ALLOW_ANY açık — GitHub'ın doğruladığı HER hesap bağlanabilir (allowlist yok).");
+    console.error(`[hardtools] GitHub login enabled (${ghSecret ? "authorization-code redirect" : "device flow, no client secret"}); ${ghAllowAny ? "allowlist: none (herkes)" : `allowlist ${ghLogins.length} login / ${ghEmails.length} e-posta`}.`);
   } else if (ghSecret) {
     console.error("[hardtools] ignoring HARDTOOLS_OAUTH_GITHUB_CLIENT_SECRET without HARDTOOLS_OAUTH_GITHUB_CLIENT_ID.");
   }

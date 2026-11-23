@@ -184,3 +184,28 @@ test("github login: a client id alone means device flow, a secret alone is ignor
   assert.equal(code, 1, "boş allowlist ile açılış reddedilmeli");
   assert.match(err, /ALLOWED_LOGINS/);
 });
+
+test("github login: ALLOW_ANY ile allowlist olmadan sunucu açılır ve giriş herkese açıktır", async (t) => {
+  const { port, output } = await startServer(t, {
+    HARDTOOLS_OAUTH_GITHUB_CLIENT_ID: "Iv1.testclient",
+    HARDTOOLS_OAUTH_ALLOW_ANY: "1",
+  });
+  assert.match(output(), /listening/, "sunucu açılmalı: " + output());
+  assert.match(output(), /HER hesap bağlanabilir/);
+  const clientId = await registeredClient(port);
+  const res = await request(port, { target: authorizePath(clientId) });
+  // Sır yoksa device flow denenir: gerçek GitHub'a gidilemediği için 502 de normaldir;
+  // önemli olan sunucunun ayakta ve giriş yolunun açık olması (500/hata sayfası değil).
+  assert.ok([200, 302, 502].includes(res.status), `beklenmeyen durum: ${res.status}`);
+});
+
+test("github login: allowlist de '*' her hesabı kabul eder, boş bırakmak hâlâ reddedilir", async (t) => {
+  const any = await startServer(t, { HARDTOOLS_OAUTH_GITHUB_CLIENT_ID: "Iv1.testclient", HARDTOOLS_OAUTH_ALLOWED_LOGINS: "*" });
+  assert.match(any.output(), /listening/);
+  assert.match(any.output(), /HER hesap bağlanabilir/);
+
+  const none = await startServer(t, { HARDTOOLS_OAUTH_GITHUB_CLIENT_ID: "Iv1.testclient" });
+  // allowlist ne "*" ne de herhangi bir ad içermiyorsa sunucu açılmamalı.
+  assert.equal(/listening/.test(none.output()), false);
+  assert.match(none.output(), /allowlist|refusing to start/);
+});
