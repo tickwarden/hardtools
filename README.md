@@ -22,6 +22,7 @@ Claude'un yerleşik dosya/arama/kabuk/web araçlarının **sınırlandırılmı�
 | `ht_share` | kullanıcıya dosya ver | süreli indirme bağlantısı veya MCP dosya eki, özel çalışma klasörü, SHA-256, yeniden adlandırma, listeleme ve iptal |
 | `ht_image_search` | görsel arama | genel sorguda Wikimedia Commons; Minecraft Fabric logosunda resmî proje kaynağı; gerçek küçük görsel, filtre, kaynak ve varsa lisans |
 | `ht_fetch` | web fetch | SSRF korumalı (bağlantı anında IP doğrulama, her yönlendirmede yeniden doğrulama), boyut/süre/sıkıştırma-bombası limiti, `<untrusted_web_content>` sarmalı |
+| `ht_ask` | `ask_user_input` | **tek çağrıda soru + seçenek**: 2–12 seçenek (açıklamalı), çoklu seçim (`multi`), serbest metin, uzun yoklama (`wait_seconds`), `action=cancel`/`get`; cevap aynı turda döner |
 | `ht_status` | – | aktif politika, audit zinciri ve bağımsız doğrulama için kendi JSONL kaydını dışa aktarma |
 
 ## Yeni araçları dene
@@ -218,6 +219,23 @@ fly secrets set HARDTOOLS_PUBLIC=open HARDTOOLS_PUBLIC_TOOLS=safe -a hardtools-m
 - Tarayıcıda **Vazgeç** düğmesi (`action=cancel` → model `status=cancelled` görür), kalan süre bilgisi ve mobil uyumlu form.
 - Sır alanları: modele `<secret>` döner, denetim kaydına yazılmaz, komut çıktısında `[redacted:HT_USER_INPUT]` ile maskelenir; yanıt sayfası sırrı bir daha göstermez.
 - Örnek: `ht_user_input {title:"Yeni servis", fields:[{name:"ad",title:"Ad"},{name:"port",title:"Port",kind:"number",default:"8080"},{name:"mod",title:"Mod",choices:["dev","prod"]},{name:"token",title:"Token",secret:true,required:false}], wait_seconds:60}`
+
+### `ht_ask` (0.5.4) — tek çağrıda soru
+
+`ask_user_input` benzeri, ama MCP üzerinden çalışır ve cevap aynı turda gelir:
+
+```json
+{"question": "Hangi ortamlar?",
+ "options": [{"label": "dev", "description": "hızlı"}, "stage", "prod"],
+ "multi": true, "allow_custom": true, "wait_seconds": 90}
+```
+
+- `options` 2–12 seçenek; nesne verilirse açıklama seçeneğin yanında görünür.
+- `multi: true` → onay kutuları, cevap dizi olarak (`selected: ["dev","prod"]`).
+- `allow_custom` (varsayılan açık) → "Başka bir şey" kutusu; doluysa `custom` alanı döner.
+- `wait_seconds` (varsayılan 90) cevabı bekler; süre dolarsa `status: "pending"` + `url` döner — kullanıcıya bağlantıyı gösterip `request_id` ile tekrar çağır.
+- `action=cancel` açık soruyu iptal eder (model `cancelled` görür).
+- Cevap `ht_user_input`'un aynı form motorundan gelir: aynı oturum, aynı `$HT_USER_INPUT` değişkenleri.
 
 ### 0.5.3 değişiklikleri
 

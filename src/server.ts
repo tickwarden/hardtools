@@ -256,6 +256,93 @@ Pass dedupe_key to reuse an identical form that is still open instead of creatin
     return JSON.stringify({ action: "get", ...view, next: "The answer is available as $HT_USER_INPUT (and $HT_USER_INPUT_<NAME> per field) inside ht_shell. Call action=clear when done." }, null, 2);
   }));
 
+  // ht_ask — ask_user_input tarzı tek çağrı: soru + seçenekler, cevap aynı turda döner.
+  // ht_user_input'un aksine model URL yönetmez; form yine tarayıcıda açılır.
+  register("ht_ask", {
+    title: "Ask the user one question with options (single call, multi-select, free text)",
+    description: `Ask the user a quick question and get the answer back in the same call — no url juggling.
+
+- question: the question; options: 2–12 choices (string, or {label, description}).
+- multi=true turns the choices into checkboxes and answers with an array.
+- allow_custom (default true) adds an optional "something else" text box.
+- wait_seconds (default 90, max 120) blocks until the user answers. If it times out you get status=pending plus a url; show that url, then call again with request_id (and wait_seconds) to collect the answer.
+- action=cancel drops an open question; action=get reads an answer without asking again.
+Returned: {status, question, selected[], custom, request_id, elapsed_s}.`,
+    inputSchema: {
+      question: z.string().min(1).max(400).optional().describe("The question to ask"),
+      options: z.array(z.union([
+        z.string().min(1).max(200),
+        z.object({ label: z.string().min(1).max(200), description: z.string().max(200).optional() }),
+      ])).min(2).max(12).optional().describe("2–12 choices"),
+      multi: z.boolean().optional().describe("Allow several answers (checkbox list)"),
+      allow_custom: z.boolean().optional().describe("Also offer a free-text answer (default true)"),
+      wait_seconds: z.number().int().min(0).max(120).optional().describe("Block up to this long for the answer (default 90)"),
+      ttl_minutes: z.number().int().min(1).max(60).optional().describe("How long the question stays open (default 10)"),
+      request_id: z.string().min(20).max(64).optional().describe("Continue an earlier ht_ask"),
+      action: z.enum(["ask", "get", "cancel"]).optional().describe("ask (default), get, or cancel"),
+    },
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
+  }, wrap("ht_ask", async (a: {
+    question?: string; options?: (string | { label: string; description?: string })[]; multi?: boolean; allow_custom?: boolean;
+    wait_seconds?: number; ttl_minutes?: number; request_id?: string; action?: "ask" | "get" | "cancel";
+  }, extra) => {
+    const action = a.action ?? (a.request_id ? "get" : "ask");
+    const url = (id: string) => `${origin}/ui/input/${id}`;
+
+    if (action === "cancel") {
+      if (!a.request_id) throw new PolicyError("bad_input", "cancel needs request_id");
+      const ok = workspace.inputs.cancel(a.request_id);
+      if (ok) audit.write({ ev: "ask_cancel" });
+      return JSON.stringify({ status: ok ? "cancelled" : "unknown", request_id: a.request_id });
+    }
+
+    const started = Date.now();
+    let id = a.request_id;
+
+    if (action === "ask") {
+      if (!origin) throw new PolicyError("unavailable", "ht_ask needs the HTTP transport (the question is answered in a browser)");
+      const question = (a.question ?? "").trim();
+      if (!question) throw new PolicyError("bad_input", "question is required");
+      const opts = (a.options ?? []).map(o => typeof o === "string" ? { label: o } : o);
+      if (opts.length < 2) throw new PolicyError("bad_input", "options needs at least 2 choices");
+      const labels = opts.map(o => (o.description ? `${o.label} — ${o.description}` : o.label).slice(0, 200));
+      if (new Set(labels).size !== labels.length) throw new PolicyError("bad_input", "options must be distinct");
+      const multi = Boolean(a.multi);
+      const fields: any[] = [{ name: "answer", title: question, kind: multi ? "array" : "string", required: true, choices: labels, ...(multi ? { multiple: true } : {}) }];
+      if (a.allow_custom !== false) fields.push({ name: "custom", title: "Başka bir şey (isteğe bağlı)", kind: "string", required: false });
+      const req = workspace.inputs.create(owner, {
+        title: question, kind: "string", secret: false, ttlMs: (a.ttl_minutes ?? 10) * 60_000, fields,
+        dedupeKey: `ask:${question}:${labels.join("|")}:${multi ? "multi" : "one"}`.slice(0, 200),
+      });
+      audit.write({ ev: "ask", options: labels.length, multi });
+      id = req.id;
+    }
+
+    if (!id) throw new PolicyError("bad_input", "nothing to read: give question+options or a request_id");
+    const waitMs = Math.max(0, Math.min(120, a.wait_seconds ?? 90)) * 1000;
+    const waited = waitMs ? await workspace.inputs.wait(owner, id, waitMs, extra?.signal) : undefined;
+    const req = waited ?? workspace.inputs.get(owner, id);
+    const view = workspace.inputs.view(req);
+    const elapsed_s = Math.round((Date.now() - started) / 1000) / 1;
+
+    if (view.status === "pending") {
+      return JSON.stringify({ status: "pending", question: view.title, request_id: req.id, url: url(req.id), elapsed_s,
+        next: "Show the url to the user, then call ht_ask again with request_id (and wait_seconds) to read the answer." });
+    }
+    if (view.status === "cancelled") return JSON.stringify({ status: "cancelled", question: view.title, request_id: req.id, elapsed_s, next: "The user declined to answer." });
+    if (view.status === "expired") return JSON.stringify({ status: "expired", question: view.title, request_id: req.id, elapsed_s, next: "The question expired; ask again with action=ask." });
+
+    const values = (view.values ?? {}) as Record<string, unknown>;
+    const raw = values.answer;
+    const selected = raw === undefined || raw === null || raw === "" ? [] : Array.isArray(raw) ? raw : [raw];
+    const custom = typeof values.custom === "string" && values.custom.trim() ? String(values.custom).trim() : null;
+    return JSON.stringify({
+      status: "answered", question: view.title, request_id: req.id, elapsed_s,
+      selected, ...(custom ? { custom } : {}),
+      answer: custom && !selected.length ? custom : selected.length === 1 ? selected[0] : selected,
+    });
+  }));
+
   register("ht_share", {
     title: "Share a file with the user",
     description: `Create a temporary immutable snapshot. path is relative to ${SHARE_CWD} inside the first root, or use source_path for another allowed workspace file. HTTP returns a private, expiring download link; stdio attaches the bytes. List or revoke only your shares. Do not publish the link.`,
