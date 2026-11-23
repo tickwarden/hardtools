@@ -28420,7 +28420,7 @@ async function main() {
         return send(400, "invalid JSON");
       }
       const origin = oauth.origin(req);
-      const server = createServer(policy, audit.forGrant(owner), workspace, owner, origin, owner.startsWith("public") ? { tools: publicTools } : {});
+      const server = createServer(policy, audit.forGrant(owner), workspace, owner, origin, owner === "public" ? { tools: publicTools } : {});
       const transport = new WebStandardStreamableHTTPServerTransport({ sessionIdGenerator: void 0 });
       const abort = new AbortController();
       res.once("close", () => {

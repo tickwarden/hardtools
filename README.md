@@ -226,5 +226,11 @@ fly secrets set HARDTOOLS_PUBLIC=open HARDTOOLS_PUBLIC_TOOLS=safe -a hardtools-m
 - **Durum bilgisi eksikti**: süresi dolan/iptal edilen istek "pending" gibi görünüyordu; `status` artık `pending | ready | cancelled | expired`, ayrıca `filled` bayrağı sır dolu mu sorusunu değer sızdırmadan yanıtlar.
 - **`/healthz` public modu bildirmiyordu**: izleme tarafı "oturum açma isteyen" ve "istemeyen" sunucuyu ayırt edemiyordu.
 
+## Yayınlama
+
+- **Fly.io (asıl dağıtım)**: `flyctl deploy -a hardtools-mcp --remote-only --ha=false`. Gözcü, `/healthz`, volume ve sırlar aynı kalır; dağıtımdan sonra `curl -s https://hardtools-mcp.fly.dev/healthz` ile sürümü doğrula.
+- **Bundle artifact**: `test-and-bundle` işi `npm run build` + `npm run bundle` çalıştırıp `bundle/` çıktısını GitHub Actions artifact'i olarak yükler; tek dosyalık `bundle/index.js` doğrudan kullanılabilir.
+- **npm yayını kaldırıldı (0.5.2)**: `publish-npm` işi silindi. Sebep: paket npm'de hiç kayıtlı değildi ve OIDC *trusted publishing* var olmayan bir paketi oluşturamıyor — her `v*` tag'inde `PUT https://registry.npmjs.org/hardtools` `404` dönüyordu. npm yayını ileride istenirse: npmjs.com'da adı bir kez elle yayınla (token'lı `npm publish --access public`), sonra **Paket > Settings > Trusted Publisher > GitHub Actions** tanımla ve işi geri ekle.
+
 ## Bilinen sınırlar (özet; ayrıntı `SECURITY.md`)
 Windows'ta yerel `argv` doğrudan yürütülebilir dosya ister (`.cmd` shim yok), `command` ise `cmd.exe` kullanır, süreç ağacı `taskkill` ile öldürülür; asıl hedef Linux/macOS/WSL. `balanced` içindeki `npm test` gibi komutlar **proje betiklerini** çalıştırır. `open` profili sandbox değildir. Yol denetimi check-then-use (TOCTOU) artığı taşır.

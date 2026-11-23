@@ -152,3 +152,25 @@ test("public mode: open without any token still refuses anonymous access (no acc
   });
   assert.equal(fake.status, 401, "uydurma bearer kimlik kazandırmamalı");
 });
+
+test("public mode (open + safe + key): /mcp kısıtlı, /c/<key> tam yetkili", async (t) => {
+  const { port } = await start(t, { HARDTOOLS_PUBLIC: "open", HARDTOOLS_PUBLIC_TOOLS: "safe", HARDTOOLS_PUBLIC_KEY: KEY });
+
+  const anon = parse(await rpc(port, "/mcp", { jsonrpc: "2.0", id: 1, method: "tools/list", params: {} })).result.tools.map((x) => x.name);
+  assert.equal(anon.includes("ht_shell"), false, "/mcp adsız kimlik kısıtlı kalmalı");
+  assert.ok(anon.includes("ht_read"), anon.join(","));
+
+  const keyed = parse(await rpc(port, `/c/${KEY}`, { jsonrpc: "2.0", id: 2, method: "tools/list", params: {} })).result.tools.map((x) => x.name);
+  assert.ok(keyed.includes("ht_shell"), "anahtar kimliği tam set almalı: " + keyed.join(","));
+});
+
+test("public mode (open + all + ANON=1): tam araç seti girişsiz, keşif yine 404", async (t) => {
+  const { port } = await start(t, { HARDTOOLS_PUBLIC: "open", HARDTOOLS_PUBLIC_TOOLS: "all", HARDTOOLS_PUBLIC_ANON: "1" });
+  const health = JSON.parse((await request(port, { target: "/healthz" })).body);
+  assert.equal(health.login, "none");
+  const init = await rpc(port, "/mcp", { jsonrpc: "2.0", id: 1, method: "initialize", params: { protocolVersion: "2025-06-18", capabilities: {}, clientInfo: { name: "t", version: "1" } } });
+  assert.equal(init.status, 200, init.body);
+  const names = parse(await rpc(port, "/mcp", { jsonrpc: "2.0", id: 2, method: "tools/list", params: {} })).result.tools.map((x) => x.name);
+  assert.ok(names.includes("ht_shell") && names.includes("ht_write") && names.includes("ht_delete_var"), names.join(","));
+  assert.equal((await request(port, { target: "/.well-known/oauth-protected-resource" })).status, 404);
+});

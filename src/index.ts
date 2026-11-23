@@ -189,7 +189,8 @@ async function main() {
       // We have already authenticated, routed and bounded the POST. Use the SDK's Web transport
       // directly instead of reparsing an arbitrary incoming URL with a second HTTP framework.
       const origin = oauth.origin(req);
-      const server = createServer(policy, audit.forGrant(owner), workspace, owner, origin, owner.startsWith("public") ? { tools: publicTools } : {});
+      // Araç kısıtı yalnızca adsız public kimliğe uygulanır; /c/<anahtar> kimliği her zaman tam settir.
+      const server = createServer(policy, audit.forGrant(owner), workspace, owner, origin, owner === "public" ? { tools: publicTools } : {});
       const transport = new WebStandardStreamableHTTPServerTransport({ sessionIdGenerator: undefined });
       const abort = new AbortController();
       res.once("close", () => { if (!res.writableFinished) abort.abort(); void server.close(); });
