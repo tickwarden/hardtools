@@ -63,7 +63,13 @@ test("fly deploy: image ships the bundle, bubblewrap and a health probe", () => 
   assert.match(entrypoint, /HARDTOOLS_HTTP_TOKEN/);
   assert.match(entrypoint, /exit 1/, "token yoksa açılış reddedilmeli");
   assert.match(entrypoint, /mkdir -p "\$ROOT" "\$AUDIT"/, "ilk açılışta hacim hazırlanmalı");
-  assert.match(entrypoint, /exec node "\$APP_DIR\/bundle\/index\.js" --http --host 0\.0\.0\.0/);
+  // 0.5.1: giriş artık bir gözcü (supervisor). node aynı argümanlarla ama döngü içinde başlar,
+  // çökünce geri gelir, /healthz yanıtsız kalırsa süreç öldürülür.
+  assert.match(entrypoint, /node "\$APP_DIR\/bundle\/index\.js" --http --host 0\.0\.0\.0/);
+  assert.match(entrypoint, /while \[ "\$STOPPING" -eq 0 \]; do/);
+  assert.match(entrypoint, /log_restart/);
+  assert.match(entrypoint, /\/healthz/);
+  assert.match(entrypoint, /BACKOFF/);
   assert.match(entrypoint, /APP_DIR="\$\{HARDTOOLS_APP_DIR:-\/app\}"/);
   assert.ok(!/echo[^\n]*\$\{?HARDTOOLS_HTTP_TOKEN\}/.test(entrypoint), "token değeri loga yazılmamalı");
   // Çift tırnak içindeki $(openssl ...) çalışır ve loga gerçek bir token yazar; ipucu tek tırnaklı olmalı.

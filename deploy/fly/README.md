@@ -153,3 +153,32 @@ Ortam kökü varsayılan olarak `<proje kökünün ebeveyni>/envs/env-<zaman>` a
 | Device flow'un açık olduğunu doğrula | `curl -s -X POST https://github.com/login/device/code -H 'Accept: application/json' -d "client_id=<CID>&scope=read:user"` → `device_code` dönerse hazır; `invalid_scope` ID geçerli demektir (geçersiz kapsamla denenebilir); `Not Found` ise ID yanlış. |
 | GitHub hesabı reddedildi (`403`) | Giriş yapan hesap `HARDTOOLS_OAUTH_ALLOWED_LOGINS`/`_EMAILS` listesinde değil. Listeyi güncelledikten sonra `flyctl secrets deploy`. |
 | `Makine 5 dk’da bir duruyor` | Fly hesabı **deneme (trial)** modunda: logda `Trial machine stopping. To run for longer than 5m0s, add a credit card`. Çözüm hesap sahibinin kart eklemesidir; `fly.toml` ayarları bunu engellemez. |
+
+## Public modlar (0.5.2): girişsiz bağlanma ya da giriş zorunlu
+
+claude.ai'de "Oturum açma gerekli" satırı çıkmasın istiyorsan sunucuyu public modda çalıştır:
+
+```bash
+# 1) Anahtar adreste: https://hardtools-mcp.fly.dev/c/<anahtar> — tüm araçlar, giriş istenmez
+fly secrets set HARDTOOLS_PUBLIC=key HARDTOOLS_PUBLIC_KEY=$(openssl rand -hex 32) -a hardtools-mcp
+# 2) Girişsiz + okuma: https://hardtools-mcp.fly.dev/mcp — 8 güvenli araç
+fly secrets set HARDTOOLS_PUBLIC=open HARDTOOLS_PUBLIC_TOOLS=safe -a hardtools-mcp
+# 3) Tüm araçlar ama giriş zorunlu: https://hardtools-mcp.fly.dev/mcp
+fly secrets set HARDTOOLS_PUBLIC=open HARDTOOLS_HTTP_TOKEN=$(openssl rand -hex 32) -a hardtools-mcp
+```
+
+| Mod | Giriş | Araçlar | claude.ai'de giriş ekranı |
+|---|---|---|---|
+| `open` (varsayılan) | **zorunlu** (bearer / OAuth) | 21 | çıkar — OAuth veya token kurulu olmalı |
+| `open` + `HARDTOOLS_PUBLIC_TOOLS=safe` (ya da kendi listeniz) | yok | liste | çıkmaz |
+| `key` | yok (anahtar adreste) | 21 | çıkmaz |
+
+- Girişsiz modlarda `/.well-known/oauth-*`, `/authorize`, `/register`, `/token` 404 döner; `/mcp` 401 ile meydan okumaz, `www-authenticate` göndermez. Bağlayıcı **Ekle** ile doğrudan eklenir. `GET /connect` yapıştırılacak adresi gösterir.
+- `open` + tam araç seti **anonim değildir**: token ve GitHub OAuth tanımlı değilse açılışta uyarı verir, her istek 401 döner (`/healthz` → `"login":"required"`).
+- Statik `HARDTOOLS_HTTP_TOKEN` ve OAuth akışı girişsiz modlarda da kapanmaz; aynı sunucu ikisini de kabul eder.
+
+## Sunucu düşerse
+
+- `entrypoint.sh` bir gözcüdür: node çökerse üstel geri çekilmeyle yeniden başlatır, `/healthz` üst üste 3 kez yanıtsızsa süreci öldürür. Kayıt: `/data/supervisor.log`.
+- Süreç içi watchdog **iki ardışık** 30 saniyelik olay döngüsü kilitlenmesinde süreci kapatır (audit: `watchdog_exit`); tek donma yeniden başlatma sebebi değildir.
+- `scripts/keepalive.sh` + `.github/workflows/keepalive.yml`: 5 dakikada bir `/healthz`; başarısızsa `FLY_API_TOKEN` ile `machines/<id>/restart`.

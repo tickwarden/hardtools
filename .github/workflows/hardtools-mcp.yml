@@ -122,44 +122,8 @@ jobs:
           retention-days: 30
 
   # ──────────────────────────────────────────────
-  # 2. npm publish (sadece v* tag'i) – OIDC trusted publishing
-  #    Tek seferlik kurulum npmjs.com'da yapılır (secret değil):
-  #    Paket > Settings > Trusted Publisher > GitHub Actions
-  #    (repo + bu workflow'un dosya adı)
   # ──────────────────────────────────────────────
-  publish-npm:
-    needs: test-and-bundle
-    if: startsWith(github.ref, 'refs/tags/v')
-    runs-on: ubuntu-24.04
-    timeout-minutes: 15
-    permissions:
-      contents: read
-      id-token: write
-    steps:
-      - uses: actions/checkout@v7
-        with:
-          persist-credentials: false
-
-      - uses: actions/setup-node@v5
-        with:
-          node-version: '24'    # trusted publishing için npm >= 11.5.1 gerekir
-          registry-url: 'https://registry.npmjs.org'
-          cache: 'npm'
-
-      - name: Tag ile package.json sürümü eşleşiyor mu?
-        run: |
-          pkg="v$(node -p "require('./package.json').version")"
-          if [ "$pkg" != "$GITHUB_REF_NAME" ]; then
-            echo "::error::Tag ($GITHUB_REF_NAME) != package.json ($pkg)"
-            exit 1
-          fi
-
-      - run: npm ci
-      - run: npm run bundle
-      - run: npm publish --access public
-
-  # ──────────────────────────────────────────────
-  # 3. MCP sunucusu ve tünel (serve / check-connection). Kısa kontrol ayrı
+  # 2. MCP sunucusu ve tünel (serve / check-connection). Kısa kontrol ayrı
   #    concurrency grubunu kullanır; mevcut serve oturumunu iptal etmez.
   # ──────────────────────────────────────────────
   serve:
@@ -431,7 +395,7 @@ jobs:
           done
 
   # ──────────────────────────────────────────────
-  # 4. Yayından kaldır: çalışan/kuyruktaki serve run'larını iptal et
+  # 3. Yayından kaldır: çalışan/kuyruktaki serve run'larını iptal et
   #    (auto_renew zincirini keser)
   # ──────────────────────────────────────────────
   unpublish:

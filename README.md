@@ -2,7 +2,7 @@
 
 Claude'un yerleşik dosya/arama/kabuk/web araçlarının **sınırlandırılmış, denetlenebilir** karşılıkları. Tek bir MCP sunucusu; Claude Code, Claude Desktop (stdio) ve uzak MCP (HTTP) üzerinden çalışır.
 
-> **Durum:** v0.4.0, kod AI tarafından yazıldı (bkz. `CREDITS.md`). Otomatik testler var; bağımsız insan güvenlik incelemesi yapılmadı. Pazar yerinden kurulum Claude Code CLI ile doğrulandı. MCP testleri SDK istemcisi ve ham HTTP ile yapılır; Claude Desktop ve claude.ai arayüzlerinde uçtan uca kurulum burada denenmedi.
+> **Durum:** v0.5.2, kod AI tarafından yazıldı (bkz. `CREDITS.md`). Otomatik testler var; bağımsız insan güvenlik incelemesi yapılmadı. Pazar yerinden kurulum Claude Code CLI ile doğrulandı. MCP testleri SDK istemcisi ve ham HTTP ile yapılır; Claude Desktop ve claude.ai arayüzlerinde uçtan uca kurulum burada denenmedi.
 
 ## Araçlar
 
@@ -165,6 +165,84 @@ node bundle/index.js --http --port 8787 --profile balanced      # 127.0.0.1'e ba
 - HTTP’de yazma ve kabuk varsayılan **kapalı**. Kendi sunucunda `HARDTOOLS_HTTP_ALLOW_LOCAL_TOOLS=1` ile ve **tek, özel bir `HARDTOOLS_ROOTS` proje klasörü** seçerek aç. Proje, audit/konfig ve yönetim dosyalarından ayrı olmalı; içine sır, host soketi veya başka bağlama noktası koyma. Bu alan aynı yayına erişenlerce paylaşılır.
 - HTTP kabuğu için Linux (Debian/Ubuntu birleşik `/usr` düzeni), procfs, `--ro-bind-fd` destekleyen `/usr/bin/bwrap` ve çalışan kullanıcı ad alanları gerekir. GitHub işi dağıtım paketini kullanır. Başlangıç sınaması başarısız olursa sunucu **host kabuğuna geçmez**. Kabuksuz, yalnız dosya yazılabilen HTTP kullanımı için politikada `shell.enabled:false` ayarlanabilir. Yerel stdio bu bağımlılığı gerektirmez.
 - Worker’a proje `/work`, salt okunur sistem araçları/kütüphaneleri ve Node bağlanır. `/tmp` çağrıya özeldir; host ağı hiçbir zaman paylaşılmaz. Varsayılan olarak internet çıkışı da yoktur. Kendi sunucunda izole kabuğa ek olarak `HARDTOOLS_WORKSPACE_HTTPS=1` verildiğinde yalnız proxy üzerinden genel HTTPS hedeflerine çıkılabilir. Runner’ın evi, workflow dosyaları, yönetim soketleri, token’ları ve yönetim ortamı aktarılmaz. Web verisi için `ht_fetch` kendi politikasını kullanır. TLS sonlandırma (ters vekil/tünel) ve `HARDTOOLS_ALLOWED_HOSTS` yapılandırması yayın sahibine aittir.
+
+
+### Public modlar: girişsiz bağlanma ya da giriş zorunlu (0.5.2)
+
+`HARDTOOLS_PUBLIC` sunucunun kimlik davranışını belirler. Girişsiz modlarda MCP adresi hiç 401 dönmez ve OAuth keşif belgeleri yayınlanmaz; bu yüzden claude.ai bağlayıcı eklerken **"Oturum açma gerekli"** satırını göstermez, **Ekle** ile doğrudan eklenir.
+
+| Mod | Bağlayıcı adresi | Giriş | Araçlar |
+|---|---|---|---|
+| `open` | `https://<host>/mcp` | **zorunlu** — statik bearer ya da OAuth oturumu (keşif yayınlanır, 401 + `www-authenticate` döner) | **tüm araçlar (21)** |
+| `open` + `HARDTOOLS_PUBLIC_TOOLS=safe` | `https://<host>/mcp` | yok | güvenli küme: `ht_read`, `ht_glob`, `ht_search`, `ht_status`, `ht_user_input`, `ht_image_search`, `ht_fetch`, `ht_share` |
+| `open` + `HARDTOOLS_PUBLIC_TOOLS="ht_read,ht_glob,…"` | `https://<host>/mcp` | yok | yalnız listelenen araçlar |
+| `key` | `https://<host>/c/<anahtar>` | yok — anahtar (≥32 karakter) adreste kimlik yerine geçer | **tüm araçlar (21)** |
+
+```bash
+# Fly: tüm araçlar + giriş zorunlu (claude.ai'de "Bağlan"a basınca giriş akışı çıkar)
+fly secrets set HARDTOOLS_PUBLIC=open HARDTOOLS_HTTP_TOKEN=$(openssl rand -hex 32) -a hardtools-mcp
+# tüm araçlar, giriş istemez (adres anahtarlı):
+fly secrets set HARDTOOLS_PUBLIC=key HARDTOOLS_PUBLIC_KEY=$(openssl rand -hex 32) -a hardtools-mcp
+# girişsiz ama yalnız okuma (0.5.1'in open davranışı):
+fly secrets set HARDTOOLS_PUBLIC=open HARDTOOLS_PUBLIC_TOOLS=safe -a hardtools-mcp
+```
+
+- **`open` + tam araç seti kasten anonim bir kapı değildir.** Yazma, silme ve kabuk araçları ancak kimlik doğrulandıktan sonra listelenir. Token ya da GitHub OAuth tanımlı değilse sunucu açılışta uyarır ve her MCP isteği 401 döner (`/healthz` → `"login":"required"`).
+- claude.ai istemcisi özel başlık gönderemediği için `open` modunda giriş **OAuth ile** yapılır: `HARDTOOLS_OAUTH_GITHUB_CLIENT_ID` + `HARDTOOLS_OAUTH_ALLOWED_LOGINS` (sır gerekmez, device flow) ya da GitHub'sız kurulumda `/authorize` sayfasındaki token formu. Ayrıntı: yukarıdaki OAuth bölümü.
+- **Girişsiz modlar** (`key`, `open` + araç listesi): `/.well-known/oauth-*`, `/authorize`, `/register`, `/token` **404** döner, `www-authenticate` hiç gönderilmez, `GET /connect` (ve `GET /c/<anahtar>`) yapıştırılacak adresi gösteren Türkçe sayfayı döner.
+- Girişsiz modlarda statik bearer ve OAuth akışı yine çalışır: aynı sunucu hem oturumsuz bağlayıcıya hem yetkili istemciye hizmet eder.
+- `key` modunda adresi bilen tam yetkiye sahiptir; adresi paylaşacaksan `open` + araç listesi daha güvenli.
+
+### İzole kabuk: kalıcı `/tmp`, `apt` ve büyük indirmeler (0.5.3)
+
+- **`/tmp` artık oturum boyunca kalıcı**: proje hacminde `<kök>/.hardtools/{tmp,home,bin,root}` tutulur ve `/tmp`, `$HOME` olarak bağlanır. Aynı oturumdaki `ht_shell` çağrıları arasında indirdiğin dosyalar, `pip install --user` ve açtığın arşivler kaybolmaz. Uçucu davranış için `HARDTOOLS_SESSION_TMP=0`.
+- **`apt` kaynakları artık görünür**: `/etc/apt` kopyası kazı alanına yazılır ve `http://` adresleri `https://`'e çevrilir (izole kabuğun çıkışı yalnız HTTPS:443 CONNECT). Böylece `apt-get update` ve `apt-get download` çalışır; `lists` ve `archives` yazılabilir.
+- **Sistem geneline kurulum yine yapılamaz**: kök dosya sistemi salt okunur, `dpkg` veritabanı salt okunur. Paket kullanmak için: `apt-get download <paket>` → `dpkg -x <paket>.deb /work/.hardtools/root` → `/work/.hardtools/root/usr/bin` zaten `PATH`'te. Tek seferlik araçlar için `/work/.hardtools/bin` de `PATH`'te.
+- **Büyük indirmeler kesilmez**: çıkış vekilinin bütçesi çağrı başına **4 GiB** (eski 64 MB) ve boşta kalma sınırı **120 sn** (eski 15 sn — yavaş aynada "Proxy CONNECT aborted" buna takılıyordu). Ayarlar: `HARDTOOLS_WORKSPACE_EGRESS_MB`, `HARDTOOLS_WORKSPACE_EGRESS_IDLE_S`.
+
+### Sunucu düşerse: gözcü + keepalive (0.5.1)
+
+- **Konteyner gözcüsü** (`deploy/fly/entrypoint.sh`): node süreci çıkarsa üstel geri çekilmeyle (1→30 sn, 60 sn'den uzun çalışmadan sonra sıfırlanır) yeniden başlatır; `/healthz` üst üste 3 kez yanıtsız kalırsa süreci öldürüp geri getirir. Her yeniden başlatma `/data/supervisor.log` ve `/data/restarts` dosyasına yazılır.
+- **Süreç içi watchdog (0.5.2)**: olay döngüsü **iki ölçüm üst üste** 30 saniyeden fazla kilitlenirse süreç kendini kapatır (`audit: watchdog_exit`); tek seferlik kısa donmalar (host taşıması, CPU kıtlığı) yeniden başlatma sebebi olmaz.
+- **Keepalive** (`scripts/keepalive.sh` + `.github/workflows/keepalive.yml`): 5 dakikada bir `/healthz` yoklanır. Trial hesapta makine boşta duruyorsa bu istek onu uyandırır; üç deneme de başarısız olursa `FLY_API_TOKEN` varsa machines API'siyle makine yeniden başlatılır.
+  ```bash
+  HARDTOOLS_URL=https://hardtools-mcp.fly.dev FLY_APP=hardtools-mcp FLY_API_TOKEN=... scripts/keepalive.sh
+  ```
+
+### `ht_user_input` v2 (0.5.1)
+
+- `fields[]` ile **tek formda birden çok soru** (8'e kadar). Yanıtlar `$HT_USER_INPUT` (JSON) ve her alan için `$HT_USER_INPUT_<AD>` olarak komutlara geçer.
+- `choices` → açılır liste, `default` → önceden dolu değer, `placeholder`/`help` → form içi açıklama, `required` → boş bırakılamaz.
+- `action=get` + `wait_seconds` (**1–120**) → **uzun yoklama**: model tek çağrıda kullanıcıyı bekler, "bir daha get çağır" turu gerekmez.
+- `dedupe_key` → açık bir formu yeniden kullanır (ikinci bağlantı üretmez); `action=list` açık istekleri sayar.
+- Tarayıcıda **Vazgeç** düğmesi (`action=cancel` → model `status=cancelled` görür), kalan süre bilgisi ve mobil uyumlu form.
+- Sır alanları: modele `<secret>` döner, denetim kaydına yazılmaz, komut çıktısında `[redacted:HT_USER_INPUT]` ile maskelenir; yanıt sayfası sırrı bir daha göstermez.
+- Örnek: `ht_user_input {title:"Yeni servis", fields:[{name:"ad",title:"Ad"},{name:"port",title:"Port",kind:"number",default:"8080"},{name:"mod",title:"Mod",choices:["dev","prod"]},{name:"token",title:"Token",secret:true,required:false}], wait_seconds:60}`
+
+### 0.5.3 değişiklikleri
+
+- İzole kabukta `/tmp` **oturum boyunca kalıcı** (proje hacminde `.hardtools/`), `apt-get update`/`apt-get download` çalışır, büyük indirmeler 4 GiB bütçe ve 120 sn boşta sınırıyla kesilmez.
+- `PATH` içine `/work/.hardtools/bin` ve `/work/.hardtools/root/usr/bin` eklendi; `HOME` kalıcı kazı alanına taşındı.
+
+### 0.5.2 değişiklikleri
+
+- **`HARDTOOLS_PUBLIC=open` artık tüm araçları açar ama girişi zorunlu tutar**: kimliksiz istek 401 + `www-authenticate`, OAuth keşfi yayınlanır, `/healthz` içinde `"login":"required"`. Girişsiz okuma modu `HARDTOOLS_PUBLIC_TOOLS=safe` (ya da kendi listeniz) ile korunur.
+- **Watchdog iki ardışık kilitlenme ölçümü ister** (30 sn × 2); tek seferlik donma yeniden başlatmaya yol açmaz.
+- **`open` + tam araç seti, giriş yapılandırılmamışsa açılışta uyarır** ve istekleri reddeder — yanlışlıkla "herkese açık tam yetki" durumuna düşülmez.
+
+### 0.5.1'de düzeltilen hatalar
+
+- **Konteyner girişi tek süreçti** (`exec node …`): node çökerse konteyner yeniden başlayana kadar sunucu kapalı kalıyordu. Artık gözcü döngüsü içinde çalışır (bkz. yukarısı).
+- **IP başına hız sınırı tablosu hiç temizlenmiyordu**: uzun ömürlü sunucuda her yeni istemci IP'si kalıcı bir kayıt bırakıyordu (bellek sızıntısı). Süresi dolmuş pencereler artık atılıyor.
+- **`clear` sırları unutuyordu**: çok alanlı formda alan alan sırlar maskeleme listesinden düşmüyordu; artık `clear` hem tek değeri hem form sırlarını listeden çıkarır.
+- **Durum bilgisi eksikti**: süresi dolan/iptal edilen istek "pending" gibi görünüyordu; `status` artık `pending | ready | cancelled | expired`, ayrıca `filled` bayrağı sır dolu mu sorusunu değer sızdırmadan yanıtlar.
+- **`/healthz` public modu bildirmiyordu**: izleme tarafı "oturum açma isteyen" ve "istemeyen" sunucuyu ayırt edemiyordu.
+
+## Yayınlama
+
+- **Fly.io (asıl dağıtım)**: `flyctl deploy -a hardtools-mcp --remote-only --ha=false`. Gözcü, `/healthz`, volume ve sırlar aynı kalır; dağıtımdan sonra `curl -s https://hardtools-mcp.fly.dev/healthz` ile sürümü doğrula.
+- **Bundle artifact**: `test-and-bundle` işi `npm run build` + `npm run bundle` çalıştırıp `bundle/` çıktısını GitHub Actions artifact'i olarak yükler; tek dosyalık `bundle/index.js` doğrudan kullanılabilir.
+- **npm yayını kaldırıldı (0.5.2)**: `publish-npm` işi silindi. Sebep: paket npm'de hiç kayıtlı değildi ve OIDC *trusted publishing* var olmayan bir paketi oluşturamıyor — her `v*` tag'inde `PUT https://registry.npmjs.org/hardtools` `404` dönüyordu. npm yayını ileride istenirse: npmjs.com'da adı bir kez elle yayınla (token'lı `npm publish --access public`), sonra **Paket > Settings > Trusted Publisher > GitHub Actions** tanımla ve işi geri ekle.
 
 ## Bilinen sınırlar (özet; ayrıntı `SECURITY.md`)
 Windows'ta yerel `argv` doğrudan yürütülebilir dosya ister (`.cmd` shim yok), `command` ise `cmd.exe` kullanır, süreç ağacı `taskkill` ile öldürülür; asıl hedef Linux/macOS/WSL. `balanced` içindeki `npm test` gibi komutlar **proje betiklerini** çalıştırır. `open` profili sandbox değildir. Yol denetimi check-then-use (TOCTOU) artığı taşır.
