@@ -153,3 +153,25 @@ Ortam kökü varsayılan olarak `<proje kökünün ebeveyni>/envs/env-<zaman>` a
 | Device flow'un açık olduğunu doğrula | `curl -s -X POST https://github.com/login/device/code -H 'Accept: application/json' -d "client_id=<CID>&scope=read:user"` → `device_code` dönerse hazır; `invalid_scope` ID geçerli demektir (geçersiz kapsamla denenebilir); `Not Found` ise ID yanlış. |
 | GitHub hesabı reddedildi (`403`) | Giriş yapan hesap `HARDTOOLS_OAUTH_ALLOWED_LOGINS`/`_EMAILS` listesinde değil. Listeyi güncelledikten sonra `flyctl secrets deploy`. |
 | `Makine 5 dk’da bir duruyor` | Fly hesabı **deneme (trial)** modunda: logda `Trial machine stopping. To run for longer than 5m0s, add a credit card`. Çözüm hesap sahibinin kart eklemesidir; `fly.toml` ayarları bunu engellemez. |
+
+## Oturum açmadan bağlanma (0.5.1)
+
+claude.ai'de "Oturum açma gerekli" satırı çıkmasın istiyorsan sunucuyu public modda çalıştır:
+
+```bash
+# Anahtar adreste: https://hardtools-mcp.fly.dev/c/<anahtar>  (tam yetki)
+fly secrets set HARDTOOLS_PUBLIC=key HARDTOOLS_PUBLIC_KEY=$(openssl rand -hex 32) -a hardtools-mcp
+# ya da anahtarsız, sınırlı araç kümesiyle: https://hardtools-mcp.fly.dev/mcp
+fly secrets set HARDTOOLS_PUBLIC=open HARDTOOLS_PUBLIC_TOOLS=safe -a hardtools-mcp
+```
+
+- Bu modda `/.well-known/oauth-*`, `/authorize`, `/register`, `/token` 404 döner; `/mcp` 401 ile meydan okumaz, `www-authenticate` göndermez. Bağlayıcı **Ekle** ile doğrudan eklenir.
+- `GET /connect` yapıştırılacak adresi gösterir.
+- Statik `HARDTOOLS_HTTP_TOKEN` ve OAuth akışı kapanmaz; aynı sunucu ikisini de kabul eder.
+- `HARDTOOLS_PUBLIC_TOOLS=all` tam listeyi açar; `open` modda varsayılan **güvenli küme** ile sınırlıdır.
+
+## Sunucu düşerse
+
+- `entrypoint.sh` bir gözcüdür: node çökerse üstel geri çekilmeyle yeniden başlatır, `/healthz` üst üste 3 kez yanıtsızsa süreci öldürür. Kayıt: `/data/supervisor.log`.
+- Süreç içi watchdog 30 saniyelik olay döngüsü kilitlenmesinde süreci kapatır (audit: `watchdog_exit`).
+- `scripts/keepalive.sh` + `.github/workflows/keepalive.yml`: 5 dakikada bir `/healthz`; başarısızsa `FLY_API_TOKEN` ile `machines/<id>/restart`.

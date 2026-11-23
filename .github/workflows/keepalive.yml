@@ -1,0 +1,46 @@
+# hardtools — sunucu gözcüsü (keepalive + otomatik yeniden başlatma)
+#
+# 5 dakikada bir /healthz'i yoklar. Trafik Fly makinesini uyandırır (trial hesaplarda
+# makine boşta duruyorsa bu istek onu geri getirir); üç deneme de başarısız olursa
+# FLY_API_TOKEN varsa machines API'siyle makineyi yeniden başlatır.
+#
+# Gerekli (repo → Settings → Secrets and variables → Actions):
+#   secrets.HARDTOOLS_URL    örn. https://hardtools-mcp.fly.dev   (zorunlu)
+#   secrets.FLY_API_TOKEN    fly tokens create org / deploy token  (opsiyonel, otomatik onarım)
+#   vars.FLY_APP             fly.toml'daki app adı (varsayılan: hardtools-mcp)
+#
+# Not: GitHub cron'u en erken 5 dakikada çalışır ve yoğun saatlerde birkaç dakika gecikebilir;
+# bu yüzden konteyner içindeki supervisor (deploy/fly/entrypoint.sh) asıl güvencedir.
+name: hardtools keepalive
+
+on:
+  schedule:
+    - cron: "*/5 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: hardtools-keepalive
+  cancel-in-progress: false
+
+jobs:
+  ping:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: /healthz yokla ve gerekirse yeniden başlat
+        env:
+          HARDTOOLS_URL: ${{ secrets.HARDTOOLS_URL }}
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+          FLY_APP: ${{ vars.FLY_APP }}
+        run: |
+          set -eu
+          if [ -z "${HARDTOOLS_URL:-}" ]; then
+            echo "HARDTOOLS_URL tanımlı değil; yalnız curl ile devam ediliyor" >&2
+            exit 0
+          fi
+          chmod +x scripts/keepalive.sh
+          scripts/keepalive.sh "$HARDTOOLS_URL"

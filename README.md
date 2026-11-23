@@ -2,7 +2,7 @@
 
 Claude'un yerleşik dosya/arama/kabuk/web araçlarının **sınırlandırılmış, denetlenebilir** karşılıkları. Tek bir MCP sunucusu; Claude Code, Claude Desktop (stdio) ve uzak MCP (HTTP) üzerinden çalışır.
 
-> **Durum:** v0.4.0, kod AI tarafından yazıldı (bkz. `CREDITS.md`). Otomatik testler var; bağımsız insan güvenlik incelemesi yapılmadı. Pazar yerinden kurulum Claude Code CLI ile doğrulandı. MCP testleri SDK istemcisi ve ham HTTP ile yapılır; Claude Desktop ve claude.ai arayüzlerinde uçtan uca kurulum burada denenmedi.
+> **Durum:** v0.5.1, kod AI tarafından yazıldı (bkz. `CREDITS.md`). Otomatik testler var; bağımsız insan güvenlik incelemesi yapılmadı. Pazar yerinden kurulum Claude Code CLI ile doğrulandı. MCP testleri SDK istemcisi ve ham HTTP ile yapılır; Claude Desktop ve claude.ai arayüzlerinde uçtan uca kurulum burada denenmedi.
 
 ## Araçlar
 
@@ -165,6 +165,55 @@ node bundle/index.js --http --port 8787 --profile balanced      # 127.0.0.1'e ba
 - HTTP’de yazma ve kabuk varsayılan **kapalı**. Kendi sunucunda `HARDTOOLS_HTTP_ALLOW_LOCAL_TOOLS=1` ile ve **tek, özel bir `HARDTOOLS_ROOTS` proje klasörü** seçerek aç. Proje, audit/konfig ve yönetim dosyalarından ayrı olmalı; içine sır, host soketi veya başka bağlama noktası koyma. Bu alan aynı yayına erişenlerce paylaşılır.
 - HTTP kabuğu için Linux (Debian/Ubuntu birleşik `/usr` düzeni), procfs, `--ro-bind-fd` destekleyen `/usr/bin/bwrap` ve çalışan kullanıcı ad alanları gerekir. GitHub işi dağıtım paketini kullanır. Başlangıç sınaması başarısız olursa sunucu **host kabuğuna geçmez**. Kabuksuz, yalnız dosya yazılabilen HTTP kullanımı için politikada `shell.enabled:false` ayarlanabilir. Yerel stdio bu bağımlılığı gerektirmez.
 - Worker’a proje `/work`, salt okunur sistem araçları/kütüphaneleri ve Node bağlanır. `/tmp` çağrıya özeldir; host ağı hiçbir zaman paylaşılmaz. Varsayılan olarak internet çıkışı da yoktur. Kendi sunucunda izole kabuğa ek olarak `HARDTOOLS_WORKSPACE_HTTPS=1` verildiğinde yalnız proxy üzerinden genel HTTPS hedeflerine çıkılabilir. Runner’ın evi, workflow dosyaları, yönetim soketleri, token’ları ve yönetim ortamı aktarılmaz. Web verisi için `ht_fetch` kendi politikasını kullanır. TLS sonlandırma (ters vekil/tünel) ve `HARDTOOLS_ALLOWED_HOSTS` yapılandırması yayın sahibine aittir.
+
+
+### Oturum açmadan bağlanma (0.5.1 — "Ekle" deyince eklenir)
+
+claude.ai, bağlayıcı eklerken **"Oturum açma gerekli"** satırını yalnızca MCP adresi 401 döndüğünde ve OAuth keşif belgeleri yayınlandığında gösterir. `HARDTOOLS_PUBLIC` ile sunucu hiç meydan okumadan çalışır:
+
+| Mod | Bağlayıcı adresi | Kimlik | Araçlar |
+|---|---|---|---|
+| `open` | `https://<host>/mcp` | URL'yi bilen (kimlik yok) | **güvenli küme**: `ht_read`, `ht_glob`, `ht_search`, `ht_status`, `ht_user_input`, `ht_image_search`, `ht_fetch`, `ht_share` |
+| `key` | `https://<host>/c/<anahtar>` | adresteki anahtar (≥32 karakter) | tüm araçlar (anahtar kimlik yerine geçer) |
+
+```bash
+# Fly: bağlantı adresini ve anahtarı gizli olarak sakla
+fly secrets set HARDTOOLS_PUBLIC=key HARDTOOLS_PUBLIC_KEY=$(openssl rand -hex 32) -a hardtools-mcp
+# tam yetki/anahtar gerekmesin istersen: HARDTOOLS_PUBLIC=open
+# araç kümesini daralt: HARDTOOLS_PUBLIC_TOOLS="ht_read,ht_glob,ht_search,ht_user_input"
+```
+
+- Bu modda `/.well-known/oauth-*`, `/authorize`, `/register`, `/token` **404** döner; `www-authenticate` başlığı hiç gönderilmez. Bu yüzden claude.ai'de giriş adımı çıkmaz, **Ekle** ile doğrudan eklenir.
+- `GET /connect` (ve `GET /c/<anahtar>`) yapıştırılacak adresi gösteren Türkçe bir sayfa döner.
+- Statik bearer (`HARDTOOLS_HTTP_TOKEN`) ve OAuth akışı bu modda da çalışmaya devam eder: aynı sunucu hem oturumsuz bağlayıcıya hem yetkili istemciye hizmet eder.
+- `open` modu, URL'yi bilen herkese liste başındaki araçları açar. Yazma/kabuk araçları **listelenmez bile**; tam yetki için `key` modunu kullan ve adresi paylaşma.
+
+### Sunucu düşerse: gözcü + keepalive (0.5.1)
+
+- **Konteyner gözcüsü** (`deploy/fly/entrypoint.sh`): node süreci çıkarsa üstel geri çekilmeyle (1→30 sn, 60 sn'den uzun çalışmadan sonra sıfırlanır) yeniden başlatır; `/healthz` üst üste 3 kez yanıtsız kalırsa süreci öldürüp geri getirir. Her yeniden başlatma `/data/supervisor.log` ve `/data/restarts` dosyasına yazılır.
+- **Süreç içi watchdog**: olay döngüsü 30 saniyeden fazla kilitlenirse süreç kendini kapatır (`audit: watchdog_exit`), böylece gözcü/Fly temiz bir süreç başlatır.
+- **Keepalive** (`scripts/keepalive.sh` + `.github/workflows/keepalive.yml`): 5 dakikada bir `/healthz` yoklanır. Trial hesapta makine boşta duruyorsa bu istek onu uyandırır; üç deneme de başarısız olursa `FLY_API_TOKEN` varsa machines API'siyle makine yeniden başlatılır.
+  ```bash
+  HARDTOOLS_URL=https://hardtools-mcp.fly.dev FLY_APP=hardtools-mcp FLY_API_TOKEN=... scripts/keepalive.sh
+  ```
+
+### `ht_user_input` v2 (0.5.1)
+
+- `fields[]` ile **tek formda birden çok soru** (8'e kadar). Yanıtlar `$HT_USER_INPUT` (JSON) ve her alan için `$HT_USER_INPUT_<AD>` olarak komutlara geçer.
+- `choices` → açılır liste, `default` → önceden dolu değer, `placeholder`/`help` → form içi açıklama, `required` → boş bırakılamaz.
+- `action=get` + `wait_seconds` (**1–120**) → **uzun yoklama**: model tek çağrıda kullanıcıyı bekler, "bir daha get çağır" turu gerekmez.
+- `dedupe_key` → açık bir formu yeniden kullanır (ikinci bağlantı üretmez); `action=list` açık istekleri sayar.
+- Tarayıcıda **Vazgeç** düğmesi (`action=cancel` → model `status=cancelled` görür), kalan süre bilgisi ve mobil uyumlu form.
+- Sır alanları: modele `<secret>` döner, denetim kaydına yazılmaz, komut çıktısında `[redacted:HT_USER_INPUT]` ile maskelenir; yanıt sayfası sırrı bir daha göstermez.
+- Örnek: `ht_user_input {title:"Yeni servis", fields:[{name:"ad",title:"Ad"},{name:"port",title:"Port",kind:"number",default:"8080"},{name:"mod",title:"Mod",choices:["dev","prod"]},{name:"token",title:"Token",secret:true,required:false}], wait_seconds:60}`
+
+### 0.5.1'de düzeltilen hatalar
+
+- **Konteyner girişi tek süreçti** (`exec node …`): node çökerse konteyner yeniden başlayana kadar sunucu kapalı kalıyordu. Artık gözcü döngüsü içinde çalışır (bkz. yukarısı).
+- **IP başına hız sınırı tablosu hiç temizlenmiyordu**: uzun ömürlü sunucuda her yeni istemci IP'si kalıcı bir kayıt bırakıyordu (bellek sızıntısı). Süresi dolmuş pencereler artık atılıyor.
+- **`clear` sırları unutuyordu**: çok alanlı formda alan alan sırlar maskeleme listesinden düşmüyordu; artık `clear` hem tek değeri hem form sırlarını listeden çıkarır.
+- **Durum bilgisi eksikti**: süresi dolan/iptal edilen istek "pending" gibi görünüyordu; `status` artık `pending | ready | cancelled | expired`, ayrıca `filled` bayrağı sır dolu mu sorusunu değer sızdırmadan yanıtlar.
+- **`/healthz` public modu bildirmiyordu**: izleme tarafı "oturum açma isteyen" ve "istemeyen" sunucuyu ayırt edemiyordu.
 
 ## Bilinen sınırlar (özet; ayrıntı `SECURITY.md`)
 Windows'ta yerel `argv` doğrudan yürütülebilir dosya ister (`.cmd` shim yok), `command` ise `cmd.exe` kullanır, süreç ağacı `taskkill` ile öldürülür; asıl hedef Linux/macOS/WSL. `balanced` içindeki `npm test` gibi komutlar **proje betiklerini** çalıştırır. `open` profili sandbox değildir. Yol denetimi check-then-use (TOCTOU) artığı taşır.

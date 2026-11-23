@@ -3,6 +3,7 @@
 import "./schema-runtime.js";
 import { pipeline } from "node:stream/promises";
 import { equalSecret } from "./credentials.js";
+import crypto from "node:crypto";
 import http from "node:http";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js";
@@ -86,6 +87,33 @@ async function main() {
     console.error(`[hardtools] invite URL (one use; keep private): ${inviteUrl}`);
   }
 
+  // ---------------------------------------------------------------------------------
+  // No-login connector ("Canva gibi"): claude.ai shows "Oturum açma gerekli" only when the
+  // MCP endpoint answers 401. In public mode /mcp never challenges, no OAuth metadata is
+  // advertised, and the connection is authorised by the URL itself:
+  //   HARDTOOLS_PUBLIC=open  -> https://host/mcp           (restricted tool set, anyone with the URL)
+  //   HARDTOOLS_PUBLIC=key   -> https://host/c/<key>       (full tool set, the key is the credential)
+  // HARDTOOLS_PUBLIC_TOOLS=all | safe | ht_read,ht_glob,...
+  // ---------------------------------------------------------------------------------
+  const publicMode = (process.env.HARDTOOLS_PUBLIC ?? "off").trim().toLowerCase();
+  const isPublic = ["1", "true", "open", "key"].includes(publicMode);
+  const publicKey = (process.env.HARDTOOLS_PUBLIC_KEY ?? "").trim();
+  const SAFE_TOOLS = ["ht_read", "ht_glob", "ht_search", "ht_status", "ht_user_input", "ht_image_search", "ht_fetch", "ht_share"];
+  let publicTools: Set<string> | null = null;
+  if (isPublic) {
+    const raw = (process.env.HARDTOOLS_PUBLIC_TOOLS ?? "").trim().toLowerCase();
+    if (raw === "all") publicTools = null;
+    else if (raw && raw !== "safe") publicTools = new Set(raw.split(",").map(t => t.trim()).filter(Boolean));
+    else publicTools = publicMode === "key" || publicMode === "1" || publicMode === "true" ? null : new Set(SAFE_TOOLS);
+    if (publicMode === "key" && publicKey.length < 32) {
+      console.error("[hardtools] refusing to start: HARDTOOLS_PUBLIC=key needs HARDTOOLS_PUBLIC_KEY of at least 32 characters (openssl rand -hex 32).");
+      process.exit(1);
+    }
+    console.error(`[hardtools] public connector mode=${publicMode}; tools=${publicTools ? [...publicTools].join(",") : "all"}; no OAuth challenge`);
+  }
+  const keyId = publicKey ? crypto.createHash("sha256").update(publicKey).digest("hex").slice(0, 12) : "open";
+  const publicOwner = (viaKey: boolean) => (viaKey ? `public:${keyId}` : "public");
+
   const workspace = createWorkspace(); // survives individual stateless MCP HTTP requests
   const srv = http.createServer(async (req, res) => {
     const send = (code: number, msg: string, headers: Record<string, string> = {}) => { res.writeHead(code, { "content-type": "application/json", ...headers }); res.end(JSON.stringify({ error: msg })); };
@@ -100,6 +128,7 @@ async function main() {
           ok: true, version: VERSION,
           shell: policy.shell.enabled ? (policy.shellWorker ?? "host") : "disabled",
           write: policy.fs.writeEnabled,
+          public: isPublic ? publicMode : "off",
           uptime_s: Math.round(process.uptime()),
         }));
         return;
@@ -111,20 +140,37 @@ async function main() {
       if (workspace.inputs.handle(req, res, path, oauth.origin(req))) return;
       // Machine-to-machine endpoint: browser origins are refused, except the consent page posting to itself.
       if (req.headers.origin && !(path === "/authorize" && req.headers.origin === oauth.origin(req))) return send(403, "browser origins are not allowed");
-      const ip = req.socket.remoteAddress ?? "?"; const now = Date.now(); const b = hits.get(ip) ?? { n: 0, reset: now + 60_000 };
+      const ip = req.socket.remoteAddress ?? "?"; const now = Date.now();
+      if (hits.size > 4096) for (const [k, v] of hits) if (v.reset < now) hits.delete(k); // the window map must not grow forever
+      const b = hits.get(ip) ?? { n: 0, reset: now + 60_000 };
       if (now > b.reset) { b.n = 0; b.reset = now + 60_000; } b.n++; hits.set(ip, b);
       if (b.n > 120) return send(429, "rate limited");
 
       if (workspace.shares.download(req, res, path)) return;
 
+      // No-login mode: never advertise OAuth metadata, otherwise claude.ai shows a sign-in button.
+      if (isPublic) {
+        if (/^\/(?:\.well-known\/|register$|authorize$|token$|oauth\/|invite\/)/.test(path)) return send(404, "not found");
+        if (req.method === "GET" && (path === "/connect" || /^\/c\/[A-Za-z0-9_-]{16,128}$/.test(path))) return connectPage(req, res, path, publicMode === "key" && publicKey ? publicKey : "");
+      } else if (await oauth.handle(req, res)) return;
       // OAuth discovery / registration / consent / invite / token routes are public by design.
-      if (await oauth.handle(req, res)) return;
 
-      if (path !== "/mcp") return send(404, "not found");
+      const keyPath = /^\/c\/([A-Za-z0-9_-]{16,128})(?:\/mcp)?$/.exec(path);
+      const isMcpPath = path === "/mcp" || keyPath !== null;
+      if (!isMcpPath) return send(404, "not found");
+
       const m = /^Bearer (.+)$/.exec(String(req.headers.authorization ?? ""));
-      // /mcp accepts either an OAuth-issued access token or the run-specific static bearer.
-      const owner = m && (equalSecret(m[1], token) ? "static" : oauth.accessScope(m[1]));
-      if (!owner) return send(401, "unauthorized", { "www-authenticate": `Bearer resource_metadata="${oauth.resourceMetadataUrl(req)}"` });
+      // /mcp accepts an OAuth-issued access token, the run-specific static bearer, or — in
+      // public mode — the connector URL itself.
+      let owner: string | null = m ? (equalSecret(m[1], token) ? "static" : oauth.accessScope(m[1])) : null;
+      if (!owner && isPublic) {
+        if (keyPath && publicKey && equalSecret(keyPath[1], publicKey)) owner = publicOwner(true);
+        else if (path === "/mcp" && publicMode !== "key") owner = publicOwner(false);
+      }
+      if (!owner) {
+        return send(401, isPublic ? "unauthorized: this connector needs its /c/<key> url" : "unauthorized",
+          isPublic ? {} : { "www-authenticate": `Bearer resource_metadata="${oauth.resourceMetadataUrl(req)}"` });
+      }
       if (req.method !== "POST") return send(405, "stateless server: POST only", { allow: "POST" });
       const chunks: Buffer[] = []; let size = 0;
       for await (const c of req) { size += (c as Buffer).length; if (size > 1_000_000) return send(413, "body too large"); chunks.push(c as Buffer); }
@@ -132,7 +178,7 @@ async function main() {
       // We have already authenticated, routed and bounded the POST. Use the SDK's Web transport
       // directly instead of reparsing an arbitrary incoming URL with a second HTTP framework.
       const origin = oauth.origin(req);
-      const server = createServer(policy, audit.forGrant(owner), workspace, owner, origin);
+      const server = createServer(policy, audit.forGrant(owner), workspace, owner, origin, owner.startsWith("public") ? { tools: publicTools } : {});
       const transport = new WebStandardStreamableHTTPServerTransport({ sessionIdGenerator: undefined });
       const abort = new AbortController();
       res.once("close", () => { if (!res.writableFinished) abort.abort(); void server.close(); });
@@ -152,6 +198,32 @@ async function main() {
       if (!res.headersSent) send(500, "internal error"); else res.destroy();
     }
   });
+  /** Human page that shows the connector URL to paste into claude.ai (no login involved). */
+  const connectPage = (req: http.IncomingMessage, res: http.ServerResponse, path: string, key: string) => {
+    const origin = oauth.origin(req);
+    const base = key ? `${origin}/c/${key}` : `${origin}/mcp`;
+    const others = key ? `${origin}/mcp` : "";
+    const html = `<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>hardtools — bağlan</title>
+<style>body{font:16px system-ui,sans-serif;max-width:40rem;margin:3rem auto;padding:0 1rem;line-height:1.55}code{background:#f4f4f5;padding:.2rem .4rem;border-radius:4px;word-break:break-all}li{margin:.4rem 0}.m{color:#555;font-size:14px}textarea{width:100%;height:3.2rem;font:13px ui-monospace,monospace;padding:.5rem;box-sizing:border-box}</style>
+<h1>hardtools MCP</h1>
+<p>Claude → <strong>Ayarlar → Bağlayıcılar → Özel bağlayıcı ekle</strong>. Oturum açma istenmez; aşağıdaki adresi yapıştır ve <strong>Ekle</strong>'ye bas.</p>
+<p><textarea readonly onclick="this.select()">${base}</textarea></p>
+<ol><li>Ad: <code>hardtools</code></li><li>Uzak MCP sunucu adresi: <code>${base}</code></li>${others ? `<li>Anahtar gerekmez; bu adres yalnızca sınırlı araçları açar. Tam yetki için <code>/c/&lt;anahtar&gt;</code> adresini kullan.</li>` : `<li>Bu adres anahtarın kendisidir: paylaşma.</li>`}</ol>
+<p class="m">Bağlandıktan sonra araçlar sohbette görünür. Sunucu düşerse <code>/healthz</code> izleyicisi ve konteyner gözcüsü yeniden başlatır.</p>
+${path !== "/connect" ? `<p class="m"><a href="${origin}/connect">bağlanma sayfası</a></p>` : ""}`;
+    res.writeHead(200, { "content-type": "text/html; charset=utf-8", "cache-control": "no-store", "referrer-policy": "no-referrer", "x-frame-options": "DENY", "x-content-type-options": "nosniff", "content-security-policy": "default-src 'none'; style-src 'unsafe-inline'; frame-ancestors 'none'" });
+    res.end(html);
+  };
+
+  // Wedge watchdog: if the event loop stalls for 30s the process is useless but may still look
+  // alive to a TCP check, so exit and let the container supervisor / Fly restart it.
+  let last = Date.now();
+  setInterval(() => {
+    const now = Date.now(), lag = now - last - 5000;
+    last = now;
+    if (lag > 30_000) { console.error(`[hardtools] watchdog: event loop stalled ${Math.round(lag / 1000)}s, exiting for a restart`); audit.write({ ev: "watchdog_exit", lag_ms: lag }); process.exit(1); }
+  }, 5000).unref();
+
   srv.listen(port, host, () => console.error(`[hardtools] HTTP listening on http://${host}:${port}/mcp (put a TLS-terminating reverse proxy/tunnel in front for Claude web; OAuth enabled for the claude.ai connector dialog)`));
 }
 
