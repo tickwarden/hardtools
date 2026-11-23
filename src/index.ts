@@ -48,8 +48,37 @@ async function main() {
     return;
   }
 
+  // ---------------------------------------------------------------------------------
+  // No-login connector ("Canva gibi"): claude.ai shows "Oturum açma gerekli" only when the
+  // MCP endpoint answers 401. In public mode /mcp never challenges, no OAuth metadata is
+  // advertised, and the connection is authorised by the URL itself:
+  //   HARDTOOLS_PUBLIC=open  -> https://host/mcp           (restricted tool set, anyone with the URL)
+  //   HARDTOOLS_PUBLIC=key   -> https://host/c/<key>       (full tool set, the key is the credential)
+  // HARDTOOLS_PUBLIC_TOOLS=all | safe | ht_read,ht_glob,...
+  // ---------------------------------------------------------------------------------
+  const publicMode = (process.env.HARDTOOLS_PUBLIC ?? "off").trim().toLowerCase();
+  const isPublic = ["1", "true", "open", "key"].includes(publicMode);
+  const publicKey = (process.env.HARDTOOLS_PUBLIC_KEY ?? "").trim();
+  const SAFE_TOOLS = ["ht_read", "ht_glob", "ht_search", "ht_status", "ht_user_input", "ht_image_search", "ht_fetch", "ht_share"];
+  let publicTools: Set<string> | null = null;
+  if (isPublic) {
+    const raw = (process.env.HARDTOOLS_PUBLIC_TOOLS ?? "").trim().toLowerCase();
+    if (raw === "all") publicTools = null;
+    else if (raw && raw !== "safe") publicTools = new Set(raw.split(",").map(t => t.trim()).filter(Boolean));
+    else publicTools = publicMode === "key" || publicMode === "1" || publicMode === "true" ? null : new Set(SAFE_TOOLS);
+    if (publicMode === "key" && publicKey.length < 32) {
+      console.error("[hardtools] refusing to start: HARDTOOLS_PUBLIC=key needs HARDTOOLS_PUBLIC_KEY of at least 32 characters (openssl rand -hex 32).");
+      process.exit(1);
+    }
+    console.error(`[hardtools] public connector mode=${publicMode}; tools=${publicTools ? [...publicTools].join(",") : "all"}; no OAuth challenge`);
+  }
+  const keyId = publicKey ? crypto.createHash("sha256").update(publicKey).digest("hex").slice(0, 12) : "open";
+  const publicOwner = (viaKey: boolean) => (viaKey ? `public:${keyId}` : "public");
+
   const token = process.env.HARDTOOLS_HTTP_TOKEN ?? "";
-  if (token.length < 32) { console.error("[hardtools] refusing to start HTTP mode: set HARDTOOLS_HTTP_TOKEN to a random secret of at least 32 chars (e.g. `openssl rand -hex 32`)."); process.exit(1); }
+  const hasToken = token.length >= 32;
+  if (!hasToken && !isPublic) { console.error("[hardtools] refusing to start HTTP mode: set HARDTOOLS_HTTP_TOKEN to a random secret of at least 32 chars (e.g. `openssl rand -hex 32`), or run the no-login connector with HARDTOOLS_PUBLIC=open|key."); process.exit(1); }
+  if (!hasToken) console.error("[hardtools] no static bearer token; the no-login connector is the only entry point.");
   const host = arg("--host") ?? "127.0.0.1"; const port = Number(arg("--port") ?? 8787);
   const allowedHosts = new Set((process.env.HARDTOOLS_ALLOWED_HOSTS ?? `127.0.0.1:${port},localhost:${port}`).split(",").map(s => s.trim().toLowerCase()).filter(Boolean));
   const hits = new Map<string, { n: number; reset: number }>();
@@ -86,33 +115,6 @@ async function main() {
     const inviteUrl = oauth.mintInvite(inviteOrigin);
     console.error(`[hardtools] invite URL (one use; keep private): ${inviteUrl}`);
   }
-
-  // ---------------------------------------------------------------------------------
-  // No-login connector ("Canva gibi"): claude.ai shows "Oturum açma gerekli" only when the
-  // MCP endpoint answers 401. In public mode /mcp never challenges, no OAuth metadata is
-  // advertised, and the connection is authorised by the URL itself:
-  //   HARDTOOLS_PUBLIC=open  -> https://host/mcp           (restricted tool set, anyone with the URL)
-  //   HARDTOOLS_PUBLIC=key   -> https://host/c/<key>       (full tool set, the key is the credential)
-  // HARDTOOLS_PUBLIC_TOOLS=all | safe | ht_read,ht_glob,...
-  // ---------------------------------------------------------------------------------
-  const publicMode = (process.env.HARDTOOLS_PUBLIC ?? "off").trim().toLowerCase();
-  const isPublic = ["1", "true", "open", "key"].includes(publicMode);
-  const publicKey = (process.env.HARDTOOLS_PUBLIC_KEY ?? "").trim();
-  const SAFE_TOOLS = ["ht_read", "ht_glob", "ht_search", "ht_status", "ht_user_input", "ht_image_search", "ht_fetch", "ht_share"];
-  let publicTools: Set<string> | null = null;
-  if (isPublic) {
-    const raw = (process.env.HARDTOOLS_PUBLIC_TOOLS ?? "").trim().toLowerCase();
-    if (raw === "all") publicTools = null;
-    else if (raw && raw !== "safe") publicTools = new Set(raw.split(",").map(t => t.trim()).filter(Boolean));
-    else publicTools = publicMode === "key" || publicMode === "1" || publicMode === "true" ? null : new Set(SAFE_TOOLS);
-    if (publicMode === "key" && publicKey.length < 32) {
-      console.error("[hardtools] refusing to start: HARDTOOLS_PUBLIC=key needs HARDTOOLS_PUBLIC_KEY of at least 32 characters (openssl rand -hex 32).");
-      process.exit(1);
-    }
-    console.error(`[hardtools] public connector mode=${publicMode}; tools=${publicTools ? [...publicTools].join(",") : "all"}; no OAuth challenge`);
-  }
-  const keyId = publicKey ? crypto.createHash("sha256").update(publicKey).digest("hex").slice(0, 12) : "open";
-  const publicOwner = (viaKey: boolean) => (viaKey ? `public:${keyId}` : "public");
 
   const workspace = createWorkspace(); // survives individual stateless MCP HTTP requests
   const srv = http.createServer(async (req, res) => {
@@ -162,7 +164,7 @@ async function main() {
       const m = /^Bearer (.+)$/.exec(String(req.headers.authorization ?? ""));
       // /mcp accepts an OAuth-issued access token, the run-specific static bearer, or — in
       // public mode — the connector URL itself.
-      let owner: string | null = m ? (equalSecret(m[1], token) ? "static" : oauth.accessScope(m[1])) : null;
+      let owner: string | null = m ? (hasToken && equalSecret(m[1], token) ? "static" : oauth.accessScope(m[1])) : null;
       if (!owner && isPublic) {
         if (keyPath && publicKey && equalSecret(keyPath[1], publicKey)) owner = publicOwner(true);
         else if (path === "/mcp" && publicMode !== "key") owner = publicOwner(false);

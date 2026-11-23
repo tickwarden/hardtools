@@ -28281,11 +28281,31 @@ async function main() {
     await createServer(policy, audit).connect(new StdioServerTransport());
     return;
   }
+  const publicMode = (process.env.HARDTOOLS_PUBLIC ?? "off").trim().toLowerCase();
+  const isPublic = ["1", "true", "open", "key"].includes(publicMode);
+  const publicKey = (process.env.HARDTOOLS_PUBLIC_KEY ?? "").trim();
+  const SAFE_TOOLS = ["ht_read", "ht_glob", "ht_search", "ht_status", "ht_user_input", "ht_image_search", "ht_fetch", "ht_share"];
+  let publicTools = null;
+  if (isPublic) {
+    const raw = (process.env.HARDTOOLS_PUBLIC_TOOLS ?? "").trim().toLowerCase();
+    if (raw === "all") publicTools = null;
+    else if (raw && raw !== "safe") publicTools = new Set(raw.split(",").map((t) => t.trim()).filter(Boolean));
+    else publicTools = publicMode === "key" || publicMode === "1" || publicMode === "true" ? null : new Set(SAFE_TOOLS);
+    if (publicMode === "key" && publicKey.length < 32) {
+      console.error("[hardtools] refusing to start: HARDTOOLS_PUBLIC=key needs HARDTOOLS_PUBLIC_KEY of at least 32 characters (openssl rand -hex 32).");
+      process.exit(1);
+    }
+    console.error(`[hardtools] public connector mode=${publicMode}; tools=${publicTools ? [...publicTools].join(",") : "all"}; no OAuth challenge`);
+  }
+  const keyId = publicKey ? crypto10.createHash("sha256").update(publicKey).digest("hex").slice(0, 12) : "open";
+  const publicOwner = (viaKey) => viaKey ? `public:${keyId}` : "public";
   const token = process.env.HARDTOOLS_HTTP_TOKEN ?? "";
-  if (token.length < 32) {
-    console.error("[hardtools] refusing to start HTTP mode: set HARDTOOLS_HTTP_TOKEN to a random secret of at least 32 chars (e.g. `openssl rand -hex 32`).");
+  const hasToken = token.length >= 32;
+  if (!hasToken && !isPublic) {
+    console.error("[hardtools] refusing to start HTTP mode: set HARDTOOLS_HTTP_TOKEN to a random secret of at least 32 chars (e.g. `openssl rand -hex 32`), or run the no-login connector with HARDTOOLS_PUBLIC=open|key.");
     process.exit(1);
   }
+  if (!hasToken) console.error("[hardtools] no static bearer token; the no-login connector is the only entry point.");
   const host = arg("--host") ?? "127.0.0.1";
   const port = Number(arg("--port") ?? 8787);
   const allowedHosts = new Set((process.env.HARDTOOLS_ALLOWED_HOSTS ?? `127.0.0.1:${port},localhost:${port}`).split(",").map((s) => s.trim().toLowerCase()).filter(Boolean));
@@ -28320,24 +28340,6 @@ async function main() {
     const inviteUrl = oauth.mintInvite(inviteOrigin);
     console.error(`[hardtools] invite URL (one use; keep private): ${inviteUrl}`);
   }
-  const publicMode = (process.env.HARDTOOLS_PUBLIC ?? "off").trim().toLowerCase();
-  const isPublic = ["1", "true", "open", "key"].includes(publicMode);
-  const publicKey = (process.env.HARDTOOLS_PUBLIC_KEY ?? "").trim();
-  const SAFE_TOOLS = ["ht_read", "ht_glob", "ht_search", "ht_status", "ht_user_input", "ht_image_search", "ht_fetch", "ht_share"];
-  let publicTools = null;
-  if (isPublic) {
-    const raw = (process.env.HARDTOOLS_PUBLIC_TOOLS ?? "").trim().toLowerCase();
-    if (raw === "all") publicTools = null;
-    else if (raw && raw !== "safe") publicTools = new Set(raw.split(",").map((t) => t.trim()).filter(Boolean));
-    else publicTools = publicMode === "key" || publicMode === "1" || publicMode === "true" ? null : new Set(SAFE_TOOLS);
-    if (publicMode === "key" && publicKey.length < 32) {
-      console.error("[hardtools] refusing to start: HARDTOOLS_PUBLIC=key needs HARDTOOLS_PUBLIC_KEY of at least 32 characters (openssl rand -hex 32).");
-      process.exit(1);
-    }
-    console.error(`[hardtools] public connector mode=${publicMode}; tools=${publicTools ? [...publicTools].join(",") : "all"}; no OAuth challenge`);
-  }
-  const keyId = publicKey ? crypto10.createHash("sha256").update(publicKey).digest("hex").slice(0, 12) : "open";
-  const publicOwner = (viaKey) => viaKey ? `public:${keyId}` : "public";
   const workspace = createWorkspace();
   const srv = http3.createServer(async (req, res) => {
     const send = (code, msg, headers = {}) => {
@@ -28384,7 +28386,7 @@ async function main() {
       const isMcpPath = path13 === "/mcp" || keyPath !== null;
       if (!isMcpPath) return send(404, "not found");
       const m = /^Bearer (.+)$/.exec(String(req.headers.authorization ?? ""));
-      let owner = m ? equalSecret(m[1], token) ? "static" : oauth.accessScope(m[1]) : null;
+      let owner = m ? hasToken && equalSecret(m[1], token) ? "static" : oauth.accessScope(m[1]) : null;
       if (!owner && isPublic) {
         if (keyPath && publicKey && equalSecret(keyPath[1], publicKey)) owner = publicOwner(true);
         else if (path13 === "/mcp" && publicMode !== "key") owner = publicOwner(false);

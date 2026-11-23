@@ -38,14 +38,14 @@ const parse = (res) => {
   return line ? JSON.parse(line.slice(6)) : JSON.parse(res.body);
 };
 
-async function start(t, extraEnv) {
+async function start(t, extraEnv, { token = TOKEN } = {}) {
   const root = tmp("ht-pub-root-");
   const audit = tmp("ht-pub-audit-");
   const cfg = path.join(audit, "config.json");
   fs.writeFileSync(cfg, JSON.stringify({ audit: { dir: audit, failClosed: true }, fs: { writeEnabled: true }, shell: { enabled: false } }));
   const port = 20000 + Math.floor(Math.random() * 20000);
   const child = spawn(process.execPath, [entry, "--http", "--port", String(port), "--profile", "balanced"], {
-    env: { ...process.env, HARDTOOLS_ROOTS: root, HARDTOOLS_CONFIG: cfg, HARDTOOLS_HTTP_TOKEN: TOKEN, HARDTOOLS_ALLOWED_HOSTS: `127.0.0.1:${port}`, ...extraEnv },
+    env: { ...process.env, HARDTOOLS_ROOTS: root, HARDTOOLS_CONFIG: cfg, ...(token ? { HARDTOOLS_HTTP_TOKEN: token } : {}), HARDTOOLS_ALLOWED_HOSTS: `127.0.0.1:${port}`, ...extraEnv },
     stdio: ["ignore", "ignore", "pipe"],
   });
   let err = ""; child.stderr.on("data", (d) => { err += d; });
@@ -117,4 +117,20 @@ test("public mode: the static bearer still works and discovery stays off", async
   assert.equal(withBearer.status, 200);
   const names = parse(withBearer).result.tools.map((t2) => t2.name);
   assert.ok(names.includes("ht_shell"), "statik bearer tam yetkiyi korur");
+});
+
+test("public mode: starts without any static bearer token at all", async (t) => {
+  const { port } = await start(t, { HARDTOOLS_PUBLIC: "open" }, { token: "" });
+  const init = await rpc(port, "/mcp", { jsonrpc: "2.0", id: 1, method: "initialize", params: { protocolVersion: "2025-06-18", capabilities: {}, clientInfo: { name: "t", version: "1" } } });
+  assert.equal(init.status, 200, init.body);
+  // Token tanımlı değilken uydurma bir bearer "static" sayılmamalı: istek yine public
+  // kimliğiyle ve sınırlı araç kümesiyle yanıtlanır.
+  const fake = await request(port, {
+    method: "POST", target: "/mcp",
+    headers: { "content-type": "application/json", accept: "application/json, text/event-stream", authorization: "Bearer x" },
+    body: JSON.stringify({ jsonrpc: "2.0", id: 2, method: "tools/list", params: {} }),
+  });
+  assert.equal(fake.status, 200);
+  const names = parse(fake).result.tools.map((t2) => t2.name);
+  assert.equal(names.includes("ht_shell"), false, "uydurma bearer tam yetki vermemeli");
 });
