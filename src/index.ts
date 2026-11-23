@@ -220,10 +220,15 @@ ${path !== "/connect" ? `<p class="m"><a href="${origin}/connect">bağlanma sayf
   // Wedge watchdog: if the event loop stalls for 30s the process is useless but may still look
   // alive to a TCP check, so exit and let the container supervisor / Fly restart it.
   let last = Date.now();
+  let stalls = 0; // iki ölçüm üst üste kilitlenirse çık: kısa bir donma (host taşıması, CPU kıtlığı) yeniden başlatma sebebi olmasın
   setInterval(() => {
     const now = Date.now(), lag = now - last - 5000;
     last = now;
-    if (lag > 30_000) { console.error(`[hardtools] watchdog: event loop stalled ${Math.round(lag / 1000)}s, exiting for a restart`); audit.write({ ev: "watchdog_exit", lag_ms: lag }); process.exit(1); }
+    if (lag > 30_000) {
+      stalls += 1;
+      console.error(`[hardtools] watchdog: event loop stalled ${Math.round(lag / 1000)}s (${stalls}/2)`);
+      if (stalls >= 2) { console.error("[hardtools] watchdog: exiting for a restart"); audit.write({ ev: "watchdog_exit", lag_ms: lag }); process.exit(1); }
+    } else stalls = 0;
   }, 5000).unref();
 
   srv.listen(port, host, () => console.error(`[hardtools] HTTP listening on http://${host}:${port}/mcp (put a TLS-terminating reverse proxy/tunnel in front for Claude web; OAuth enabled for the claude.ai connector dialog)`));

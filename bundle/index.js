@@ -28454,14 +28454,19 @@ ${path13 !== "/connect" ? `<p class="m"><a href="${origin}/connect">ba\u011Flanm
     res.end(html);
   };
   let last = Date.now();
+  let stalls = 0;
   setInterval(() => {
     const now = Date.now(), lag = now - last - 5e3;
     last = now;
     if (lag > 3e4) {
-      console.error(`[hardtools] watchdog: event loop stalled ${Math.round(lag / 1e3)}s, exiting for a restart`);
-      audit.write({ ev: "watchdog_exit", lag_ms: lag });
-      process.exit(1);
-    }
+      stalls += 1;
+      console.error(`[hardtools] watchdog: event loop stalled ${Math.round(lag / 1e3)}s (${stalls}/2)`);
+      if (stalls >= 2) {
+        console.error("[hardtools] watchdog: exiting for a restart");
+        audit.write({ ev: "watchdog_exit", lag_ms: lag });
+        process.exit(1);
+      }
+    } else stalls = 0;
   }, 5e3).unref();
   srv.listen(port, host, () => console.error(`[hardtools] HTTP listening on http://${host}:${port}/mcp (put a TLS-terminating reverse proxy/tunnel in front for Claude web; OAuth enabled for the claude.ai connector dialog)`));
 }
