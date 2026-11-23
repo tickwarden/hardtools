@@ -3367,8 +3367,8 @@ var require_utils = __commonJS({
       }
       return ind;
     }
-    function removeDotSegments(path13) {
-      let input = path13;
+    function removeDotSegments(path15) {
+      let input = path15;
       const output = [];
       let nextSlash = -1;
       let len = 0;
@@ -3442,11 +3442,11 @@ var require_utils = __commonJS({
       }
       return output.join("");
     }
-    function removeDotSegmentsRelative(path13) {
-      if (path13 === "" || path13[0] === "/") {
-        return removeDotSegments(path13);
+    function removeDotSegmentsRelative(path15) {
+      if (path15 === "" || path15[0] === "/") {
+        return removeDotSegments(path15);
       }
-      const segments = path13.split("/");
+      const segments = path15.split("/");
       const last = segments.length - 1;
       const output = [];
       let trailingDirectory = false;
@@ -3809,8 +3809,8 @@ var require_schemes = __commonJS({
       }
       if (wsComponent.resourceName) {
         const queryIndex = wsComponent.resourceName.indexOf("?");
-        const path13 = queryIndex === -1 ? wsComponent.resourceName : wsComponent.resourceName.slice(0, queryIndex);
-        wsComponent.path = path13 && path13 !== "/" ? path13 : void 0;
+        const path15 = queryIndex === -1 ? wsComponent.resourceName : wsComponent.resourceName.slice(0, queryIndex);
+        wsComponent.path = path15 && path15 !== "/" ? path15 : void 0;
         wsComponent.query = queryIndex === -1 ? void 0 : wsComponent.resourceName.slice(queryIndex + 1);
         wsComponent.resourceName = void 0;
       }
@@ -7347,12 +7347,12 @@ var require_dist = __commonJS({
         throw new Error(`Unknown format "${name}"`);
       return f;
     };
-    function addFormats(ajv, list, fs12, exportName) {
+    function addFormats(ajv, list, fs13, exportName) {
       var _a3;
       var _b;
       (_a3 = (_b = ajv.opts.code).formats) !== null && _a3 !== void 0 ? _a3 : _b.formats = (0, codegen_1._)`require("ajv-formats/dist/formats").${exportName}`;
       for (const f of list)
-        ajv.addFormat(f, fs12[f]);
+        ajv.addFormat(f, fs13[f]);
     }
     module.exports = exports = formatsPlugin;
     Object.defineProperty(exports, "__esModule", { value: true });
@@ -7597,10 +7597,10 @@ function mergeDefs(...defs) {
 function cloneDef(schema) {
   return mergeDefs(schema._zod.def);
 }
-function getElementAtPath(obj, path13) {
-  if (!path13)
+function getElementAtPath(obj, path15) {
+  if (!path15)
     return obj;
-  return path13.reduce((acc, key) => acc?.[key], obj);
+  return path15.reduce((acc, key) => acc?.[key], obj);
 }
 function promiseAllObject(promisesObj) {
   const keys = Object.keys(promisesObj);
@@ -7940,11 +7940,11 @@ function explicitlyAborted(x, startIndex = 0) {
   }
   return false;
 }
-function prefixIssues(path13, issues) {
+function prefixIssues(path15, issues) {
   return issues.map((iss) => {
     var _a3;
     (_a3 = iss).path ?? (_a3.path = []);
-    iss.path.unshift(path13);
+    iss.path.unshift(path15);
     return iss;
   });
 }
@@ -8402,16 +8402,16 @@ function flattenError(error2, mapper = (issue2) => issue2.message) {
 }
 function formatError(error2, mapper = (issue2) => issue2.message) {
   const fieldErrors = { _errors: [] };
-  const processError = (error3, path13 = []) => {
+  const processError = (error3, path15 = []) => {
     for (const issue2 of error3.issues) {
       if (issue2.code === "invalid_union" && issue2.errors.length) {
-        issue2.errors.map((issues) => processError({ issues }, [...path13, ...issue2.path]));
+        issue2.errors.map((issues) => processError({ issues }, [...path15, ...issue2.path]));
       } else if (issue2.code === "invalid_key") {
-        processError({ issues: issue2.issues }, [...path13, ...issue2.path]);
+        processError({ issues: issue2.issues }, [...path15, ...issue2.path]);
       } else if (issue2.code === "invalid_element") {
-        processError({ issues: issue2.issues }, [...path13, ...issue2.path]);
+        processError({ issues: issue2.issues }, [...path15, ...issue2.path]);
       } else {
-        const fullpath = [...path13, ...issue2.path];
+        const fullpath = [...path15, ...issue2.path];
         if (fullpath.length === 0) {
           fieldErrors._errors.push(mapper(issue2));
         } else {
@@ -12796,6 +12796,7 @@ function equalSecret(candidate, expected) {
 
 // src/index.ts
 import crypto10 from "node:crypto";
+import path14 from "node:path";
 import http3 from "node:http";
 
 // node_modules/@modelcontextprotocol/sdk/dist/esm/server/stdio.js
@@ -17087,10 +17088,10 @@ var OAuth = class {
   // ---- routing --------------------------------------------------------------------------
   /** Returns true when the request was an OAuth/discovery/invite route and has been fully handled. */
   async handle(req, res) {
-    const path13 = (req.url ?? "").split("?")[0];
+    const path15 = (req.url ?? "").split("?")[0];
     const method = req.method ?? "GET";
     const origin = this.origin(req);
-    if (path13 === "/.well-known/oauth-protected-resource" || path13 === "/.well-known/oauth-protected-resource/mcp") {
+    if (path15 === "/.well-known/oauth-protected-resource" || path15 === "/.well-known/oauth-protected-resource/mcp") {
       if (method !== "GET") {
         this.oerr(res, 405, "invalid_request", "GET only");
         return true;
@@ -17098,7 +17099,7 @@ var OAuth = class {
       this.json(res, 200, { resource: `${origin}/mcp`, authorization_servers: [origin], bearer_methods_supported: ["header"] });
       return true;
     }
-    if (path13 === "/.well-known/oauth-authorization-server" || path13 === "/.well-known/oauth-authorization-server/mcp") {
+    if (path15 === "/.well-known/oauth-authorization-server" || path15 === "/.well-known/oauth-authorization-server/mcp") {
       if (method !== "GET") {
         this.oerr(res, 405, "invalid_request", "GET only");
         return true;
@@ -17115,39 +17116,39 @@ var OAuth = class {
       });
       return true;
     }
-    if (path13 === "/register") {
+    if (path15 === "/register") {
       await this.register(req, res);
       return true;
     }
-    if (path13 === "/authorize") {
+    if (path15 === "/authorize") {
       await this.authorize(req, res, origin);
       return true;
     }
-    if (path13 === "/oauth/github/callback") {
+    if (path15 === "/oauth/github/callback") {
       await this.githubCallback(req, res, origin);
       return true;
     }
-    if (path13 === "/oauth/github/poll") {
+    if (path15 === "/oauth/github/poll") {
       await this.githubPoll(req, res, origin);
       return true;
     }
-    if (path13 === "/token") {
+    if (path15 === "/token") {
       await this.tokenEndpoint(req, res);
       return true;
     }
-    if (path13.startsWith("/invite/")) {
-      await this.handleInvite(req, res, path13, origin);
+    if (path15.startsWith("/invite/")) {
+      await this.handleInvite(req, res, path15, origin);
       return true;
     }
     return false;
   }
   // ---- /invite/<code> -------------------------------------------------------------------
-  async handleInvite(req, res, path13, origin) {
+  async handleInvite(req, res, path15, origin) {
     if (req.method !== "GET") {
       this.oerr(res, 405, "invalid_request", "GET only");
       return;
     }
-    const code = decodeURIComponent(path13.slice("/invite/".length));
+    const code = decodeURIComponent(path15.slice("/invite/".length));
     const sessionId = this.redeemInvite(code);
     if (!sessionId) {
       this.page(res, 410, "Bu davet kullan\u0131lm\u0131\u015F veya s\xFCresi dolmu\u015F. Daveti az \xF6nce a\xE7t\u0131ysan ayn\u0131 taray\u0131c\u0131 profilinde Claude\u2019dan devam et. Aksi halde yay\u0131n sahibiyle ileti\u015Fime ge\xE7.", null);
@@ -17874,8 +17875,8 @@ function getErrorMap() {
 
 // node_modules/zod/v3/helpers/parseUtil.js
 var makeIssue = (params) => {
-  const { data, path: path13, errorMaps, issueData } = params;
-  const fullPath = [...path13, ...issueData.path || []];
+  const { data, path: path15, errorMaps, issueData } = params;
+  const fullPath = [...path15, ...issueData.path || []];
   const fullIssue = {
     ...issueData,
     path: fullPath
@@ -17990,11 +17991,11 @@ var errorUtil;
 
 // node_modules/zod/v3/types.js
 var ParseInputLazyPath = class {
-  constructor(parent, value, path13, key) {
+  constructor(parent, value, path15, key) {
     this._cachedPath = [];
     this.parent = parent;
     this.data = value;
-    this._path = path13;
+    this._path = path15;
     this._key = key;
   }
   get path() {
@@ -21545,11 +21546,11 @@ function normalizeObjectSchema(schema) {
   }
   return void 0;
 }
-function getDotPath(path13) {
-  if (path13.length === 0) {
+function getDotPath(path15) {
+  if (path15.length === 0) {
     return "object root";
   }
-  return path13.reduce((acc, seg, index) => {
+  return path15.reduce((acc, seg, index) => {
     if (index === 0) {
       return String(seg);
     }
@@ -26119,7 +26120,7 @@ import net from "node:net";
 import zlib from "node:zlib";
 
 // src/version.ts
-var VERSION = "0.5.6";
+var VERSION = "0.5.7";
 
 // src/net.ts
 var blocked = new net.BlockList();
@@ -27560,6 +27561,8 @@ function htTransferFile(policy, a) {
 
 // src/user-input.ts
 import crypto9 from "node:crypto";
+import fs12 from "node:fs";
+import path13 from "node:path";
 var MAX_TEXT = 8192;
 var MAX_ARRAY_ITEMS = 100;
 var MAX_ARRAY_BYTES = 32768;
@@ -27645,9 +27648,55 @@ var UserInputs = class {
   byId = /* @__PURE__ */ new Map();
   active = /* @__PURE__ */ new Map();
   // owner -> request id
+  owners = /* @__PURE__ */ new Map();
+  // request id -> owner
   secrets = [];
   waiters = /* @__PURE__ */ new Map();
   // request id -> resolvers
+  store;
+  /** store verilirse açık/yanıtlanmış formlar diske yazılır: sunucu yeniden başlasa da cevap kaybolmaz.
+   * Sır içeren formlar bilerek diske yazılmaz. */
+  constructor(opts = {}) {
+    this.store = opts.store;
+    this.restore();
+  }
+  save() {
+    if (!this.store) return;
+    try {
+      const now = Date.now();
+      const items = [];
+      for (const r of this.byId.values()) {
+        if (r.expiresAt < now && r.submittedAt === void 0) continue;
+        if (r.secret || r.fields?.some((f) => f.secret)) continue;
+        items.push({ ...r, owner: this.owners.get(r.id) ?? "" });
+      }
+      fs12.mkdirSync(path13.dirname(this.store), { recursive: true, mode: 448 });
+      const tmp = this.store + ".tmp";
+      fs12.writeFileSync(tmp, JSON.stringify({ v: 1, items }), { mode: 384 });
+      fs12.renameSync(tmp, this.store);
+    } catch {
+    }
+  }
+  restore() {
+    if (!this.store) return;
+    try {
+      if (!fs12.existsSync(this.store)) return;
+      const data = JSON.parse(fs12.readFileSync(this.store, "utf8"));
+      const now = Date.now();
+      for (const raw of data.items ?? []) {
+        const r = raw;
+        if (!r?.id || typeof r.expiresAt !== "number") continue;
+        if (r.expiresAt < now && r.submittedAt === void 0) continue;
+        this.byId.set(r.id, r);
+        const owner = r.owner ?? "";
+        if (owner) {
+          this.owners.set(r.id, owner);
+          if (r.submittedAt === void 0 && r.cancelledAt === void 0) this.active.set(owner, r.id);
+        }
+      }
+    } catch {
+    }
+  }
   create(owner, o) {
     if (!KINDS.includes(o.kind)) throw new PolicyError("bad_input", `kind must be one of ${KINDS.join(", ")}`);
     const title = (o.title ?? "").trim();
@@ -27692,7 +27741,9 @@ var UserInputs = class {
       expiresAt: now + Math.max(6e4, Math.min(36e5, o.ttlMs))
     };
     this.byId.set(id, req);
+    this.owners.set(id, owner);
     this.active.set(owner, id);
+    this.save();
     return req;
   }
   get(owner, id) {
@@ -27752,6 +27803,7 @@ var UserInputs = class {
       if (req.secret) this.rememberSecret(renderEnv(value));
     }
     req.submittedAt = Date.now();
+    this.save();
     this.notify(id);
     return req;
   }
@@ -27772,6 +27824,7 @@ var UserInputs = class {
     const req = this.byId.get(id);
     if (!req || req.submittedAt !== void 0 || req.cancelledAt !== void 0) return false;
     req.cancelledAt = Date.now();
+    this.save();
     this.notify(id);
     return true;
   }
@@ -27911,8 +27964,8 @@ var UserInputs = class {
   }
   // ---- browser UI -------------------------------------------------------------------
   /** Serve /ui/input/<id>. Returns false when the path is not ours. */
-  handle(req, res, path13, origin) {
-    const m = /^\/ui\/input\/([A-Za-z0-9_-]{20,64})$/.exec(path13);
+  handle(req, res, path15, origin) {
+    const m = /^\/ui\/input\/([A-Za-z0-9_-]{20,64})$/.exec(path15);
     if (!m) return false;
     const id = m[1];
     const req_ = this.byId.get(id);
@@ -27961,7 +28014,7 @@ var UserInputs = class {
           }).join("") : "";
           page(200, shell(`<p>Kaydedildi. Sohbete d\xF6n${secrets ? "" : `; de\u011Fer <code>$HT_USER_INPUT</code> olarak kullan\u0131labilir`}.</p>${summary2 ? `<ul class="m">${summary2}</ul>` : ""}${secrets ? `<p class="m">Gizli de\u011Ferler bu sayfada tekrar g\xF6sterilmez; modelin g\xF6rece\u011Fi \xE7\u0131kt\u0131da maskelenir.</p>` : ""}`));
         } catch (e) {
-          return page(400, shell(`<p class="e">${esc2(e.message)}</p><p class="m"><a href="${esc2(path13)}">Geri d\xF6n</a></p>`));
+          return page(400, shell(`<p class="e">${esc2(e.message)}</p><p class="m"><a href="${esc2(path15)}">Geri d\xF6n</a></p>`));
         }
       });
       req.on("error", () => {
@@ -27986,10 +28039,10 @@ var UserInputs = class {
     };
     const mins = Math.max(1, Math.round((req_.expiresAt - Date.now()) / 6e4));
     const body = req_.fields ? `<p class="q">${esc2(req_.title)}</p>${req_.help ? `<p class="m">${esc2(req_.help)}</p>` : ""}
-<form method="post" action="${esc2(path13)}" autocomplete="off"><fieldset>${req_.fields.map(field).join("")}</fieldset>
+<form method="post" action="${esc2(path15)}" autocomplete="off"><fieldset>${req_.fields.map(field).join("")}</fieldset>
 <button type="submit">G\xF6nder</button><button type="submit" name="action" value="cancel" formnovalidate>Vazge\xE7</button></form>
 <p class="m">Yan\u0131tlar <code>$HT_USER_INPUT</code> (JSON) ve her alan i\xE7in <code>$HT_USER_INPUT_ADI</code> olarak komutlara ge\xE7er. Bu ba\u011Flant\u0131 tek kullan\u0131ml\u0131kt\u0131r, ~${mins} dk ge\xE7erlidir.</p>` : `<p class="q">${esc2(req_.title)}</p>
-<form method="post" action="${esc2(path13)}" autocomplete="off">${field({ name: req_.secret ? "secret" : "value", title: "Yan\u0131t", kind: req_.kind, secret: req_.secret, required: true, ...req_.choices ? { choices: req_.choices } : {}, ...req_.default !== void 0 ? { default: req_.default } : {}, ...req_.placeholder ? { placeholder: req_.placeholder } : {} })}
+<form method="post" action="${esc2(path15)}" autocomplete="off">${field({ name: req_.secret ? "secret" : "value", title: "Yan\u0131t", kind: req_.kind, secret: req_.secret, required: true, ...req_.choices ? { choices: req_.choices } : {}, ...req_.default !== void 0 ? { default: req_.default } : {}, ...req_.placeholder ? { placeholder: req_.placeholder } : {} })}
 <button type="submit">G\xF6nder</button><button type="submit" name="action" value="cancel" formnovalidate>Vazge\xE7</button></form>
 <p class="m">${req_.secret ? "Bu de\u011Fer gizli kabul edilir: sohbete geri d\xF6nmez, denetim kayd\u0131na yaz\u0131lmaz, komut \xE7\u0131kt\u0131s\u0131nda maskelenir." : `T\xFCr: ${esc2(req_.kind)}. De\u011Fer <code>$HT_USER_INPUT</code> olarak komutlara ge\xE7er.`} ~${mins} dk ge\xE7erlidir.</p>`;
     page(200, shell(body));
@@ -27999,7 +28052,7 @@ var UserInputs = class {
 
 // src/server.ts
 var usesProject = /* @__PURE__ */ new Set(["ht_transfer_file", "ht_new_shell_env", "ht_stop", "ht_read", "ht_write", "ht_edit", "ht_glob", "ht_search", "ht_move", "ht_mkdir", "ht_trash", "ht_empty_trash", "ht_shell", "ht_share"]);
-var createWorkspace = () => ({ vars: new Variables(), shares: new Shares(), inputs: new UserInputs(), projectReady: Promise.resolve() });
+var createWorkspace = (inputStore) => ({ vars: new Variables(), shares: new Shares(), inputs: new UserInputs(inputStore ? { store: inputStore } : {}), projectReady: Promise.resolve() });
 var asText = (text) => ({ content: [{ type: "text", text }] });
 function createServer(policy, audit, workspace = createWorkspace(), owner = "stdio", origin, opts = {}) {
   const server = new McpServer({ name: "hardtools", version: VERSION });
@@ -28293,7 +28346,17 @@ Returned: {status, question, selected[], custom, request_id, elapsed_s}.`,
     if (!id) throw new PolicyError("bad_input", "nothing to read: give question+options or a request_id");
     const waitMs = Math.max(0, Math.min(120, a.wait_seconds ?? 0)) * 1e3;
     const waited = waitMs ? await workspace.inputs.wait(owner, id, waitMs, extra?.signal) : void 0;
-    const req = waited ?? workspace.inputs.get(owner, id);
+    let req;
+    try {
+      req = waited ?? workspace.inputs.get(owner, id);
+    } catch {
+      return JSON.stringify({
+        status: "lost",
+        request_id: id,
+        elapsed_s: Math.round((Date.now() - started) / 1e3),
+        next: "Bu soru art\u0131k yok (sunucu yeniden ba\u015Flad\u0131 ya da form temizlendi). Soruyu action=ask ile yeniden sor."
+      });
+    }
     const view = workspace.inputs.view(req);
     const elapsed_s = Math.round((Date.now() - started) / 1e3) / 1;
     if (view.status === "pending") {
@@ -28578,15 +28641,16 @@ async function main() {
     const inviteUrl = oauth.mintInvite(inviteOrigin);
     console.error(`[hardtools] invite URL (one use; keep private): ${inviteUrl}`);
   }
-  const workspace = createWorkspace();
+  const inputStore = policy.audit.dir ? path14.join(path14.dirname(policy.audit.dir), "state", "inputs.json") : void 0;
+  const workspace = createWorkspace(inputStore);
   const srv = http3.createServer(async (req, res) => {
     const send = (code, msg, headers = {}) => {
       res.writeHead(code, { "content-type": "application/json", ...headers });
       res.end(JSON.stringify({ error: msg }));
     };
     try {
-      const path13 = (req.url ?? "").split("?")[0];
-      if (path13 === "/healthz") {
+      const path15 = (req.url ?? "").split("?")[0];
+      if (path15 === "/healthz") {
         res.writeHead(200, { "content-type": "application/json", "cache-control": "no-store" });
         res.end(JSON.stringify({
           ok: true,
@@ -28601,8 +28665,8 @@ async function main() {
       }
       const h = String(req.headers.host ?? "").toLowerCase();
       if (!allowedHosts.has(h)) return send(403, "host not allowed");
-      if (workspace.inputs.handle(req, res, path13, oauth.origin(req))) return;
-      if (req.headers.origin && !(path13 === "/authorize" && req.headers.origin === oauth.origin(req))) return send(403, "browser origins are not allowed");
+      if (workspace.inputs.handle(req, res, path15, oauth.origin(req))) return;
+      if (req.headers.origin && !(path15 === "/authorize" && req.headers.origin === oauth.origin(req))) return send(403, "browser origins are not allowed");
       const ip = req.socket.remoteAddress ?? "?";
       const now = Date.now();
       if (hits.size > 4096) {
@@ -28616,19 +28680,19 @@ async function main() {
       b.n++;
       hits.set(ip, b);
       if (b.n > 120) return send(429, "rate limited");
-      if (workspace.shares.download(req, res, path13)) return;
+      if (workspace.shares.download(req, res, path15)) return;
       if (loginFree) {
-        if (/^\/(?:\.well-known\/|register$|authorize$|token$|oauth\/|invite\/)/.test(path13)) return send(404, "not found");
-        if (req.method === "GET" && (path13 === "/connect" || /^\/c\/[A-Za-z0-9_-]{16,128}$/.test(path13))) return connectPage(req, res, path13, publicMode === "key" && publicKey ? publicKey : "");
+        if (/^\/(?:\.well-known\/|register$|authorize$|token$|oauth\/|invite\/)/.test(path15)) return send(404, "not found");
+        if (req.method === "GET" && (path15 === "/connect" || /^\/c\/[A-Za-z0-9_-]{16,128}$/.test(path15))) return connectPage(req, res, path15, publicMode === "key" && publicKey ? publicKey : "");
       } else if (await oauth.handle(req, res)) return;
-      const keyPath = /^\/c\/([A-Za-z0-9_-]{16,128})(?:\/mcp)?$/.exec(path13);
-      const isMcpPath = path13 === "/mcp" || keyPath !== null;
+      const keyPath = /^\/c\/([A-Za-z0-9_-]{16,128})(?:\/mcp)?$/.exec(path15);
+      const isMcpPath = path15 === "/mcp" || keyPath !== null;
       if (!isMcpPath) return send(404, "not found");
       const m = /^Bearer (.+)$/.exec(String(req.headers.authorization ?? ""));
       let owner = m ? hasToken && equalSecret(m[1], token) ? "static" : oauth.accessScope(m[1]) : null;
       if (!owner && loginFree) {
         if (keyPath && publicKey && equalSecret(keyPath[1], publicKey)) owner = publicOwner(true);
-        else if (path13 === "/mcp" && publicMode !== "key") owner = publicOwner(false);
+        else if (path15 === "/mcp" && publicMode !== "key") owner = publicOwner(false);
       }
       if (!owner) {
         return send(
@@ -28677,7 +28741,7 @@ async function main() {
       else res.destroy();
     }
   });
-  const connectPage = (req, res, path13, key) => {
+  const connectPage = (req, res, path15, key) => {
     const origin = oauth.origin(req);
     const base = key ? `${origin}/c/${key}` : `${origin}/mcp`;
     const others = key ? `${origin}/mcp` : "";
@@ -28688,7 +28752,7 @@ async function main() {
 <p><textarea readonly onclick="this.select()">${base}</textarea></p>
 <ol><li>Ad: <code>hardtools</code></li><li>Uzak MCP sunucu adresi: <code>${base}</code></li>${others ? `<li>Anahtar gerekmez; bu adres yaln\u0131zca s\u0131n\u0131rl\u0131 ara\xE7lar\u0131 a\xE7ar. Tam yetki i\xE7in <code>/c/&lt;anahtar&gt;</code> adresini kullan.</li>` : `<li>Bu adres anahtar\u0131n kendisidir: payla\u015Fma.</li>`}</ol>
 <p class="m">Ba\u011Fland\u0131ktan sonra ara\xE7lar sohbette g\xF6r\xFCn\xFCr. Sunucu d\xFC\u015Ferse <code>/healthz</code> izleyicisi ve konteyner g\xF6zc\xFCs\xFC yeniden ba\u015Flat\u0131r.</p>
-${path13 !== "/connect" ? `<p class="m"><a href="${origin}/connect">ba\u011Flanma sayfas\u0131</a></p>` : ""}`;
+${path15 !== "/connect" ? `<p class="m"><a href="${origin}/connect">ba\u011Flanma sayfas\u0131</a></p>` : ""}`;
     res.writeHead(200, { "content-type": "text/html; charset=utf-8", "cache-control": "no-store", "referrer-policy": "no-referrer", "x-frame-options": "DENY", "x-content-type-options": "nosniff", "content-security-policy": "default-src 'none'; style-src 'unsafe-inline'; frame-ancestors 'none'" });
     res.end(html);
   };

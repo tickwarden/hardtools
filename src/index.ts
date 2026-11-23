@@ -4,6 +4,7 @@ import "./schema-runtime.js";
 import { pipeline } from "node:stream/promises";
 import { equalSecret } from "./credentials.js";
 import crypto from "node:crypto";
+import path from "node:path";
 import http from "node:http";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js";
@@ -130,7 +131,10 @@ async function main() {
     console.error(`[hardtools] invite URL (one use; keep private): ${inviteUrl}`);
   }
 
-  const workspace = createWorkspace(); // survives individual stateless MCP HTTP requests
+  // Form yanıtları hacimde saklanır: sunucu yeniden başlarsa (Fly deneme hesabı 5 dk'da bir
+  // yeniden başlatıyor) soru/cevap kaybolmaz. Sır içeren formlar bilerek yazılmaz.
+  const inputStore = policy.audit.dir ? path.join(path.dirname(policy.audit.dir), "state", "inputs.json") : undefined;
+  const workspace = createWorkspace(inputStore); // survives individual stateless MCP HTTP requests
   const srv = http.createServer(async (req, res) => {
     const send = (code: number, msg: string, headers: Record<string, string> = {}) => { res.writeHead(code, { "content-type": "application/json", ...headers }); res.end(JSON.stringify({ error: msg })); };
     try {

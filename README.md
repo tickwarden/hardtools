@@ -256,6 +256,15 @@ fly secrets set HARDTOOLS_OAUTH_ALLOW_ANY=1 -a hardtools-mcp
 - Açılışta günlükte `uyarı: HARDTOOLS_OAUTH_ALLOW_ANY açık — … HER hesap bağlanabilir` satırı görünür.
 - Boş allowlist + `CLIENT_ID` hâlâ reddedilir (herkesin girişinin sessizce kapanmasını önlemek için).
 
+### Form cevapları yeniden başlatmaya dayanıklı (0.5.7)
+
+`ht_ask` / `ht_user_input` istekleri artık hacimde saklanır: `${audit dizini}/../state/inputs.json` (atomik yazma, 0600).
+
+- Sunucu yeniden başlarsa **cevaplanmış formlar kaybolmaz**: `request_id` ile okunabilir.
+- **Sır içeren formlar diske hiç yazılmaz** (bilinçli sınır): yeniden başlatmadan sonra sır formu kaybolur.
+- Bilinmeyen/eski `request_id` artık hata değil, `{"status":"lost"}` + "soruyu yeniden sor" yönlendirmesi döner — modelin çağrısı kilitlenmez.
+- Fly deneme hesabı makineyi 5 dakikada bir yeniden başlattığı için bu, form akışının çalışması için gerekli.
+
 ### 0.5.2 değişiklikleri
 
 - **`HARDTOOLS_PUBLIC=open` artık tüm araçları açar ama girişi zorunlu tutar**: kimliksiz istek 401 + `www-authenticate`, OAuth keşfi yayınlanır, `/healthz` içinde `"login":"required"`. Girişsiz okuma modu `HARDTOOLS_PUBLIC_TOOLS=safe` (ya da kendi listeniz) ile korunur.

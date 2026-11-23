@@ -11,6 +11,8 @@
 //   * dedupe keys, listing, cancelling, and a browser "Vazgeç" button,
 //   * per-request status transitions (pending → ready/cancelled/expired).
 import crypto from "node:crypto";
+import fs from "node:fs";
+import path from "node:path";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { PolicyError } from "./guard.js";
 
@@ -151,8 +153,54 @@ function normalizeField(raw: unknown, index: number): InputField {
 export class UserInputs {
   private byId = new Map<string, InputRequest>();
   private active = new Map<string, string>(); // owner -> request id
+  private owners = new Map<string, string>(); // request id -> owner
   private secrets: string[] = [];
   private waiters = new Map<string, Set<() => void>>(); // request id -> resolvers
+  private store?: string;
+
+  /** store verilirse açık/yanıtlanmış formlar diske yazılır: sunucu yeniden başlasa da cevap kaybolmaz.
+   * Sır içeren formlar bilerek diske yazılmaz. */
+  constructor(opts: { store?: string } = {}) {
+    this.store = opts.store;
+    this.restore();
+  }
+
+  private save(): void {
+    if (!this.store) return;
+    try {
+      const now = Date.now();
+      const items: unknown[] = [];
+      for (const r of this.byId.values()) {
+        if (r.expiresAt < now && r.submittedAt === undefined) continue;      // süresi geçmiş
+        if (r.secret || r.fields?.some(f => f.secret)) continue;             // sır diske yazılmaz
+        items.push({ ...r, owner: this.owners.get(r.id) ?? "" });
+      }
+      fs.mkdirSync(path.dirname(this.store), { recursive: true, mode: 0o700 });
+      const tmp = this.store + ".tmp";
+      fs.writeFileSync(tmp, JSON.stringify({ v: 1, items }), { mode: 0o600 });
+      fs.renameSync(tmp, this.store);
+    } catch { /* disk hatası aracı düşürmesin */ }
+  }
+
+  private restore(): void {
+    if (!this.store) return;
+    try {
+      if (!fs.existsSync(this.store)) return;
+      const data = JSON.parse(fs.readFileSync(this.store, "utf8")) as { v?: number; items?: unknown[] };
+      const now = Date.now();
+      for (const raw of data.items ?? []) {
+        const r = raw as InputRequest & { owner?: string };
+        if (!r?.id || typeof r.expiresAt !== "number") continue;
+        if (r.expiresAt < now && r.submittedAt === undefined) continue;
+        this.byId.set(r.id, r);
+        const owner = r.owner ?? "";
+        if (owner) {
+          this.owners.set(r.id, owner);
+          if (r.submittedAt === undefined && r.cancelledAt === undefined) this.active.set(owner, r.id);
+        }
+      }
+    } catch { /* bozuk dosya: boş başla */ }
+  }
 
   create(owner: string, o: CreateOptions): InputRequest {
     if (!KINDS.includes(o.kind)) throw new PolicyError("bad_input", `kind must be one of ${KINDS.join(", ")}`);
@@ -198,7 +246,9 @@ export class UserInputs {
       expiresAt: now + Math.max(60_000, Math.min(3_600_000, o.ttlMs)),
     } as InputRequest;
     this.byId.set(id, req);
+    this.owners.set(id, owner);
     this.active.set(owner, id);
+    this.save();
     return req;
   }
 
@@ -250,6 +300,7 @@ export class UserInputs {
       if (req.secret) this.rememberSecret(renderEnv(value));
     }
     req.submittedAt = Date.now();
+    this.save();
     this.notify(id);
     return req;
   }
@@ -272,6 +323,7 @@ export class UserInputs {
     const req = this.byId.get(id);
     if (!req || req.submittedAt !== undefined || req.cancelledAt !== undefined) return false;
     req.cancelledAt = Date.now();
+    this.save();
     this.notify(id);
     return true;
   }
