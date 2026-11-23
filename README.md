@@ -233,7 +233,7 @@ fly secrets set HARDTOOLS_PUBLIC=open HARDTOOLS_PUBLIC_TOOLS=safe -a hardtools-m
 - `options` 2–12 seçenek; nesne verilirse açıklama seçeneğin yanında görünür.
 - `multi: true` → onay kutuları, cevap dizi olarak (`selected: ["dev","prod"]`).
 - `allow_custom` (varsayılan açık) → "Başka bir şey" kutusu; doluysa `custom` alanı döner.
-- `wait_seconds` (varsayılan 90) cevabı bekler; süre dolarsa `status: "pending"` + `url` döner — kullanıcıya bağlantıyı gösterip `request_id` ile tekrar çağır.
+- **İlk çağrı beklemez** (0.5.6): `status: "pending"` + `url` + `message` döner; model `message`'ı yanıta yapıştırır, kullanıcı tek dokunuşla açıp yanıtlar, sonra `request_id` ile tekrar çağrılır. `wait_seconds` yalnızca bağlantı önceden gösterildiyse verilir (0–120).
 - `action=cancel` açık soruyu iptal eder (model `cancelled` görür).
 - Cevap `ht_user_input`'un aynı form motorundan gelir: aynı oturum, aynı `$HT_USER_INPUT` değişkenleri.
 

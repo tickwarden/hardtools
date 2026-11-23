@@ -265,7 +265,7 @@ Pass dedupe_key to reuse an identical form that is still open instead of creatin
 - question: the question; options: 2–12 choices (string, or {label, description}).
 - multi=true turns the choices into checkboxes and answers with an array.
 - allow_custom (default true) adds an optional "something else" text box.
-- wait_seconds (default 90, max 120) blocks until the user answers. If it times out you get status=pending plus a url; show that url, then call again with request_id (and wait_seconds) to collect the answer.
+- The first call returns immediately with status=pending and a url: show that link to the user (it is one tap), then call again with request_id (+ optional wait_seconds) to collect the answer. Set wait_seconds only when you can show progress before the call returns (e.g. the user already opened the link).
 - action=cancel drops an open question; action=get reads an answer without asking again.
 Returned: {status, question, selected[], custom, request_id, elapsed_s}.`,
     inputSchema: {
@@ -276,7 +276,7 @@ Returned: {status, question, selected[], custom, request_id, elapsed_s}.`,
       ])).min(2).max(12).optional().describe("2–12 choices"),
       multi: z.boolean().optional().describe("Allow several answers (checkbox list)"),
       allow_custom: z.boolean().optional().describe("Also offer a free-text answer (default true)"),
-      wait_seconds: z.number().int().min(0).max(120).optional().describe("Block up to this long for the answer (default 90)"),
+      wait_seconds: z.number().int().min(0).max(120).optional().describe("Block up to this long for the answer (default 0: return the link immediately)"),
       ttl_minutes: z.number().int().min(1).max(60).optional().describe("How long the question stays open (default 10)"),
       request_id: z.string().min(20).max(64).optional().describe("Continue an earlier ht_ask"),
       action: z.enum(["ask", "get", "cancel"]).optional().describe("ask (default), get, or cancel"),
@@ -319,7 +319,7 @@ Returned: {status, question, selected[], custom, request_id, elapsed_s}.`,
     }
 
     if (!id) throw new PolicyError("bad_input", "nothing to read: give question+options or a request_id");
-    const waitMs = Math.max(0, Math.min(120, a.wait_seconds ?? 90)) * 1000;
+    const waitMs = Math.max(0, Math.min(120, a.wait_seconds ?? 0)) * 1000;
     const waited = waitMs ? await workspace.inputs.wait(owner, id, waitMs, extra?.signal) : undefined;
     const req = waited ?? workspace.inputs.get(owner, id);
     const view = workspace.inputs.view(req);
@@ -327,7 +327,8 @@ Returned: {status, question, selected[], custom, request_id, elapsed_s}.`,
 
     if (view.status === "pending") {
       return JSON.stringify({ status: "pending", question: view.title, request_id: req.id, url: url(req.id), elapsed_s,
-        next: "Show the url to the user, then call ht_ask again with request_id (and wait_seconds) to read the answer." });
+        message: `Yanıtlamak için: ${url(req.id)}`,
+        next: "Paste `message` (or url) into the reply so the user can tap it, then call ht_ask again with request_id to read the answer." });
     }
     if (view.status === "cancelled") return JSON.stringify({ status: "cancelled", question: view.title, request_id: req.id, elapsed_s, next: "The user declined to answer." });
     if (view.status === "expired") return JSON.stringify({ status: "expired", question: view.title, request_id: req.id, elapsed_s, next: "The question expired; ask again with action=ask." });
