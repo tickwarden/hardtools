@@ -242,6 +242,20 @@ fly secrets set HARDTOOLS_PUBLIC=open HARDTOOLS_PUBLIC_TOOLS=safe -a hardtools-m
 - İzole kabukta `/tmp` **oturum boyunca kalıcı** (proje hacminde `.hardtools/`), `apt-get update`/`apt-get download` çalışır, büyük indirmeler 4 GiB bütçe ve 120 sn boşta sınırıyla kesilmez.
 - `PATH` içine `/work/.hardtools/bin` ve `/work/.hardtools/root/usr/bin` eklendi; `HOME` kalıcı kazı alanına taşındı.
 
+### Herkese açık GitHub girişi (0.5.5)
+
+Varsayılan davranış allowlist'tir. **Her GitHub hesabının** bağlanmasını istiyorsan:
+
+```bash
+fly secrets set HARDTOOLS_OAUTH_ALLOW_ANY=1 -a hardtools-mcp
+# eşdeğeri: HARDTOOLS_OAUTH_ALLOWED_LOGINS="*"
+```
+
+- `*` verilirse veya `HARDTOOLS_OAUTH_ALLOW_ANY=1` ise allowlist tamamen yok sayılır: GitHub'ın doğruladığı her hesap oturum açar (kimlik yine GitHub'dan gelmek zorunda; boş login kabul edilmez).
+- **Uyarı:** bu ayarla adresi bilen herkes, GitHub hesabıyla giriş yapıp **tüm araçları** (yazma, silme, kabuk dahil) kullanabilir. Sadece "kimlik doğrulaması olmayan botlar girmesin" istiyorsan uygundur; gerçek bir erişim sınırı istiyorsan allowlist kullan.
+- Açılışta günlükte `uyarı: HARDTOOLS_OAUTH_ALLOW_ANY açık — … HER hesap bağlanabilir` satırı görünür.
+- Boş allowlist + `CLIENT_ID` hâlâ reddedilir (herkesin girişinin sessizce kapanmasını önlemek için).
+
 ### 0.5.2 değişiklikleri
 
 - **`HARDTOOLS_PUBLIC=open` artık tüm araçları açar ama girişi zorunlu tutar**: kimliksiz istek 401 + `www-authenticate`, OAuth keşfi yayınlanır, `/healthz` içinde `"login":"required"`. Girişsiz okuma modu `HARDTOOLS_PUBLIC_TOOLS=safe` (ya da kendi listeniz) ile korunur.

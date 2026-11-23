@@ -17253,7 +17253,8 @@ var OAuth = class {
     }
     const allowLogin = new Set((this.github?.allowedLogins ?? []).map((v) => v.trim().toLowerCase()).filter(Boolean));
     const allowEmail = new Set((this.github?.allowedEmails ?? []).map((v) => v.trim().toLowerCase()).filter(Boolean));
-    return { login, email: email2, permitted: !!login && allowLogin.has(login) || !!email2 && allowEmail.has(email2) };
+    const permitted = this.github?.allowAny ? Boolean(login) : !!login && allowLogin.has(login) || !!email2 && allowEmail.has(email2);
+    return { login, email: email2, permitted };
   }
   /** Device flow: GitHub'dan tek kullanımlık kod al ve bekleme sayfasını göster. */
   async startGithubDevice(res, q) {
@@ -26118,7 +26119,7 @@ import net from "node:net";
 import zlib from "node:zlib";
 
 // src/version.ts
-var VERSION = "0.5.4";
+var VERSION = "0.5.5";
 
 // src/net.ts
 var blocked = new net.BlockList();
@@ -28544,9 +28545,10 @@ async function main() {
   const ghSecret = (process.env.HARDTOOLS_OAUTH_GITHUB_CLIENT_SECRET ?? "").trim();
   const ghLogins = (process.env.HARDTOOLS_OAUTH_ALLOWED_LOGINS ?? "").split(",").map((s) => s.trim()).filter(Boolean);
   const ghEmails = (process.env.HARDTOOLS_OAUTH_ALLOWED_EMAILS ?? "").split(",").map((s) => s.trim()).filter(Boolean);
+  const ghAllowAny = ["1", "true", "yes", "*"].includes((process.env.HARDTOOLS_OAUTH_ALLOW_ANY ?? "").trim().toLowerCase()) || ghLogins.includes("*") || ghEmails.includes("*");
   let github;
   if (ghId) {
-    if (!ghLogins.length && !ghEmails.length) {
+    if (!ghLogins.length && !ghEmails.length && !ghAllowAny) {
       console.error("[hardtools] refusing to start: HARDTOOLS_OAUTH_GITHUB_CLIENT_ID is set but HARDTOOLS_OAUTH_ALLOWED_LOGINS/EMAILS is empty, so every login would be denied.");
       process.exit(1);
     }
@@ -28555,12 +28557,14 @@ async function main() {
     github = {
       clientId: ghId,
       ...ghSecret ? { clientSecret: ghSecret } : {},
-      allowedLogins: ghLogins,
-      allowedEmails: ghEmails,
+      allowedLogins: ghLogins.filter((v) => v !== "*"),
+      allowedEmails: ghEmails.filter((v) => v !== "*"),
+      ...ghAllowAny ? { allowAny: true } : {},
       ...ghWeb ? { webBase: ghWeb } : {},
       ...ghApi ? { apiBase: ghApi } : {}
     };
-    console.error(`[hardtools] GitHub login enabled (${ghSecret ? "authorization-code redirect" : "device flow, no client secret"}); allowlist ${ghLogins.length} login / ${ghEmails.length} e-mail.`);
+    if (ghAllowAny) console.error("[hardtools] uyar\u0131: HARDTOOLS_OAUTH_ALLOW_ANY a\xE7\u0131k \u2014 GitHub'\u0131n do\u011Frulad\u0131\u011F\u0131 HER hesap ba\u011Flanabilir (allowlist yok).");
+    console.error(`[hardtools] GitHub login enabled (${ghSecret ? "authorization-code redirect" : "device flow, no client secret"}); ${ghAllowAny ? "allowlist: none (herkes)" : `allowlist ${ghLogins.length} login / ${ghEmails.length} e-posta`}.`);
   } else if (ghSecret) {
     console.error("[hardtools] ignoring HARDTOOLS_OAUTH_GITHUB_CLIENT_SECRET without HARDTOOLS_OAUTH_GITHUB_CLIENT_ID.");
   }

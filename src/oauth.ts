@@ -52,6 +52,8 @@ export interface GithubIdp {
   clientSecret?: string;
   /** GitHub kullanıcı adları (küçük/büyük harf farkı yok). Boş liste: yalnız e-posta eşleşmesi. */
   allowedLogins: string[];
+  /** true ise allowlist uygulanmaz: GitHub'ın doğruladığı her hesap kabul edilir. */
+  allowAny?: boolean;
   /** Doğrulanmış birincil e-postalar; logins boşsa kullanılır. */
   allowedEmails: string[];
   /** Testler/self-host için uç nokta tabanları. Varsayılan: https://github.com ve https://api.github.com */
@@ -344,7 +346,11 @@ export class OAuth {
     }
     const allowLogin = new Set((this.github?.allowedLogins ?? []).map(v => v.trim().toLowerCase()).filter(Boolean));
     const allowEmail = new Set((this.github?.allowedEmails ?? []).map(v => v.trim().toLowerCase()).filter(Boolean));
-    return { login, email, permitted: (!!login && allowLogin.has(login)) || (!!email && allowEmail.has(email)) };
+    // allowAny: allowlist yok sayılır, ama kimlik yine de GitHub'dan gelmiş olmalı (boş login kabul edilmez).
+    const permitted = this.github?.allowAny
+      ? Boolean(login)
+      : (!!login && allowLogin.has(login)) || (!!email && allowEmail.has(email));
+    return { login, email, permitted };
   }
 
   /** Device flow: GitHub'dan tek kullanımlık kod al ve bekleme sayfasını göster. */
