@@ -26118,7 +26118,7 @@ import net from "node:net";
 import zlib from "node:zlib";
 
 // src/version.ts
-var VERSION = "0.5.3";
+var VERSION = "0.5.4";
 
 // src/net.ts
 var blocked = new net.BlockList();
@@ -27628,15 +27628,17 @@ function normalizeField(raw, index) {
   if (!NAME_RE.test(name)) throw new PolicyError("bad_input", `fields[${index}].name must match ${NAME_RE} (it becomes $${fieldEnvName(name || "NAME")})`);
   const title = String(f.title ?? "").trim();
   if (!title || title.length > 200) throw new PolicyError("bad_input", `fields[${index}].title must be 1\u2013200 characters`);
-  const kind = f.kind ?? "string";
+  const multiple = Boolean(f.multiple);
+  const kind = multiple ? "array" : f.kind ?? "string";
   if (!KINDS.includes(kind)) throw new PolicyError("bad_input", `fields[${index}].kind must be one of ${KINDS.join(", ")}`);
   const choices = normalizeChoices(f.choices);
+  if (multiple && !choices) throw new PolicyError("bad_input", `fields[${index}].multiple needs choices`);
   const def = f.default === void 0 || f.default === null ? void 0 : String(f.default);
   if (def !== void 0 && def.length > MAX_TEXT) throw new PolicyError("bad_input", `fields[${index}].default is too long`);
   if (choices && def !== void 0 && !choices.includes(def)) throw new PolicyError("bad_input", `fields[${index}].default must be one of the choices`);
   const placeholder = f.placeholder === void 0 ? void 0 : String(f.placeholder).slice(0, 200);
   const help = f.help === void 0 ? void 0 : String(f.help).slice(0, 400);
-  return { name, title, kind, secret: Boolean(f.secret), required: f.required === void 0 ? true : Boolean(f.required), ...choices ? { choices } : {}, ...def !== void 0 ? { default: def } : {}, ...placeholder ? { placeholder } : {}, ...help ? { help } : {} };
+  return { name, title, kind, secret: Boolean(f.secret), required: f.required === void 0 ? true : Boolean(f.required), ...choices ? { choices } : {}, ...multiple ? { multiple: true } : {}, ...def !== void 0 ? { default: def } : {}, ...placeholder ? { placeholder } : {}, ...help ? { help } : {} };
 }
 var UserInputs = class {
   byId = /* @__PURE__ */ new Map();
@@ -27754,6 +27756,11 @@ var UserInputs = class {
   }
   coerce(f, text) {
     const value = parseValue(f.kind, text);
+    if (f.multiple && f.choices) {
+      if (!Array.isArray(value)) throw new PolicyError("bad_input", `${f.title} beklenen bi\xE7imde de\u011Fil`);
+      for (const v of value) if (!f.choices.includes(String(v))) throw new PolicyError("bad_input", `${f.title}: se\xE7eneklerden biri de\u011Fil`);
+      return value;
+    }
     if (f.choices) {
       if (value === null || !f.choices.includes(String(value))) throw new PolicyError("bad_input", `${f.title} must be one of the offered choices`);
     }
@@ -27941,7 +27948,11 @@ var UserInputs = class {
           return page(200, shell(`<p>Vazge\xE7ildi. Sohbete d\xF6n\xFCp modeli bilgilendir.</p>`));
         }
         try {
-          const value = req_.fields ? this.submit(id, Object.fromEntries(req_.fields.map((f) => [f.name, params.get(f.name) ?? ""]))) : this.submit(id, params.get("value") ?? params.get("secret") ?? "");
+          const value = req_.fields ? this.submit(id, Object.fromEntries(req_.fields.map((f) => [
+            f.name,
+            // çoklu seçim: aynı adla gelen tüm onay kutuları JSON dizi olarak geçer
+            f.multiple ? JSON.stringify(params.getAll(f.name)) : params.get(f.name) ?? ""
+          ]))) : this.submit(id, params.get("value") ?? params.get("secret") ?? "");
           const secrets = req_.fields ? req_.fields.some((f) => f.secret) : value.secret;
           const summary2 = req_.fields ? Object.entries(value.values ?? {}).map(([k, v]) => {
             const f = req_.fields.find((x) => x.name === k);
@@ -27964,6 +27975,7 @@ var UserInputs = class {
       const common = `id="f_${esc2(f.name)}" name="${esc2(f.name)}" autocomplete="off" ${f.required ? "required" : ""}`;
       let control;
       if (f.secret) control = `<input type="password" ${common} ${f.placeholder ? `placeholder="${esc2(f.placeholder)}"` : ""}>`;
+      else if (f.choices && f.multiple) control = `<div class="cb">${f.choices.map((c) => `<label><input type="checkbox" name="${esc2(f.name)}" value="${esc2(c)}"${c === f.default ? " checked" : ""}> ${esc2(c)}</label>`).join("")}</div>`;
       else if (f.choices) control = `<select ${common}>${f.choices.map((c) => `<option${c === f.default ? " selected" : ""}>${esc2(c)}</option>`).join("")}</select>`;
       else if (f.kind === "boolean") control = `<select ${common}><option value="true"${f.default === "true" ? " selected" : ""}>true</option><option value="false"${f.default === "false" || f.default === void 0 ? " selected" : ""}>false</option></select>`;
       else if (f.kind === "array") control = `<textarea ${common} rows="4" placeholder='["a","b"]'>${esc2(f.default ?? "")}</textarea>`;
@@ -28219,6 +28231,95 @@ Pass dedupe_key to reuse an identical form that is still open instead of creatin
       return JSON.stringify({ action: "get", ...view, next: "The form expired; call action=request again for a new link." }, null, 2);
     }
     return JSON.stringify({ action: "get", ...view, next: "The answer is available as $HT_USER_INPUT (and $HT_USER_INPUT_<NAME> per field) inside ht_shell. Call action=clear when done." }, null, 2);
+  }));
+  register("ht_ask", {
+    title: "Ask the user one question with options (single call, multi-select, free text)",
+    description: `Ask the user a quick question and get the answer back in the same call \u2014 no url juggling.
+
+- question: the question; options: 2\u201312 choices (string, or {label, description}).
+- multi=true turns the choices into checkboxes and answers with an array.
+- allow_custom (default true) adds an optional "something else" text box.
+- wait_seconds (default 90, max 120) blocks until the user answers. If it times out you get status=pending plus a url; show that url, then call again with request_id (and wait_seconds) to collect the answer.
+- action=cancel drops an open question; action=get reads an answer without asking again.
+Returned: {status, question, selected[], custom, request_id, elapsed_s}.`,
+    inputSchema: {
+      question: string2().min(1).max(400).optional().describe("The question to ask"),
+      options: array(union([
+        string2().min(1).max(200),
+        object({ label: string2().min(1).max(200), description: string2().max(200).optional() })
+      ])).min(2).max(12).optional().describe("2\u201312 choices"),
+      multi: boolean2().optional().describe("Allow several answers (checkbox list)"),
+      allow_custom: boolean2().optional().describe("Also offer a free-text answer (default true)"),
+      wait_seconds: number2().int().min(0).max(120).optional().describe("Block up to this long for the answer (default 90)"),
+      ttl_minutes: number2().int().min(1).max(60).optional().describe("How long the question stays open (default 10)"),
+      request_id: string2().min(20).max(64).optional().describe("Continue an earlier ht_ask"),
+      action: _enum(["ask", "get", "cancel"]).optional().describe("ask (default), get, or cancel")
+    },
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true }
+  }, wrap("ht_ask", async (a, extra) => {
+    const action = a.action ?? (a.request_id ? "get" : "ask");
+    const url = (id2) => `${origin}/ui/input/${id2}`;
+    if (action === "cancel") {
+      if (!a.request_id) throw new PolicyError("bad_input", "cancel needs request_id");
+      const ok = workspace.inputs.cancel(a.request_id);
+      if (ok) audit.write({ ev: "ask_cancel" });
+      return JSON.stringify({ status: ok ? "cancelled" : "unknown", request_id: a.request_id });
+    }
+    const started = Date.now();
+    let id = a.request_id;
+    if (action === "ask") {
+      if (!origin) throw new PolicyError("unavailable", "ht_ask needs the HTTP transport (the question is answered in a browser)");
+      const question = (a.question ?? "").trim();
+      if (!question) throw new PolicyError("bad_input", "question is required");
+      const opts2 = (a.options ?? []).map((o) => typeof o === "string" ? { label: o } : o);
+      if (opts2.length < 2) throw new PolicyError("bad_input", "options needs at least 2 choices");
+      const labels = opts2.map((o) => (o.description ? `${o.label} \u2014 ${o.description}` : o.label).slice(0, 200));
+      if (new Set(labels).size !== labels.length) throw new PolicyError("bad_input", "options must be distinct");
+      const multi = Boolean(a.multi);
+      const fields = [{ name: "answer", title: question, kind: multi ? "array" : "string", required: true, choices: labels, ...multi ? { multiple: true } : {} }];
+      if (a.allow_custom !== false) fields.push({ name: "custom", title: "Ba\u015Fka bir \u015Fey (iste\u011Fe ba\u011Fl\u0131)", kind: "string", required: false });
+      const req2 = workspace.inputs.create(owner, {
+        title: question,
+        kind: "string",
+        secret: false,
+        ttlMs: (a.ttl_minutes ?? 10) * 6e4,
+        fields,
+        dedupeKey: `ask:${question}:${labels.join("|")}:${multi ? "multi" : "one"}`.slice(0, 200)
+      });
+      audit.write({ ev: "ask", options: labels.length, multi });
+      id = req2.id;
+    }
+    if (!id) throw new PolicyError("bad_input", "nothing to read: give question+options or a request_id");
+    const waitMs = Math.max(0, Math.min(120, a.wait_seconds ?? 90)) * 1e3;
+    const waited = waitMs ? await workspace.inputs.wait(owner, id, waitMs, extra?.signal) : void 0;
+    const req = waited ?? workspace.inputs.get(owner, id);
+    const view = workspace.inputs.view(req);
+    const elapsed_s = Math.round((Date.now() - started) / 1e3) / 1;
+    if (view.status === "pending") {
+      return JSON.stringify({
+        status: "pending",
+        question: view.title,
+        request_id: req.id,
+        url: url(req.id),
+        elapsed_s,
+        next: "Show the url to the user, then call ht_ask again with request_id (and wait_seconds) to read the answer."
+      });
+    }
+    if (view.status === "cancelled") return JSON.stringify({ status: "cancelled", question: view.title, request_id: req.id, elapsed_s, next: "The user declined to answer." });
+    if (view.status === "expired") return JSON.stringify({ status: "expired", question: view.title, request_id: req.id, elapsed_s, next: "The question expired; ask again with action=ask." });
+    const values = view.values ?? {};
+    const raw = values.answer;
+    const selected = raw === void 0 || raw === null || raw === "" ? [] : Array.isArray(raw) ? raw : [raw];
+    const custom2 = typeof values.custom === "string" && values.custom.trim() ? String(values.custom).trim() : null;
+    return JSON.stringify({
+      status: "answered",
+      question: view.title,
+      request_id: req.id,
+      elapsed_s,
+      selected,
+      ...custom2 ? { custom: custom2 } : {},
+      answer: custom2 && !selected.length ? custom2 : selected.length === 1 ? selected[0] : selected
+    });
   }));
   register("ht_share", {
     title: "Share a file with the user",

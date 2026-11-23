@@ -24,6 +24,7 @@ export interface InputField {
   secret: boolean;
   required: boolean;
   choices?: string[];
+  multiple?: boolean; // choices ile birlikte: onay kutuları (çoklu seçim)
   default?: string;
   placeholder?: string;
   help?: string;
@@ -134,15 +135,17 @@ function normalizeField(raw: unknown, index: number): InputField {
   if (!NAME_RE.test(name)) throw new PolicyError("bad_input", `fields[${index}].name must match ${NAME_RE} (it becomes $${fieldEnvName(name || "NAME")})`);
   const title = String(f.title ?? "").trim();
   if (!title || title.length > 200) throw new PolicyError("bad_input", `fields[${index}].title must be 1–200 characters`);
-  const kind = (f.kind ?? "string") as InputKind;
+  const multiple = Boolean(f.multiple);
+  const kind = (multiple ? "array" : (f.kind ?? "string")) as InputKind;
   if (!KINDS.includes(kind)) throw new PolicyError("bad_input", `fields[${index}].kind must be one of ${KINDS.join(", ")}`);
   const choices = normalizeChoices(f.choices);
+  if (multiple && !choices) throw new PolicyError("bad_input", `fields[${index}].multiple needs choices`);
   const def = f.default === undefined || f.default === null ? undefined : String(f.default);
   if (def !== undefined && def.length > MAX_TEXT) throw new PolicyError("bad_input", `fields[${index}].default is too long`);
   if (choices && def !== undefined && !choices.includes(def)) throw new PolicyError("bad_input", `fields[${index}].default must be one of the choices`);
   const placeholder = f.placeholder === undefined ? undefined : String(f.placeholder).slice(0, 200);
   const help = f.help === undefined ? undefined : String(f.help).slice(0, 400);
-  return { name, title, kind, secret: Boolean(f.secret), required: f.required === undefined ? true : Boolean(f.required), ...(choices ? { choices } : {}), ...(def !== undefined ? { default: def } : {}), ...(placeholder ? { placeholder } : {}), ...(help ? { help } : {}) };
+  return { name, title, kind, secret: Boolean(f.secret), required: f.required === undefined ? true : Boolean(f.required), ...(choices ? { choices } : {}), ...(multiple ? { multiple: true } : {}), ...(def !== undefined ? { default: def } : {}), ...(placeholder ? { placeholder } : {}), ...(help ? { help } : {}) };
 }
 
 export class UserInputs {
@@ -253,6 +256,11 @@ export class UserInputs {
 
   private coerce(f: InputField, text: string): unknown {
     const value = parseValue(f.kind, text);
+    if (f.multiple && f.choices) {
+      if (!Array.isArray(value)) throw new PolicyError("bad_input", `${f.title} beklenen biçimde değil`);
+      for (const v of value) if (!f.choices.includes(String(v))) throw new PolicyError("bad_input", `${f.title}: seçeneklerden biri değil`);
+      return value;
+    }
     if (f.choices) {
       if (value === null || !f.choices.includes(String(value))) throw new PolicyError("bad_input", `${f.title} must be one of the offered choices`);
     }
@@ -438,7 +446,9 @@ export class UserInputs {
         }
         try {
           const value = req_.fields
-            ? this.submit(id, Object.fromEntries(req_.fields.map(f => [f.name, params.get(f.name) ?? ""])))
+            ? this.submit(id, Object.fromEntries(req_.fields.map(f => [f.name,
+                // çoklu seçim: aynı adla gelen tüm onay kutuları JSON dizi olarak geçer
+                f.multiple ? JSON.stringify(params.getAll(f.name)) : params.get(f.name) ?? ""])))
             : this.submit(id, params.get("value") ?? params.get("secret") ?? "");
           const secrets = req_.fields ? req_.fields.some(f => f.secret) : value.secret;
           const summary = req_.fields
@@ -463,6 +473,7 @@ export class UserInputs {
       const common = `id="f_${esc(f.name)}" name="${esc(f.name)}" autocomplete="off" ${f.required ? "required" : ""}`;
       let control: string;
       if (f.secret) control = `<input type="password" ${common} ${f.placeholder ? `placeholder="${esc(f.placeholder)}"` : ""}>`;
+      else if (f.choices && f.multiple) control = `<div class="cb">${f.choices.map(c => `<label><input type="checkbox" name="${esc(f.name)}" value="${esc(c)}"${c === f.default ? " checked" : ""}> ${esc(c)}</label>`).join("")}</div>`;
       else if (f.choices) control = `<select ${common}>${f.choices.map(c => `<option${c === f.default ? " selected" : ""}>${esc(c)}</option>`).join("")}</select>`;
       else if (f.kind === "boolean") control = `<select ${common}><option value="true"${f.default === "true" ? " selected" : ""}>true</option><option value="false"${f.default === "false" || f.default === undefined ? " selected" : ""}>false</option></select>`;
       else if (f.kind === "array") control = `<textarea ${common} rows="4" placeholder='["a","b"]'>${esc(f.default ?? "")}</textarea>`;
