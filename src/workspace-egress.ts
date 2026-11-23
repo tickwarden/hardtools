@@ -67,16 +67,22 @@ export async function openWorkspaceEgress(p: Policy): Promise<EgressLease> {
   if (p.roots.some(r => isInside(r, "/tmp"))) throw new PolicyError("worker_root", "the project cannot contain the egress socket directory");
   const dir = fs.mkdtempSync("/tmp/ht-egress-"), socketPath = dir + "/proxy.sock";
   const peers = new Set<net.Socket>();
-  let stopped = false, accepted = 0, remaining = 64 * 1024 * 1024;
+  // 0.5.3: büyük indirmeler yarıda kesilmesin. Bütçe ve boşta kalma süresi ortamdan
+  // ayarlanabilir; varsayılan 4 GiB / 120 sn (eskiden 64 MB / 15 sn idi ve yavaş bir
+  // aynadan gelen indirme "Proxy CONNECT aborted" ile düşüyordu).
+  const budgetMb = Number(process.env.HARDTOOLS_WORKSPACE_EGRESS_MB ?? 4096);
+  const idleMs = Number(process.env.HARDTOOLS_WORKSPACE_EGRESS_IDLE_S ?? 120) * 1000;
+  let stopped = false, accepted = 0;
+  let remaining = (Number.isFinite(budgetMb) && budgetMb > 0 ? budgetMb : 4096) * 1024 * 1024;
   const server = http.createServer({ maxHeaderSize: 4096, headersTimeout: 5000, requestTimeout: 10000 }, (_req, res) => {
     res.writeHead(405, { connection: "close", "content-length": 0 }).end();
   });
   const track = (s: net.Socket) => {
     peers.add(s); s.once("close", () => peers.delete(s)); s.on("error", () => s.destroy());
-    s.setTimeout(15000, () => s.destroy());
+    s.setTimeout(Number.isFinite(idleMs) && idleMs > 0 ? idleMs : 120_000, () => s.destroy()); // veri aktığı sürece sıfırlanır
   };
   server.maxConnections = 8;
-  server.on("connection", s => { track(s); if (stopped || ++accepted > 128 || remaining <= 0) s.destroy(); });
+  server.on("connection", s => { track(s); if (stopped || ++accepted > 256 || remaining <= 0) s.destroy(); });
   server.on("clientError", (_e, s) => s.destroy());
   server.on("upgrade", (_req, s) => s.destroy());
   const charge = (b: Buffer) => {

@@ -193,6 +193,13 @@ fly secrets set HARDTOOLS_PUBLIC=open HARDTOOLS_PUBLIC_TOOLS=safe -a hardtools-m
 - Girişsiz modlarda statik bearer ve OAuth akışı yine çalışır: aynı sunucu hem oturumsuz bağlayıcıya hem yetkili istemciye hizmet eder.
 - `key` modunda adresi bilen tam yetkiye sahiptir; adresi paylaşacaksan `open` + araç listesi daha güvenli.
 
+### İzole kabuk: kalıcı `/tmp`, `apt` ve büyük indirmeler (0.5.3)
+
+- **`/tmp` artık oturum boyunca kalıcı**: proje hacminde `<kök>/.hardtools/{tmp,home,bin,root}` tutulur ve `/tmp`, `$HOME` olarak bağlanır. Aynı oturumdaki `ht_shell` çağrıları arasında indirdiğin dosyalar, `pip install --user` ve açtığın arşivler kaybolmaz. Uçucu davranış için `HARDTOOLS_SESSION_TMP=0`.
+- **`apt` kaynakları artık görünür**: `/etc/apt` kopyası kazı alanına yazılır ve `http://` adresleri `https://`'e çevrilir (izole kabuğun çıkışı yalnız HTTPS:443 CONNECT). Böylece `apt-get update` ve `apt-get download` çalışır; `lists` ve `archives` yazılabilir.
+- **Sistem geneline kurulum yine yapılamaz**: kök dosya sistemi salt okunur, `dpkg` veritabanı salt okunur. Paket kullanmak için: `apt-get download <paket>` → `dpkg -x <paket>.deb /work/.hardtools/root` → `/work/.hardtools/root/usr/bin` zaten `PATH`'te. Tek seferlik araçlar için `/work/.hardtools/bin` de `PATH`'te.
+- **Büyük indirmeler kesilmez**: çıkış vekilinin bütçesi çağrı başına **4 GiB** (eski 64 MB) ve boşta kalma sınırı **120 sn** (eski 15 sn — yavaş aynada "Proxy CONNECT aborted" buna takılıyordu). Ayarlar: `HARDTOOLS_WORKSPACE_EGRESS_MB`, `HARDTOOLS_WORKSPACE_EGRESS_IDLE_S`.
+
 ### Sunucu düşerse: gözcü + keepalive (0.5.1)
 
 - **Konteyner gözcüsü** (`deploy/fly/entrypoint.sh`): node süreci çıkarsa üstel geri çekilmeyle (1→30 sn, 60 sn'den uzun çalışmadan sonra sıfırlanır) yeniden başlatır; `/healthz` üst üste 3 kez yanıtsız kalırsa süreci öldürüp geri getirir. Her yeniden başlatma `/data/supervisor.log` ve `/data/restarts` dosyasına yazılır.
@@ -211,6 +218,11 @@ fly secrets set HARDTOOLS_PUBLIC=open HARDTOOLS_PUBLIC_TOOLS=safe -a hardtools-m
 - Tarayıcıda **Vazgeç** düğmesi (`action=cancel` → model `status=cancelled` görür), kalan süre bilgisi ve mobil uyumlu form.
 - Sır alanları: modele `<secret>` döner, denetim kaydına yazılmaz, komut çıktısında `[redacted:HT_USER_INPUT]` ile maskelenir; yanıt sayfası sırrı bir daha göstermez.
 - Örnek: `ht_user_input {title:"Yeni servis", fields:[{name:"ad",title:"Ad"},{name:"port",title:"Port",kind:"number",default:"8080"},{name:"mod",title:"Mod",choices:["dev","prod"]},{name:"token",title:"Token",secret:true,required:false}], wait_seconds:60}`
+
+### 0.5.3 değişiklikleri
+
+- İzole kabukta `/tmp` **oturum boyunca kalıcı** (proje hacminde `.hardtools/`), `apt-get update`/`apt-get download` çalışır, büyük indirmeler 4 GiB bütçe ve 120 sn boşta sınırıyla kesilmez.
+- `PATH` içine `/work/.hardtools/bin` ve `/work/.hardtools/root/usr/bin` eklendi; `HOME` kalıcı kazı alanına taşındı.
 
 ### 0.5.2 değişiklikleri
 

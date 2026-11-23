@@ -22,9 +22,86 @@ p="http://127.0.0.1:$port"
 export HTTPS_PROXY="$p" https_proxy="$p" HTTP_PROXY="$p" http_proxy="$p" NO_PROXY='' no_proxy=''
 exec "$@"`;
 
-function workerEnv(selected: NodeJS.ProcessEnv = {}): NodeJS.ProcessEnv {
-  return { PATH: "/runtime:/usr/bin:/bin", HOME: "/tmp", TMPDIR: "/tmp", LANG: "C.UTF-8", GIT_TERMINAL_PROMPT: "0", ...selected };
+// 0.5.3: /tmp artık çağrı başına tmpfs değil, proje hacminde kalıcı bir kazı alanı:
+// aynı oturumdaki ht_shell çağrıları arasında indirilen dosyalar ve pip --user
+// kurulumları kaybolmaz. HARDTOOLS_SESSION_TMP=0 eski (uçucu tmpfs) davranışa döner.
+export interface Scratch { tmp: string; home: string; bin: string; root: string; aptLists: string; aptCache: string; aptConf: string | null }
+const scratchCache = new Map<string, Scratch | null>();
+function prepareScratch(p: Policy): Scratch | null {
+  if ((process.env.HARDTOOLS_SESSION_TMP ?? "1").trim() === "0") return null;
+  const base = path.join(p.roots[0], ".hardtools");
+  const cached = scratchCache.get(base);
+  if (cached !== undefined) return cached;
+  const s: Scratch = {
+    tmp: path.join(base, "tmp"), home: path.join(base, "home"),
+    bin: path.join(base, "bin"), root: path.join(base, "root"),
+    aptLists: path.join(base, "apt", "lists"), aptCache: path.join(base, "apt", "archives"),
+    aptConf: path.join(base, "apt", "etc"),
+  };
+  try {
+    for (const d of [s.tmp, s.home, s.bin, s.root, s.aptLists, s.aptCache, s.aptConf!,
+                     path.join(s.aptLists, "partial"), path.join(s.aptCache, "partial")]) fs.mkdirSync(d, { recursive: true, mode: 0o700 });
+    s.aptConf = seedAptConf(s.aptConf!);
+    scratchCache.set(base, s);
+    return s;
+  } catch { scratchCache.set(base, null); return null; } // açılamazsa uçucu tmpfs'e düş
 }
+
+function workerEnv(home: string, selected: NodeJS.ProcessEnv = {}): NodeJS.ProcessEnv {
+  return {
+    // Kullanıcı kurulumları önce görünsün: dpkg -x ile /work/.hardtools/root içine açılan araçlar.
+    PATH: `/work/.hardtools/bin:/work/.hardtools/root/usr/bin:/runtime:/usr/bin:/bin`,
+    HOME: home, TMPDIR: "/tmp", LANG: "C.UTF-8", GIT_TERMINAL_PROMPT: "0", ...selected,
+  };
+}
+/** /etc/apt'ı kazı alanına kopyalar ve kaynakları https'e çevirir: izole kabuğun çıkışı
+ * yalnızca HTTPS:443 CONNECT ile olur, http://archive.ubuntu.com bu yüzden çalışmaz. */
+function seedAptConf(dst: string): string | null {
+  try {
+    if (!fs.statSync("/etc/apt").isDirectory()) return null;
+    const write = (from: string, to: string) => {
+      if (!fs.existsSync(from)) return;
+      let text = fs.readFileSync(from, "utf8");
+      text = text.replace(/http:\/\//g, "https://");
+      fs.writeFileSync(to, text, { mode: 0o644 });
+    };
+    write("/etc/apt/sources.list", path.join(dst, "sources.list"));
+    const d = "/etc/apt/sources.list.d";
+    if (fs.existsSync(d)) {
+      const out = path.join(dst, "sources.list.d");
+      fs.mkdirSync(out, { recursive: true, mode: 0o755 });
+      for (const f of fs.readdirSync(d)) if (f.endsWith(".sources") || f.endsWith(".list")) write(path.join(d, f), path.join(out, f));
+    }
+    const c = "/etc/apt/apt.conf.d";
+    if (fs.existsSync(c)) {
+      const out = path.join(dst, "apt.conf.d");
+      fs.mkdirSync(out, { recursive: true, mode: 0o755 });
+      for (const f of fs.readdirSync(c)) {
+        try { fs.copyFileSync(path.join(c, f), path.join(out, f)); } catch { /* okunamayan parça atlanır */ }
+      }
+    }
+    return dst;
+  } catch { return null; }
+}
+
+/** /tmp + apt durumu. Kalıcı kazı alanı varsa proje hacmine bağlanır; yoksa eski uçucu tmpfs. */
+function scratchBinds(p: Policy): string[] {
+  const s = prepareScratch(p);
+  if (!s) return ["--size", "67108864", "--tmpfs", "/tmp"];
+  return [
+    "--bind", s.tmp, "/tmp",
+    // apt kaynakları görünür olsun (/etc/apt imajda var, sandbox'a bağlanmıyordu).
+    // Kopya https'e çevrildi ve yazılabilir: apt-get update / apt-get download çalışır.
+    ...(s.aptConf ? ["--bind", s.aptConf, "/etc/apt"] : ["--ro-bind-try", "/etc/apt", "/etc/apt"]),
+    "--ro-bind-try", "/etc/passwd", "/etc/passwd", "--ro-bind-try", "/etc/group", "/etc/group",
+    // Liste/önbellek yazılabilir: `apt-get update` ve `apt-get download` çalışır.
+    "--dir", "/var", "--dir", "/var/lib", "--dir", "/var/lib/apt", "--dir", "/var/cache", "--dir", "/var/cache/apt",
+    "--bind", s.aptLists, "/var/lib/apt/lists", "--bind", s.aptCache, "/var/cache/apt/archives",
+    // dpkg veritabanı salt okunur: sistem geneline kurulum yapılamaz (kök salt okunur).
+    "--ro-bind-try", "/var/lib/dpkg", "/var/lib/dpkg",
+  ];
+}
+
 function workspaceArgs(p: Policy, cwd: string, program: string, args: string[], lease?: EgressLease): string[] {
   if (process.platform !== "linux" || p.roots.length !== 1) throw new PolicyError("worker_unavailable", "workspace shell requires Linux and one dedicated project root");
   const root = p.roots[0];
@@ -50,7 +127,8 @@ function workspaceArgs(p: Policy, cwd: string, program: string, args: string[], 
     "--dir", "/runtime", "--ro-bind-fd", "3", "/runtime/node",
     ...(lease ? ["--ro-bind-fd", "4", "/runtime/https-bridge.mjs", "--ro-bind", lease.socketPath, "/runtime/https.sock",
       "--ro-bind", "/etc/ssl/certs/ca-certificates.crt", "/etc/ssl/certs/ca-certificates.crt"] : []),
-    "--size", "67108864", "--tmpfs", "/tmp", "--dev", "/dev", "--proc", "/proc", "--remount-ro", "/proc",
+    ...scratchBinds(p),
+    "--dev", "/dev", "--proc", "/proc", "--remount-ro", "/proc",
     p.fs.writeEnabled ? "--bind" : "--ro-bind", root, "/work", "--remount-ro", "/", "--chdir", childCwd,
     "--", ...(lease ? ["/bin/sh", "-c", guestStart, "ht-workspace"] : []), program, ...args,
   ];
@@ -79,7 +157,8 @@ export function spawnWorkspaceShell(p: Policy, cwd: string, program: string, arg
         bridge = fs.openSync(new URL("./workspace-bridge.js", import.meta.url), fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW);
         if (!fs.fstatSync(bridge).isFile()) throw new PolicyError("worker_unavailable", "invalid guest bridge");
       }
-      return spawn(launcher, argv, { cwd: "/", env: workerEnv(selected), shell: false, detached: true,
+      const scratch = prepareScratch(p);
+      return spawn(launcher, argv, { cwd: "/", env: workerEnv(scratch ? `/work/.hardtools/home` : "/tmp", selected), shell: false, detached: true,
         stdio: ["pipe", "pipe", "pipe", fd, ...(bridge === undefined ? [] : [bridge])] });
     } finally { if (bridge !== undefined) fs.closeSync(bridge); }
   });
@@ -88,8 +167,9 @@ export function spawnWorkspaceShell(p: Policy, cwd: string, program: string, arg
 /** Exercise the same fd mount before opening the HTTP endpoint. Never fall back to the host. */
 export function probeWorkspaceShell(p: Policy): void {
   const argv = workspaceArgs(p, p.roots[0], "/runtime/node", ["--version"]);
+  const scratch = prepareScratch(p);
   const child = withRuntimeFd(fd => spawnSync(launcher, argv, {
-    cwd: "/", env: workerEnv(), shell: false, stdio: ["ignore", "pipe", "pipe", fd], encoding: "utf8", timeout: 5000,
+    cwd: "/", env: workerEnv(scratch ? "/work/.hardtools/home" : "/tmp"), shell: false, stdio: ["ignore", "pipe", "pipe", fd], encoding: "utf8", timeout: 5000,
   }));
   if (child.status !== 0) throw new PolicyError("worker_unavailable", `isolated workspace probe failed; no fallback: ${child.error?.message ?? child.stderr?.trim() ?? "launch failed"}`);
 }

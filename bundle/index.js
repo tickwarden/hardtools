@@ -26118,7 +26118,7 @@ import net from "node:net";
 import zlib from "node:zlib";
 
 // src/version.ts
-var VERSION = "0.5.2";
+var VERSION = "0.5.3";
 
 // src/net.ts
 var blocked = new net.BlockList();
@@ -26562,7 +26562,10 @@ async function openWorkspaceEgress(p) {
   if (p.roots.some((r) => isInside(r, "/tmp"))) throw new PolicyError("worker_root", "the project cannot contain the egress socket directory");
   const dir = fs7.mkdtempSync("/tmp/ht-egress-"), socketPath = dir + "/proxy.sock";
   const peers = /* @__PURE__ */ new Set();
-  let stopped = false, accepted = 0, remaining = 64 * 1024 * 1024;
+  const budgetMb = Number(process.env.HARDTOOLS_WORKSPACE_EGRESS_MB ?? 4096);
+  const idleMs = Number(process.env.HARDTOOLS_WORKSPACE_EGRESS_IDLE_S ?? 120) * 1e3;
+  let stopped = false, accepted = 0;
+  let remaining = (Number.isFinite(budgetMb) && budgetMb > 0 ? budgetMb : 4096) * 1024 * 1024;
   const server = http2.createServer({ maxHeaderSize: 4096, headersTimeout: 5e3, requestTimeout: 1e4 }, (_req, res) => {
     res.writeHead(405, { connection: "close", "content-length": 0 }).end();
   });
@@ -26570,12 +26573,12 @@ async function openWorkspaceEgress(p) {
     peers.add(s);
     s.once("close", () => peers.delete(s));
     s.on("error", () => s.destroy());
-    s.setTimeout(15e3, () => s.destroy());
+    s.setTimeout(Number.isFinite(idleMs) && idleMs > 0 ? idleMs : 12e4, () => s.destroy());
   };
   server.maxConnections = 8;
   server.on("connection", (s) => {
     track(s);
-    if (stopped || ++accepted > 128 || remaining <= 0) s.destroy();
+    if (stopped || ++accepted > 256 || remaining <= 0) s.destroy();
   });
   server.on("clientError", (_e, s) => s.destroy());
   server.on("upgrade", (_req, s) => s.destroy());
@@ -26644,8 +26647,122 @@ case "$port" in ''|*[!0-9]*) exit 125;; esac
 p="http://127.0.0.1:$port"
 export HTTPS_PROXY="$p" https_proxy="$p" HTTP_PROXY="$p" http_proxy="$p" NO_PROXY='' no_proxy=''
 exec "$@"`;
-function workerEnv(selected = {}) {
-  return { PATH: "/runtime:/usr/bin:/bin", HOME: "/tmp", TMPDIR: "/tmp", LANG: "C.UTF-8", GIT_TERMINAL_PROMPT: "0", ...selected };
+var scratchCache = /* @__PURE__ */ new Map();
+function prepareScratch(p) {
+  if ((process.env.HARDTOOLS_SESSION_TMP ?? "1").trim() === "0") return null;
+  const base = path8.join(p.roots[0], ".hardtools");
+  const cached2 = scratchCache.get(base);
+  if (cached2 !== void 0) return cached2;
+  const s = {
+    tmp: path8.join(base, "tmp"),
+    home: path8.join(base, "home"),
+    bin: path8.join(base, "bin"),
+    root: path8.join(base, "root"),
+    aptLists: path8.join(base, "apt", "lists"),
+    aptCache: path8.join(base, "apt", "archives"),
+    aptConf: path8.join(base, "apt", "etc")
+  };
+  try {
+    for (const d of [
+      s.tmp,
+      s.home,
+      s.bin,
+      s.root,
+      s.aptLists,
+      s.aptCache,
+      s.aptConf,
+      path8.join(s.aptLists, "partial"),
+      path8.join(s.aptCache, "partial")
+    ]) fs8.mkdirSync(d, { recursive: true, mode: 448 });
+    s.aptConf = seedAptConf(s.aptConf);
+    scratchCache.set(base, s);
+    return s;
+  } catch {
+    scratchCache.set(base, null);
+    return null;
+  }
+}
+function workerEnv(home, selected = {}) {
+  return {
+    // Kullanıcı kurulumları önce görünsün: dpkg -x ile /work/.hardtools/root içine açılan araçlar.
+    PATH: `/work/.hardtools/bin:/work/.hardtools/root/usr/bin:/runtime:/usr/bin:/bin`,
+    HOME: home,
+    TMPDIR: "/tmp",
+    LANG: "C.UTF-8",
+    GIT_TERMINAL_PROMPT: "0",
+    ...selected
+  };
+}
+function seedAptConf(dst) {
+  try {
+    if (!fs8.statSync("/etc/apt").isDirectory()) return null;
+    const write = (from, to) => {
+      if (!fs8.existsSync(from)) return;
+      let text = fs8.readFileSync(from, "utf8");
+      text = text.replace(/http:\/\//g, "https://");
+      fs8.writeFileSync(to, text, { mode: 420 });
+    };
+    write("/etc/apt/sources.list", path8.join(dst, "sources.list"));
+    const d = "/etc/apt/sources.list.d";
+    if (fs8.existsSync(d)) {
+      const out = path8.join(dst, "sources.list.d");
+      fs8.mkdirSync(out, { recursive: true, mode: 493 });
+      for (const f of fs8.readdirSync(d)) if (f.endsWith(".sources") || f.endsWith(".list")) write(path8.join(d, f), path8.join(out, f));
+    }
+    const c = "/etc/apt/apt.conf.d";
+    if (fs8.existsSync(c)) {
+      const out = path8.join(dst, "apt.conf.d");
+      fs8.mkdirSync(out, { recursive: true, mode: 493 });
+      for (const f of fs8.readdirSync(c)) {
+        try {
+          fs8.copyFileSync(path8.join(c, f), path8.join(out, f));
+        } catch {
+        }
+      }
+    }
+    return dst;
+  } catch {
+    return null;
+  }
+}
+function scratchBinds(p) {
+  const s = prepareScratch(p);
+  if (!s) return ["--size", "67108864", "--tmpfs", "/tmp"];
+  return [
+    "--bind",
+    s.tmp,
+    "/tmp",
+    // apt kaynakları görünür olsun (/etc/apt imajda var, sandbox'a bağlanmıyordu).
+    // Kopya https'e çevrildi ve yazılabilir: apt-get update / apt-get download çalışır.
+    ...s.aptConf ? ["--bind", s.aptConf, "/etc/apt"] : ["--ro-bind-try", "/etc/apt", "/etc/apt"],
+    "--ro-bind-try",
+    "/etc/passwd",
+    "/etc/passwd",
+    "--ro-bind-try",
+    "/etc/group",
+    "/etc/group",
+    // Liste/önbellek yazılabilir: `apt-get update` ve `apt-get download` çalışır.
+    "--dir",
+    "/var",
+    "--dir",
+    "/var/lib",
+    "--dir",
+    "/var/lib/apt",
+    "--dir",
+    "/var/cache",
+    "--dir",
+    "/var/cache/apt",
+    "--bind",
+    s.aptLists,
+    "/var/lib/apt/lists",
+    "--bind",
+    s.aptCache,
+    "/var/cache/apt/archives",
+    // dpkg veritabanı salt okunur: sistem geneline kurulum yapılamaz (kök salt okunur).
+    "--ro-bind-try",
+    "/var/lib/dpkg",
+    "/var/lib/dpkg"
+  ];
 }
 function workspaceArgs(p, cwd, program, args, lease) {
   if (process.platform !== "linux" || p.roots.length !== 1) throw new PolicyError("worker_unavailable", "workspace shell requires Linux and one dedicated project root");
@@ -26727,10 +26844,7 @@ function workspaceArgs(p, cwd, program, args, lease) {
       "/etc/ssl/certs/ca-certificates.crt",
       "/etc/ssl/certs/ca-certificates.crt"
     ] : [],
-    "--size",
-    "67108864",
-    "--tmpfs",
-    "/tmp",
+    ...scratchBinds(p),
     "--dev",
     "/dev",
     "--proc",
@@ -26774,9 +26888,10 @@ function spawnWorkspaceShell(p, cwd, program, args, selected, lease) {
         bridge = fs8.openSync(new URL("./workspace-bridge.js", import.meta.url), fs8.constants.O_RDONLY | fs8.constants.O_NOFOLLOW);
         if (!fs8.fstatSync(bridge).isFile()) throw new PolicyError("worker_unavailable", "invalid guest bridge");
       }
+      const scratch = prepareScratch(p);
       return spawn(launcher, argv, {
         cwd: "/",
-        env: workerEnv(selected),
+        env: workerEnv(scratch ? `/work/.hardtools/home` : "/tmp", selected),
         shell: false,
         detached: true,
         stdio: ["pipe", "pipe", "pipe", fd, ...bridge === void 0 ? [] : [bridge]]
@@ -26788,9 +26903,10 @@ function spawnWorkspaceShell(p, cwd, program, args, selected, lease) {
 }
 function probeWorkspaceShell(p) {
   const argv = workspaceArgs(p, p.roots[0], "/runtime/node", ["--version"]);
+  const scratch = prepareScratch(p);
   const child = withRuntimeFd((fd) => spawnSync(launcher, argv, {
     cwd: "/",
-    env: workerEnv(),
+    env: workerEnv(scratch ? "/work/.hardtools/home" : "/tmp"),
     shell: false,
     stdio: ["ignore", "pipe", "pipe", fd],
     encoding: "utf8",
