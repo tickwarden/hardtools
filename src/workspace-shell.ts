@@ -72,14 +72,25 @@ function seedAptConf(dst: string): string | null {
       fs.mkdirSync(out, { recursive: true, mode: 0o755 });
       for (const f of fs.readdirSync(d)) if (f.endsWith(".sources") || f.endsWith(".list")) write(path.join(d, f), path.join(out, f));
     }
+    fs.mkdirSync(path.join(dst, "preferences.d"), { recursive: true, mode: 0o755 });
     const c = "/etc/apt/apt.conf.d";
     if (fs.existsSync(c)) {
       const out = path.join(dst, "apt.conf.d");
       fs.mkdirSync(out, { recursive: true, mode: 0o755 });
+      fs.mkdirSync(path.join(out, "preferences.d"), { recursive: true, mode: 0o755 });
       for (const f of fs.readdirSync(c)) {
         try { fs.copyFileSync(path.join(c, f), path.join(out, f)); } catch { /* okunamayan parça atlanır */ }
       }
     }
+    // bwrap --cap-drop ALL altında apt "_apt" kullanıcısına geçemiyor (setgroups EPERM);
+    // sandbox kullanıcısını root yap ve yavaş aynalar için zaman aşımlarını uzat.
+    fs.writeFileSync(path.join(dst, "apt.conf.d", "99hardtools"), [
+      'APT::Sandbox::User "root";',
+      'Acquire::https::Timeout "120";',
+      'Acquire::http::Timeout "120";',
+      'Acquire::Retries "3";',
+      "",
+    ].join("\n"), { mode: 0o644 });
     return dst;
   } catch { return null; }
 }

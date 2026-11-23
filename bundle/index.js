@@ -26709,10 +26709,12 @@ function seedAptConf(dst) {
       fs8.mkdirSync(out, { recursive: true, mode: 493 });
       for (const f of fs8.readdirSync(d)) if (f.endsWith(".sources") || f.endsWith(".list")) write(path8.join(d, f), path8.join(out, f));
     }
+    fs8.mkdirSync(path8.join(dst, "preferences.d"), { recursive: true, mode: 493 });
     const c = "/etc/apt/apt.conf.d";
     if (fs8.existsSync(c)) {
       const out = path8.join(dst, "apt.conf.d");
       fs8.mkdirSync(out, { recursive: true, mode: 493 });
+      fs8.mkdirSync(path8.join(out, "preferences.d"), { recursive: true, mode: 493 });
       for (const f of fs8.readdirSync(c)) {
         try {
           fs8.copyFileSync(path8.join(c, f), path8.join(out, f));
@@ -26720,6 +26722,13 @@ function seedAptConf(dst) {
         }
       }
     }
+    fs8.writeFileSync(path8.join(dst, "apt.conf.d", "99hardtools"), [
+      'APT::Sandbox::User "root";',
+      'Acquire::https::Timeout "120";',
+      'Acquire::http::Timeout "120";',
+      'Acquire::Retries "3";',
+      ""
+    ].join("\n"), { mode: 420 });
     return dst;
   } catch {
     return null;
