@@ -129,3 +129,33 @@ test("ht_ask: tek seçim + serbest metin, en az iki seçenek kuralı", async (t)
   assert.equal(answer.custom, undefined);
   assert.equal(answer.answer, "Fly — ucuz");
 });
+
+test("ht_ask: yeniden başlatmaya dayanıklı — cevap diskte kalır, sırlar yazılmaz", async (t) => {
+  const dir = tmp("ht-ask-store-");
+  const store = path.join(dir, "state", "inputs.json");
+  const { UserInputs } = await import("../dist/user-input.js");
+
+  const a = new UserInputs({ store });
+  const open = a.create("static", { title: "Açık soru", kind: "string", secret: false, ttlMs: 600_000,
+    fields: [{ name: "answer", title: "Cevap", kind: "string", required: true, choices: ["evet", "hayır"] }] });
+  a.submit(open.id, { answer: "evet" });
+
+  const secretForm = a.create("static", { title: "Sır", kind: "string", secret: false, ttlMs: 600_000,
+    fields: [{ name: "token", title: "Token", kind: "string", required: true, secret: true }] });
+  a.submit(secretForm.id, { token: "sk-canary-1234567890" });
+  assert.equal(fs.readFileSync(store, "utf8").includes("sk-canary"), false, "sır diske yazılmamalı");
+
+  // yeni süreç gibi: aynı dosyadan taze örnek
+  const b = new UserInputs({ store: store });
+  const restored = b.view(b.get("static", open.id));
+  assert.equal(restored.status, "ready");
+  assert.equal(restored.values.answer, "evet");
+  assert.throws(() => b.get("static", secretForm.id), /does not exist|cleared/, "sır formu geri yüklenmez");
+});
+
+test("ht_ask: kayıp request_id bir hata değil, status=lost döner", async (t) => {
+  const { port } = await start(t);
+  const lost = await callTool(port, { request_id: "A".repeat(40) }, 1);
+  assert.equal(lost.status, "lost", JSON.stringify(lost));
+  assert.match(lost.next, /yeniden sor/);
+});

@@ -22,7 +22,7 @@ import { ErrorCode, ListResourcesRequestSchema, ListResourceTemplatesRequestSche
 // The HTTP worker can change its project tree. Do not race a running child against
 // host-side path checks (including cwd and stdin_file preparation for the next child).
 const usesProject = new Set(["ht_transfer_file", "ht_new_shell_env", "ht_stop","ht_read", "ht_write", "ht_edit", "ht_glob", "ht_search", "ht_move", "ht_mkdir", "ht_trash", "ht_empty_trash", "ht_shell", "ht_share"]);
-export const createWorkspace = () => ({ vars: new Variables(), shares: new Shares(), inputs: new UserInputs(), projectReady: Promise.resolve() });
+export const createWorkspace = (inputStore?: string) => ({ vars: new Variables(), shares: new Shares(), inputs: new UserInputs(inputStore ? { store: inputStore } : {}), projectReady: Promise.resolve() });
 const asText = (text: string): CallToolResult => ({ content: [{ type: "text", text }] });
 export interface ServerOptions {
   /** When set, only these tool names are registered (used by the no-login public connector). */
@@ -321,7 +321,13 @@ Returned: {status, question, selected[], custom, request_id, elapsed_s}.`,
     if (!id) throw new PolicyError("bad_input", "nothing to read: give question+options or a request_id");
     const waitMs = Math.max(0, Math.min(120, a.wait_seconds ?? 0)) * 1000;
     const waited = waitMs ? await workspace.inputs.wait(owner, id, waitMs, extra?.signal) : undefined;
-    const req = waited ?? workspace.inputs.get(owner, id);
+    let req;
+    try { req = waited ?? workspace.inputs.get(owner, id); }
+    catch {
+      // Sunucu yeniden başladıysa istek bellekte olmayabilir: modeli kilitlemek yerine durumu söyle.
+      return JSON.stringify({ status: "lost", request_id: id, elapsed_s: Math.round((Date.now() - started) / 1000),
+        next: "Bu soru artık yok (sunucu yeniden başladı ya da form temizlendi). Soruyu action=ask ile yeniden sor." });
+    }
     const view = workspace.inputs.view(req);
     const elapsed_s = Math.round((Date.now() - started) / 1000) / 1;
 
