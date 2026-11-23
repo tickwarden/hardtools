@@ -73,9 +73,12 @@ async function main() {
       process.exit(1);
     }
   }
-  const loginFree = isPublic && (publicMode === "key" || publicTools !== null);
+  // HARDTOOLS_PUBLIC_ANON=1: tam araç setini bile girişsiz açar (yalnızca bilinçli tercih;
+  // adresi bilen herkes yazma/silme/kabuk araçlarını kullanabilir).
+  const anonAll = ["1", "true", "yes"].includes((process.env.HARDTOOLS_PUBLIC_ANON ?? "").trim().toLowerCase());
+  const loginFree = isPublic && (publicMode === "key" || publicTools !== null || anonAll);
   const loginRequired = isPublic && !loginFree;
-  if (isPublic) console.error(`[hardtools] public connector mode=${publicMode}; tools=${publicTools ? [...publicTools].join(",") : "all"}; ${loginFree ? "no OAuth challenge" : "login required (bearer or OAuth)"}`);
+  if (isPublic) console.error(`[hardtools] public connector mode=${publicMode}; tools=${publicTools ? [...publicTools].join(",") : "all"}; ${loginFree ? "no OAuth challenge" : "login required (bearer or OAuth)"}${anonAll && !publicTools ? " (HARDTOOLS_PUBLIC_ANON: tam set girişsiz)" : ""}`);
   const keyId = publicKey ? crypto.createHash("sha256").update(publicKey).digest("hex").slice(0, 12) : "open";
   const publicOwner = (viaKey: boolean) => (viaKey ? `public:${keyId}` : "public");
 
