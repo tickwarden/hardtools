@@ -103,6 +103,8 @@ npm run bundle                   # bundle/index.js (node_modules gerekmez)
 Claude Code içinde aynı katalogdan yüklemek için:
 
 ```text
+**Başkasına nasıl verilir:** [PAYLASIM.md](PAYLASIM.md) — plugin linki değil, `/mcp` adresi veya depo adresi paylaşılır.
+
 /plugin marketplace add tickwarden/hardtools
 /plugin install hardtools@hardtools-marketplace
 ```
