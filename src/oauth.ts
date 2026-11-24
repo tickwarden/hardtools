@@ -473,7 +473,7 @@ ${note ? `<p class="muted">${esc(note)}</p>` : ""}
 <div class="card">
 <form method="post" action="/oauth/human" autocomplete="off">
   <input type="hidden" name="h" value="${esc(token)}">
-  <label for="answer">${a} × ${b} kaç eder? (botlar bu adımı geçemez)</label>
+  <label for="answer">${a} × ${b} kaç eder? <span class="muted">(çarpma işlemi)</span></label>
   <input id="answer" name="answer" type="text" inputmode="numeric" pattern="[0-9]{1,6}" required autofocus placeholder="sayı">
   <div style="position:absolute;left:-9999px" aria-hidden="true">
     <label for="website">Bu alanı boş bırak</label>
@@ -514,7 +514,11 @@ ${note ? `<p class="muted">${esc(note)}</p>` : ""}
       // Teşhis: yanıt hiçbir zaman tutmuyorsa sebebi loglardan görülsün (sayılar hassas değil).
       console.error(`[hardtools] human-check mismatch expected=${JSON.stringify(expected)} got=${JSON.stringify(given)} jti=${humanId.slice(0, 8)}`);
       this.o.audit?.({ ev: "oauth_human", ok: false, reason: "wrong", expected, got: given.slice(0, 32) });
-      return this.infoPage(resOut, 400, "Yanıt yanlış. Claude'dan bağlantıyı yeniden başlat.", null);
+      // Çıkmaz sokak yok: aynı oturum için taze bir soru üret (token tek kullanımlıktı, yenisi imzalanır).
+      this.usedHuman.delete(humanId);
+      return this.humanPage(resOut, {
+        cid: String(t.cid ?? ""), ru: String(t.ru ?? ""), cc: String(t.cc ?? ""), st: String(t.st ?? ""), login: String(t.login ?? ""),
+      }, "Yanıt yanlış. Yeni soru hazır, tekrar dene.");
     }
 
     const jti = crypto.randomBytes(12).toString("base64url");
