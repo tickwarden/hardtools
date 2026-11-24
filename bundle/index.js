@@ -16990,27 +16990,42 @@ var THEME_JS = `
 var GUARD_JS = `
 (function(){
   function busy(btn){
-    if(!btn||btn.disabled)return false;
-    btn.dataset.label=btn.textContent;btn.disabled=true;btn.setAttribute('aria-busy','true');btn.textContent='\u0130\u015Fleniyor\u2026';
-    setTimeout(function(){if(!btn.isConnected)return;btn.disabled=false;btn.removeAttribute('aria-busy');
+    if(!btn||btn.dataset.busy==='1')return;
+    btn.dataset.busy='1';
+    btn.dataset.label=btn.textContent;
+    btn.setAttribute('aria-busy','true');
+    btn.textContent='\u0130\u015Fleniyor\u2026';
+    setTimeout(function(){if(!btn.isConnected)return;
+      delete btn.dataset.busy;btn.disabled=false;btn.removeAttribute('aria-busy');
       if(btn.dataset.label)btn.textContent=btn.dataset.label;},20000);
-    return true;
   }
   document.addEventListener('submit',function(e){
     var f=e.target;if(!f||f.tagName!=='FORM')return;
     // Zaten g\xF6nderiliyorsa ikinci g\xF6nderimi engelle.
     if(f.dataset.sending==='1'){e.preventDefault();return;}
-    var btn=f.querySelector('button[type="submit"],button:not([type]),input[type="submit"]');
-    if(btn&&btn.disabled){e.preventDefault();return;}
     f.dataset.sending='1';
-    busy(btn);
+    // D\u0130KKAT: d\xFC\u011Fme t\u0131klama an\u0131nda disable edilirse taray\u0131c\u0131 g\xF6nderimi iptal eder
+    // (ve buradaki disabled kontrol\xFC de preventDefault ederdi) \u2192 form sessizce hi\xE7 gitmez.
+    // Bu y\xFCzden disable i\u015Fi g\xF6nderim ba\u015Flad\u0131ktan SONRA, s\u0131radaki tura b\u0131rak\u0131l\u0131r.
+    var btn=e.submitter&&e.submitter.tagName==='BUTTON'?e.submitter
+      :f.querySelector('button[type="submit"],button:not([type]),input[type="submit"]');
+    setTimeout(function(){if(btn&&btn.isConnected){btn.disabled=true;busy(btn);}},0);
   },true);
   document.addEventListener('click',function(e){
-    var b=e.target.closest('button[data-once]');if(b)busy(b);
+    var b=e.target.closest('button[data-once]');
+    if(!b||b.form)return;   // form i\xE7indeki d\xFC\u011Fmeler submit yolundan i\u015Faretlenir
+    b.disabled=true;busy(b);
   },true);
   // Sunucu hatas\u0131 sayfay\u0131 yeniden basarsa form kilitli kalmas\u0131n.
-  window.addEventListener('pageshow',function(){document.querySelectorAll('form[data-sending="1"]').forEach(function(f){
-    delete f.dataset.sending;f.querySelectorAll('button[aria-busy]').forEach(function(b){b.disabled=false;b.removeAttribute('aria-busy');if(b.dataset.label)b.textContent=b.dataset.label;});});});
+  window.addEventListener('pageshow',function(){
+    document.querySelectorAll('form[data-sending="1"]').forEach(function(f){
+      delete f.dataset.sending;
+      f.querySelectorAll('button[aria-busy]').forEach(function(b){
+        delete b.dataset.busy;b.disabled=false;b.removeAttribute('aria-busy');
+        if(b.dataset.label)b.textContent=b.dataset.label;
+      });
+    });
+  });
 })();`;
 function page(o) {
   return `<!doctype html>
@@ -26278,7 +26293,7 @@ function anyMatch(patterns, value) {
 }
 
 // src/version.ts
-var VERSION = "0.5.22";
+var VERSION = "0.5.23";
 
 // src/net.ts
 var blocked = new net.BlockList();
