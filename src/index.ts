@@ -239,8 +239,11 @@ async function main() {
         if (await settingsUI.handle(req, res, path)) return;
       }
       if (sharedInputs.handle(req, res, path, oauth.origin(req))) return;
-      // Machine-to-machine endpoint: browser origins are refused, except the consent page posting to itself.
-      if (req.headers.origin && !(path === "/authorize" && req.headers.origin === oauth.origin(req))) return send(403, "browser origins are not allowed");
+      // Machine-to-machine endpoint: tarayıcı origin'leri reddedilir. Tarayıcıdan gelen kendi form
+      // gönderimleri (izin formu, insan doğrulaması, ayarlar) yalnızca aynı origin ise kabul edilir.
+      const sameOrigin = req.headers.origin === oauth.origin(req);
+      const browserForm = path === "/authorize" || path === "/oauth/human" || path.startsWith("/settings/");
+      if (req.headers.origin && !(sameOrigin && browserForm)) return send(403, "browser origins are not allowed");
       const ip = req.socket.remoteAddress ?? "?"; const now = Date.now();
       if (hits.size > 4096) for (const [k, v] of hits) if (v.reset < now) hits.delete(k); // the window map must not grow forever
       const b = hits.get(ip) ?? { n: 0, reset: now + 60_000 };

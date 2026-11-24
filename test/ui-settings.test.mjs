@@ -163,3 +163,28 @@ test("allowlist: izinli komut çalışır, izinsiz komut reddedilir", async () =
     assert.match(bad.content[0].text, /command_not_allowed/);
   } finally { await c.close(); }
 });
+
+test("bot kapısı: tarayıcıdan aynı origin POST kabul, yabancı origin 403", async (t) => {
+  const { port } = await httpServer(t);
+  const origin = `http://127.0.0.1:${port}`;
+  // aynı origin + geçersiz token: 403 değil, doğrulama hatası dönmeli
+  const own = await req(port, { method: "POST", target: "/oauth/human",
+    headers: { origin, "content-type": "application/x-www-form-urlencoded" }, body: "h=uydurma&answer=4&website=" });
+  assert.notEqual(own.status, 403, "aynı origin'den gelen form reddedilmemeli: " + own.body);
+  assert.match(own.body, /İnsan doğrulaması|süresi doldu/i);
+
+  const evil = await req(port, { method: "POST", target: "/oauth/human",
+    headers: { origin: "https://kotu.example", "content-type": "application/x-www-form-urlencoded" }, body: "h=x&answer=4" });
+  assert.equal(evil.status, 403);
+  assert.match(evil.body, /browser origins are not allowed/);
+});
+
+test("ayar formu da aynı origin'den gönderilebilir", async (t) => {
+  const { port } = await httpServer(t);
+  const origin = `http://127.0.0.1:${port}`;
+  const login = await req(port, { method: "POST", target: "/settings/token", headers: { origin, "content-type": "application/x-www-form-urlencoded" }, body: new URLSearchParams({ token: TOKEN }).toString() });
+  assert.equal(login.status, 303, login.body);
+  const cookie = String(login.headers["set-cookie"]).split(";")[0];
+  const save = await req(port, { method: "POST", target: "/settings/save", headers: { origin, cookie, "content-type": "application/x-www-form-urlencoded" }, body: "tool=ht_read" });
+  assert.equal(save.status, 303, save.body);
+});
