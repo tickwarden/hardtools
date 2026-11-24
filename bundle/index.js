@@ -17491,9 +17491,9 @@ ${note ? `<p class="muted">${esc4(note)}</p>` : ""}
   // ---- insan doğrulaması (bot kapısı) -----------------------------------------------------
   // GitHub girişi tamamlandıktan sonra, yetki kodu üretilmeden önce basit bir insan kontrolü.
   // Durum imzalı token içinde taşınır: sunucu belleğine bağlı değildir, yeniden başlatma bozmaz.
-  humanPage(resOut, pending, note) {
+  humanPage(resOut, pending, note, ops) {
     const esc4 = esc2;
-    const a = 2 + crypto3.randomInt(8), b = 2 + crypto3.randomInt(8);
+    const a = ops?.a ?? 2 + crypto3.randomInt(8), b = ops?.b ?? 2 + crypto3.randomInt(8);
     const token = this.sign({
       t: "hv",
       jti: crypto3.randomBytes(9).toString("base64url"),
@@ -17502,6 +17502,8 @@ ${note ? `<p class="muted">${esc4(note)}</p>` : ""}
       cc: pending.cc,
       st: pending.st,
       login: pending.login.slice(0, 64),
+      a,
+      b,
       ans: String(a * b),
       born: Date.now(),
       exp: this.now() + 300
@@ -17510,7 +17512,7 @@ ${note ? `<p class="muted">${esc4(note)}</p>` : ""}
 <div class="card">
 <form method="post" action="/oauth/human" autocomplete="off">
   <input type="hidden" name="h" value="${esc4(token)}">
-  <label for="answer">${a} \xD7 ${b} ka\xE7 eder? <span class="muted">(\xE7arpma i\u015Flemi)</span></label>
+  <label for="answer">${a} \xE7arp\u0131 ${b} ka\xE7 eder? <span class="muted">(${a} \xD7 ${b}, yani ${a} kere ${b}; toplama de\u011Fil)</span></label>
   <input id="answer" name="answer" type="text" inputmode="numeric" pattern="[0-9]{1,6}" required autofocus placeholder="say\u0131">
   <div style="position:absolute;left:-9999px" aria-hidden="true">
     <label for="website">Bu alan\u0131 bo\u015F b\u0131rak</label>
@@ -17555,13 +17557,13 @@ ${note ? `<p class="muted">${esc4(note)}</p>` : ""}
       console.error(`[hardtools] human-check mismatch expected=${JSON.stringify(expected)} got=${JSON.stringify(given)} jti=${humanId.slice(0, 8)}`);
       this.o.audit?.({ ev: "oauth_human", ok: false, reason: "wrong", expected, got: given.slice(0, 32) });
       this.usedHuman.delete(humanId);
-      return this.humanPage(resOut, {
-        cid: String(t.cid ?? ""),
-        ru: String(t.ru ?? ""),
-        cc: String(t.cc ?? ""),
-        st: String(t.st ?? ""),
-        login: String(t.login ?? "")
-      }, "Yan\u0131t yanl\u0131\u015F. Yeni soru haz\u0131r, tekrar dene.");
+      const a = Number(t.a), b = Number(t.b);
+      const env = { cid: String(t.cid ?? ""), ru: String(t.ru ?? ""), cc: String(t.cc ?? ""), st: String(t.st ?? ""), login: String(t.login ?? "") };
+      const wroteSum = Number.isFinite(a) && Number.isFinite(b) && Number.isFinite(givenNum) && givenNum === a + b;
+      if (wroteSum) {
+        return this.humanPage(resOut, env, `Yan\u0131t yanl\u0131\u015F: ${a} \xE7arp\u0131 ${b} soruluyor, sen ${a} + ${b} = ${a + b} yazd\u0131n. Do\u011Fru yan\u0131t ${a} \xD7 ${b} \xE7arp\u0131m\u0131d\u0131r, ${a * b}.`, { a, b });
+      }
+      return this.humanPage(resOut, env, "Yan\u0131t yanl\u0131\u015F. Yeni soru haz\u0131r, tekrar dene.");
     }
     const jti = crypto3.randomBytes(12).toString("base64url");
     if (t.login) this.o.onGrant?.(jti, String(t.login));
@@ -26329,7 +26331,7 @@ import net from "node:net";
 import zlib from "node:zlib";
 
 // src/version.ts
-var VERSION = "0.5.15";
+var VERSION = "0.5.16";
 
 // src/net.ts
 var blocked = new net.BlockList();
