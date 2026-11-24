@@ -26121,7 +26121,7 @@ import net from "node:net";
 import zlib from "node:zlib";
 
 // src/version.ts
-var VERSION = "0.5.9";
+var VERSION = "0.5.10";
 
 // src/net.ts
 var blocked = new net.BlockList();
