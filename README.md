@@ -288,6 +288,27 @@ Her kimlik **kendi `/work` kökünü** alır; bir oturumda klonlanan depo başka
 - **Değişkenler (`ht_add_var`) sahiplik düzeyinde**: sohbet değişse de aynı hesabın sırları yerinde kalır (dosyalar sohbet bazlı, sırlar hesap bazlı).
 - `ht_status` artık `session` alanını gösterir: iki sohbette farklı `s-…` görüyorsan kökler ayrı.
 
+### 0.5.11 — ayar sayfası, ortak arayüz, bot kapısı, arka plan komut
+
+**Arayüz (`src/ui.ts`)** — tüm tarayıcı sayfaları (OAuth, davet, form, bağlan, ayarlar) tek ortak CSS ve tek script setini kullanır:
+- **Koyu mod** (varsayılan) ve **kör mod** (aşırı beyaz olmayan sıcak açık tema) düğmeleri; seçim `localStorage`'da.
+- Form gönderen **buton hemen `disabled` olur**, "İşleniyor…" yazar, iş bitince (ya da 20 sn sonra) geri açılır; çift gönderim engellenir.
+- CSP: `default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'` — dış kaynak yok.
+
+**Bot kapısı** — GitHub girişi bittikten sonra, yetki kodu üretilmeden önce `/oauth/human`: aritmetik soru + gizli tuzak alanı + en az 900 ms. Durum imzalı token'da, sunucu belleğine bağlı değil. Sadece GitHub akışlarına uygulanır (operatör token formu etkilenmez).
+
+**Ayar sayfası `/settings`** — kullanıcı bazlı (GitHub login / operatör):
+- Araçları tek tek aç/kapat (kapalı araç MCP listesinde görünmez ve çağrılamaz).
+- Ağ isteklerini aç/kapat, allowlist'i aç/kapat, izinli komut ve URL ekle/çıkar.
+- **Çıkış**: sunucu o kullanıcının grant'larını iptal eder (MCP bağlantısı 401 ile düşer); Claude tarafındaki kaydı silme adımı sayfada yazar.
+- Ayarlar `<audit>/state/settings.json` (0600); çerez HMAC ile imzalı, `HttpOnly; SameSite=Lax`.
+
+**Yeni araçlar**
+- `ht_list_all_tools` — etkin / devre dışı / tüm araçlar.
+- `ht_manage_tool` — `{tool, enabled}`; `ht_list_all_tools`, `ht_manage_tool`, `ht_status` kapatılamaz.
+
+**`ht_shell` `is_bg`** — `true` ise komut arka planda çalışır, araç hemen döner; çıktı `/work/home/tmp/hardtools-bg-out-<oturum>-<sıra>.txt` dosyasına yazılır, sonuna `# bitti: exit=…` satırı eklenir.
+
 ### 0.5.2 değişiklikleri
 
 - **`HARDTOOLS_PUBLIC=open` artık tüm araçları açar ama girişi zorunlu tutar**: kimliksiz istek 401 + `www-authenticate`, OAuth keşfi yayınlanır, `/healthz` içinde `"login":"required"`. Girişsiz okuma modu `HARDTOOLS_PUBLIC_TOOLS=safe` (ya da kendi listeniz) ile korunur.

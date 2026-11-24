@@ -145,7 +145,20 @@ test("github device flow: pending → authorized completes the whole exchange up
   assert.equal(gh.state.polls, 1, "interval dolmadan GitHub'a tekrar sorulmamalı");
 
   await new Promise((r) => setTimeout(r, 5200));
-  const done = await request(port, { target: `/oauth/github/poll?t=${encodeURIComponent(ticket)}` });
+  // GitHub onayı geldi: artık doğrudan kod değil, insan doğrulaması sayfası döner.
+  const gate = await request(port, { target: `/oauth/github/poll?t=${encodeURIComponent(ticket)}` });
+  assert.equal(gate.status, 200, gate.body);
+  assert.match(gate.body, /İnsan doğrulaması/);
+  const hidden = /name="h" value="([^"]+)"/.exec(gate.body);
+  const question = /(\d+) × (\d+) kaç eder/.exec(gate.body);
+  assert.ok(hidden && question, "form alanları gelmeli");
+  const answer = String(Number(question[1]) * Number(question[2]));
+  await new Promise((r) => setTimeout(r, 1000)); // bot kapısı zaman kontrolü
+  const done = await request(port, {
+    method: "POST", target: "/oauth/human",
+    headers: { "content-type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({ h: hidden[1], answer, website: "" }).toString(),
+  });
   assert.equal(done.status, 302, done.body);
   const back = new URL(String(done.headers.location));
   assert.equal(back.origin + back.pathname, CLAUDE_CALLBACK);

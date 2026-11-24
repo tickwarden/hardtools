@@ -22,6 +22,8 @@ const FsSchema = z.object({
 const ShellSchema = z.object({
   enabled: z.boolean(),
   denyCommands: z.array(z.string()),   // regex, normalised "name args" satırına karşı (blocklist)
+  /** Dolu ise yalnızca bu komut adları çalışır (allowlist). Boş = allowlist yok. */
+  allowCommands: z.array(z.string()),
   denyArgs: z.array(z.string()),
   allowShellSyntax: z.boolean(),
   shellDenyPatterns: z.array(z.string()),
@@ -118,7 +120,7 @@ const PROFILES: Record<ProfileName, Omit<Policy, "profile" | "roots" | "protecte
       secretScan: "block", requireHashForOverwrite: true,
     },
     shell: {
-      enabled: true, denyCommands: [...DENY_BYPASS, ...DENY_DESTRUCTIVE, ...DENY_GIT, ...DENY_NET], denyArgs: DENY_ARGS, allowShellSyntax: false,
+      enabled: true, denyCommands: [...DENY_BYPASS, ...DENY_DESTRUCTIVE, ...DENY_GIT, ...DENY_NET], allowCommands: [], denyArgs: DENY_ARGS, allowShellSyntax: false,
       shellDenyPatterns: [], allowRelativeExecutables: false, confineArgPaths: true, sanitizePath: true,
       timeoutMs: 20_000, maxTimeoutMs: 60_000, maxOutputBytes: 64 << 10, maxConcurrent: 2,
       envAllow: ["PATH", "LANG", "LC_ALL", "TERM"],
@@ -139,7 +141,7 @@ const PROFILES: Record<ProfileName, Omit<Policy, "profile" | "roots" | "protecte
     },
     shell: {
       enabled: true,
-      denyCommands: [...DENY_BYPASS, ...DENY_DESTRUCTIVE, ...DENY_GIT],
+      denyCommands: [...DENY_BYPASS, ...DENY_DESTRUCTIVE, ...DENY_GIT], allowCommands: [],
       denyArgs: DENY_ARGS, allowShellSyntax: true, shellDenyPatterns: [], allowRelativeExecutables: false,
       confineArgPaths: true, sanitizePath: true,
       timeoutMs: 60_000, maxTimeoutMs: 300_000, maxOutputBytes: 128 << 10, maxConcurrent: 3,
@@ -160,7 +162,7 @@ const PROFILES: Record<ProfileName, Omit<Policy, "profile" | "roots" | "protecte
       allowRead: [], denyWrite: [".git", ".git/**"], secretScan: "warn", requireHashForOverwrite: false,
     },
     shell: {
-      enabled: true, denyCommands: [...DENY_DESTRUCTIVE, ...DENY_GIT], denyArgs: [], allowShellSyntax: true,
+      enabled: true, denyCommands: [...DENY_DESTRUCTIVE, ...DENY_GIT], allowCommands: [], denyArgs: [], allowShellSyntax: true,
       shellDenyPatterns: [],
       allowRelativeExecutables: true, confineArgPaths: false, sanitizePath: false,
       timeoutMs: 120_000, maxTimeoutMs: 900_000, maxOutputBytes: 256 << 10, maxConcurrent: 4,

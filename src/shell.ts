@@ -73,10 +73,17 @@ export interface ShellArgs {
   argv?: string[]; command?: string; cwd?: string; timeout_ms?: number; stdin?: string;
   stdin_file?: string; capture?: "both" | "stdout" | "stderr"; output_format?: "text" | "json";
   expected_exit_codes?: number[]; inherit_vars?: string[]; max_output_bytes?: number;
+  /** true ise komut arka planda çalışır; çıktı dosyaya yazılır ve araç hemen döner. */
+  is_bg?: boolean;
   /** Server-side only (never an MCP argument): extra child env, e.g. HT_USER_INPUT from ht_user_input. */
   user_env?: Record<string, string>;
+  /** Server-side only: çıktı dosyası adında kullanılan oturum etiketi. */
+  session_id?: string;
 }
 export interface ShellResult { text: string; isError: boolean }
+
+/** Arka plan çıktı dosyalarının sıra numarası (süreç ömrü boyunca artar). */
+let bgSeq = 0;
 
 export async function runShell(policy: Policy, a: ShellArgs, vars = new Variables(), owner = "stdio"): Promise<ShellResult> {
   const sh = policy.shell;
@@ -129,6 +136,14 @@ export async function runShell(policy: Policy, a: ShellArgs, vars = new Variable
     [file, args] = process.platform === "win32" ? ["cmd.exe", ["/d", "/s", "/c", cmd]] : ["/bin/sh", ["-c", cmd]]; shown = cmd;
   }
 
+  // Allowlist: dolu ise yalnızca listedeki komut adları çalışır (ayarlar sayfasından yönetilir).
+  const allow = sh.allowCommands ?? [];
+  if (allow.length) {
+    const name = a.argv ? path.basename(String(a.argv[0])) : String(file).endsWith("/sh") ? String(a.command ?? "").trim().split(/\s+/)[0] : path.basename(String(file));
+    const base = path.basename(name);
+    if (!allow.includes(name) && !allow.includes(base)) throw new PolicyError("command_not_allowed", `komut izin listesinde değil: ${base}`);
+  }
+
   const selected = { ...vars.select(policy, owner, a.inherit_vars), ...(a.user_env ?? {}) };
   const started = Date.now();
   let lease: EgressLease | undefined;
@@ -136,6 +151,46 @@ export async function runShell(policy: Policy, a: ShellArgs, vars = new Variable
     opening++;
     try { lease = await openWorkspaceEgress(policy); } finally { opening--; }
   }
+  if (a.is_bg) return runBackground();
+
+  function runBackground(): Promise<ShellResult> {
+    // Çıktı: <kök>/home/tmp/hardtools-bg-out-<oturum>-<sıra>.txt (sandbox içinden /work/home/tmp/…)
+    const dir = path.join(cwdR.root, "home", "tmp");
+    fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
+    bgSeq += 1;
+    const label = String(a.session_id ?? owner).replace(/[^A-Za-z0-9_-]/g, "").slice(0, 24) || "session";
+    const name = `hardtools-bg-out-${label}-${bgSeq}.txt`;
+    const abs = path.join(dir, name);
+    const fd = fs.openSync(abs, "a", 0o600);
+    let child: ChildProcess;
+    try {
+      child = policy.shellWorker
+        ? spawnWorkspaceShell(policy, cwdR.abs, file, args, selected, undefined)
+        : spawn(file, args, { cwd: cwdR.abs, env: Object.assign(buildEnv(policy, policy.roots), selected), shell: false, detached: true, stdio: ["ignore", "pipe", "pipe"], windowsHide: true });
+    } catch (e) {
+      fs.closeSync(fd);
+      return Promise.reject(e instanceof PolicyError ? e : new Error(`spawn failed: ${(e as Error).message}`));
+    }
+    const write = fs.createWriteStream(abs, { fd, flags: "a" });
+    write.write(`# ${new Date().toISOString()} ${shown}\n`);
+    child.stdout?.pipe(write, { end: false });
+    child.stderr?.pipe(write, { end: false });
+    child.on("close", (code, signal) => {
+      write.write(`\n# bitti: exit=${code ?? "null"}${signal ? ` signal=${signal}` : ""} ${new Date().toISOString()}\n`);
+      write.end();
+      active.delete(child);
+    });
+    child.unref();
+    return Promise.resolve({
+      text: JSON.stringify({
+        status: "started", background: true, pid: child.pid,
+        output_file: `/work/home/tmp/${name}`,
+        note: "Komut arka planda çalışıyor. Çıktıyı ht_read ile oku; bitip bitmediğini dosyanın sonundaki '# bitti:' satırından anlarsın.",
+      }),
+      isError: false,
+    });
+  }
+
   return new Promise<ShellResult>((resolve, reject) => {
     let child: ChildProcess;
     try {

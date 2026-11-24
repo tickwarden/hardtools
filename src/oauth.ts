@@ -17,6 +17,7 @@
 //     session cookie, which the consent page then consumes instead of asking for the token.
 //   - Invite redemption and browser sessions are tracked per process.
 import crypto from "node:crypto";
+import { esc as uiEsc, page as uiPage, heading, PAGE_CSP } from "./ui.js";
 import type http from "node:http";
 import { equalSecret } from "./credentials.js";
 
@@ -80,6 +81,10 @@ export interface OAuthOptions {
   extraRedirectUris?: string[];
   /** Verilirse /authorize, token formu yerine GitHub girişine yönlendirir. */
   github?: GithubIdp;
+  /** Yeni bir izin (grant) verildiğinde çağrılır: grant -> GitHub login eşlemesi (ayarlar için). */
+  onGrant?: (grant: string, login: string) => void;
+  /** Çıkış yapılmış grant'lar reddedilir: bağlantı anında düşer. */
+  grantRevoked?: (grant: string) => boolean;
 }
 
 export class OAuth {
@@ -245,6 +250,7 @@ export class OAuth {
     if (path === "/authorize")          { await this.authorize(req, res, origin); return true; }
     if (path === "/oauth/github/callback") { await this.githubCallback(req, res, origin); return true; }
     if (path === "/oauth/github/poll")     { await this.githubPoll(req, res, origin); return true; }
+    if (path === "/oauth/human")           { await this.humanEndpoint(req, res); return true; }
     if (path === "/token")              { await this.tokenEndpoint(req, res); return true; }
     if (path.startsWith("/invite/"))    { await this.handleInvite(req, res, path, origin); return true; }
     return false;
@@ -416,26 +422,19 @@ export class OAuth {
       return this.infoPage(res, 403, `Bu GitHub hesabına izin verilmiyor${who.login ? ` (${who.login.replace(/[<>"']/g, "")})` : ""}.`, null);
     }
 
-    const code = this.sign({ t: "code", jti: crypto.randomBytes(12).toString("base64url"), cid: p.cid, ru: p.ru, cc: p.cc, exp: this.now() + CODE_TTL_S });
     this.ghPending.delete(ticket);
-    this.o.audit?.({ ev: "oauth_authorize", ok: true, via: "github_device", login: who.login.slice(0, 64) });
-    const back = new URL(p.ru);
-    back.searchParams.set("code", code);
-    if (p.st) back.searchParams.set("state", p.st);
-    res.writeHead(302, { location: back.toString(), "cache-control": "no-store", "referrer-policy": "no-referrer" });
-    res.end();
+    // GitHub onayı geldi ama kod henüz üretilmez: önce bot doğrulaması.
+    return this.humanPage(res, { cid: p.cid, ru: p.ru, cc: p.cc, st: p.st, login: who.login }, "GitHub girişi tamam. Son adım: insan doğrulaması.");
   }
 
-  private html(res: http.ServerResponse, code: number, body: string, extra: Record<string, string> = {}) {
-    res.writeHead(code, {
+  private html(resOut: http.ServerResponse, code: number, body: string, extra: Record<string, string> = {}) {
+    resOut.writeHead(code, {
       "content-type": "text/html; charset=utf-8", "cache-control": "no-store", "x-frame-options": "DENY",
       "referrer-policy": "no-referrer",
-      "content-security-policy": "default-src 'none'; style-src 'unsafe-inline'; frame-ancestors 'none'; base-uri 'none'",
+      "content-security-policy": PAGE_CSP,
       ...extra,
     });
-    res.end(`<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>hardtools</title>
-<style>body{font:16px system-ui,sans-serif;max-width:32rem;margin:4rem auto;padding:0 1rem;line-height:1.5}code{font-size:1.4em;letter-spacing:.12em;background:#f2f2f2;padding:.2rem .5rem;border-radius:.3rem}.e{color:#b00020}.m{color:#555}</style>
-<h1>hardtools</h1>${body}`);
+    resOut.end(uiPage({ title: "hardtools", body }));
   }
 
   private infoPage(res: http.ServerResponse, code: number, message: string, _q: Record<string, string> | null) {
@@ -443,15 +442,71 @@ export class OAuth {
     return this.html(res, code, `<p class="e">${esc(message)}</p>`);
   }
 
-  private waitPage(res: http.ServerResponse, code: number, ticket: string, p: GhPending, note: string) {
-    const esc = (v: string) => v.replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]!));
+  private waitPage(resOut: http.ServerResponse, code: number, ticket: string, p: GhPending, note: string) {
+    const esc = uiEsc;
     const next = `/oauth/github/poll?t=${encodeURIComponent(ticket)}`;
-    return this.html(res, code, `<p>GitHub hesabınla giriş yap:</p>
-<p>1. <a href="${esc(p.verifyUri)}" target="_blank" rel="noreferrer">${esc(p.verifyUri)}</a> adresini aç.</p>
-<p>2. Şu kodu gir: <code>${esc(p.userCode)}</code></p>
-<p>3. Bu sayfa kendiliğinden devam eder; kapatma.</p>
-${note ? `<p class="m">${esc(note)}</p>` : ""}
-<meta http-equiv="refresh" content="5;url=${esc(next)}">`, {});
+    const body = `${heading("GitHub ile giriş")}
+<div class="card">
+<p><strong>1.</strong> Şu adresi aç: <a href="${esc(p.verifyUri)}" target="_blank" rel="noreferrer">${esc(p.verifyUri)}</a></p>
+<p><strong>2.</strong> Kodu gir: <code class="code">${esc(p.userCode)}</code></p>
+<p><strong>3.</strong> Bu sayfa kendiliğinden devam eder; kapatma.</p>
+${note ? `<p class="muted">${esc(note)}</p>` : ""}
+</div>
+<p class="muted">Devam etmiyorsa <a href="${esc(next)}">buraya dokun</a>.</p>
+<meta http-equiv="refresh" content="5;url=${esc(next)}">`;
+    return this.html(resOut, code, body, {});
+  }
+
+  // ---- insan doğrulaması (bot kapısı) -----------------------------------------------------
+  // GitHub girişi tamamlandıktan sonra, yetki kodu üretilmeden önce basit bir insan kontrolü.
+  // Durum imzalı token içinde taşınır: sunucu belleğine bağlı değildir, yeniden başlatma bozmaz.
+  private humanPage(resOut: http.ServerResponse, pending: { cid: string; ru: string; cc: string; st: string; login: string }, note: string) {
+    const esc = uiEsc;
+    const a = 2 + crypto.randomInt(8), b = 2 + crypto.randomInt(8);
+    const token = this.sign({
+      t: "hv", cid: pending.cid, ru: pending.ru, cc: pending.cc, st: pending.st,
+      login: pending.login.slice(0, 64), ans: String(a * b), born: Date.now(), exp: this.now() + 300,
+    });
+    const body = `${heading("İnsan doğrulaması", note)}
+<div class="card">
+<form method="post" action="/oauth/human" autocomplete="off">
+  <input type="hidden" name="h" value="${esc(token)}">
+  <label for="answer">${a} × ${b} kaç eder? (botlar bu adımı geçemez)</label>
+  <input id="answer" name="answer" type="text" inputmode="numeric" pattern="[0-9]{1,6}" required autofocus placeholder="sayı">
+  <div style="position:absolute;left:-9999px" aria-hidden="true">
+    <label for="website">Bu alanı boş bırak</label>
+    <input id="website" name="website" type="text" tabindex="-1" autocomplete="off">
+  </div>
+  <p class="row" style="margin-top:1rem">
+    <button class="primary" type="submit">Doğrula ve devam et</button>
+    <span class="muted">Sorunun yanıtı ${esc(pending.login || "hesabın")} için bir kez geçerli.</span>
+  </p>
+</form>
+</div>
+<p class="muted">Doğrulama yalnızca senin tarayıcında çözülür; hiçbir üçüncü tarafa veri gitmez.</p>`;
+    return this.html(resOut, 200, body, {});
+  }
+
+  private async humanEndpoint(req: http.IncomingMessage, resOut: http.ServerResponse) {
+    if (req.method !== "POST") return this.infoPage(resOut, 405, "Yalnız POST.", null);
+    const p = await this.readParams(req);
+    if (!p) return this.infoPage(resOut, 400, "İstek okunamadı.", null);
+    const t = this.verify(p.h, "hv");
+    if (!t) return this.infoPage(resOut, 400, "Doğrulama süresi doldu. Claude'dan bağlantıyı yeniden başlat.", null);
+    if (String(p.website ?? "").trim()) { this.o.audit?.({ ev: "oauth_human", ok: false, reason: "honeypot" }); return this.infoPage(resOut, 400, "Doğrulama başarısız.", null); }
+    const took = Date.now() - Number(t.born ?? 0);
+    if (!Number.isFinite(took) || took < 900) { this.o.audit?.({ ev: "oauth_human", ok: false, reason: "too_fast" }); return this.infoPage(resOut, 400, "Doğrulama çok hızlı tamamlandı; tekrar dene.", null); }
+    if (String(p.answer ?? "").trim() !== String(t.ans)) { this.o.audit?.({ ev: "oauth_human", ok: false, reason: "wrong" }); return this.infoPage(resOut, 400, "Yanıt yanlış. Claude'dan bağlantıyı yeniden başlat.", null); }
+
+    const jti = crypto.randomBytes(12).toString("base64url");
+    if (t.login) this.o.onGrant?.(jti, String(t.login));
+    const code = this.sign({ t: "code", jti, cid: t.cid, ru: t.ru, cc: t.cc, exp: this.now() + CODE_TTL_S });
+    this.o.audit?.({ ev: "oauth_authorize", ok: true, via: "github+human", login: String(t.login ?? "").slice(0, 64) });
+    const back = new URL(String(t.ru));
+    back.searchParams.set("code", code);
+    if (t.st) back.searchParams.set("state", String(t.st));
+    resOut.writeHead(302, { location: back.toString(), "cache-control": "no-store", "referrer-policy": "no-referrer" });
+    resOut.end();
   }
 
   /** GitHub dönüşü: kodu değiştir, hesabı allowlist ile karşılaştır, kendi kodumuzu üret. */
@@ -480,13 +535,8 @@ ${note ? `<p class="m">${esc(note)}</p>` : ""}
     }
     const login = who.login;
 
-    const code = this.sign({ t: "code", jti: crypto.randomBytes(12).toString("base64url"), cid: state.cid, ru: state.ru, cc: state.cc, exp: this.now() + CODE_TTL_S });
-    this.o.audit?.({ ev: "oauth_authorize", ok: true, via: "github", login: login.slice(0, 64) });
-    const backUrl = new URL(state.ru);
-    backUrl.searchParams.set("code", code);
-    if (state.st) backUrl.searchParams.set("state", String(state.st));
-    res.writeHead(302, { location: backUrl.toString(), "cache-control": "no-store", "referrer-policy": "no-referrer" });
-    res.end();
+    // Kod üretmeden önce bot doğrulaması.
+    return this.humanPage(res, { cid: String(state.cid), ru: String(state.ru), cc: String(state.cc), st: String(state.st ?? ""), login }, "GitHub girişi tamam. Son adım: insan doğrulaması.");
   }
 
   // ---- authorization endpoint -----------------------------------------------------------
@@ -551,11 +601,9 @@ ${note ? `<p class="m">${esc(note)}</p>` : ""}
     res.writeHead(code, {
       "content-type": "text/html; charset=utf-8", "cache-control": "no-store", "x-frame-options": "DENY",
       "referrer-policy": "same-origin",
-      "content-security-policy": "default-src 'none'; style-src 'unsafe-inline'; frame-ancestors 'none'; base-uri 'none'",
+      "content-security-policy": PAGE_CSP,
     });
-    res.end(`<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>hardtools</title>
-<style>body{font:16px system-ui,sans-serif;max-width:30rem;margin:4rem auto;padding:0 1rem}input{display:block;width:100%;padding:.6rem;margin:.8rem 0;box-sizing:border-box}button{padding:.6rem 1.2rem}.e{color:#b00020}</style>
-<h1>hardtools</h1>${error ? `<p class="e">${esc(error)}</p>` : ""}${form}`);
+    res.end(uiPage({ title: "hardtools · giriş", subtitle: "OAuth", body: `${heading("Bağlantı izni")}${error ? `<p class="e">${esc(error)}</p>` : ""}${form}` }));
   }
 
   // ---- token endpoint ---------------------------------------------------------------------
@@ -573,6 +621,7 @@ ${note ? `<p class="m">${esc(note)}</p>` : ""}
     if (p.grant_type === "authorization_code") {
       const c = this.verify(p.code, "code");
       if (!c) return this.oerr(res, 400, "invalid_grant", "invalid or expired code");
+      if (this.o.grantRevoked?.(String(c.jti))) return this.oerr(res, 400, "invalid_grant", "grant was revoked (signed out)");
       if (c.cid !== p.client_id || c.ru !== p.redirect_uri) return this.oerr(res, 400, "invalid_grant", "client_id or redirect_uri mismatch");
       const v = p.code_verifier ?? "";
       if (!/^[A-Za-z0-9._~-]{43,128}$/.test(v) || !equalSecret(pkceS256(v), String(c.cc))) return this.oerr(res, 400, "invalid_grant", "PKCE verification failed");
@@ -585,6 +634,7 @@ ${note ? `<p class="m">${esc(note)}</p>` : ""}
     if (p.grant_type === "refresh_token") {
       const r = this.verify(p.refresh_token, "rt");
       if (!r || (p.client_id && p.client_id !== r.cid)) return this.oerr(res, 400, "invalid_grant", "invalid or expired refresh token");
+      if (this.o.grantRevoked?.(String(r.grant))) return this.oerr(res, 400, "invalid_grant", "grant was revoked (signed out)");
       this.o.audit?.({ ev: "oauth_token", grant: "refresh_token" });
       return this.json(res, 200, mint(r.cid, r.grant ?? crypto.randomUUID()));
     }
