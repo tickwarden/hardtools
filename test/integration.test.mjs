@@ -25,13 +25,13 @@ test("e2e/stdio: 24 tools, write→read→edit round trip, denials surface as to
   await client.connect(new StdioClientTransport({ command: process.execPath, args: [entry, "--profile", "balanced"], env: envFor(root, audit), stderr: "ignore" }));
   try {
     const tools = (await client.listTools()).tools.map(t => t.name).sort();
-    assert.deepEqual(tools, ["ht_add_var", "ht_ask", "ht_delete_var", "ht_edit", "ht_empty_trash", "ht_fetch", "ht_glob", "ht_image_search", "ht_list_all_tools", "ht_list_vars", "ht_manage_tool", "ht_mkdir", "ht_move", "ht_new_shell_env", "ht_read", "ht_search", "ht_share", "ht_shell", "ht_status", "ht_stop", "ht_transfer_file", "ht_trash", "ht_user_input", "ht_write"]);
+    assert.deepEqual(tools, ["ht_add_var", "ht_ask", "ht_audit_query", "ht_delete_var", "ht_edit", "ht_empty_trash", "ht_fetch", "ht_glob", "ht_image_search", "ht_list_all_tools", "ht_list_vars", "ht_manage_tool", "ht_mkdir", "ht_new_shell_env", "ht_search", "ht_session_info", "ht_share", "ht_shell", "ht_status", "ht_stop", "ht_transfer_file", "ht_trash", "ht_user_input"]);
     for (const t of (await client.listTools()).tools) assert.ok(t.annotations, `${t.name} has annotations`);
-    const w = await client.callTool({ name: "ht_write", arguments: { path: "hello.txt", content: "hi there\n" } }); assert.ok(!w.isError, text(w));
+    const w = await client.callTool({ name: "ht_shell", arguments: { argv: ["node", "-e", "const fs=require('fs'),p=require('path');fs.mkdirSync(p.dirname(process.argv[1])||'.',{recursive:true});fs.writeFileSync(process.argv[1],process.argv[2])", "hello.txt", "hi there\n"] } }); assert.ok(!w.isError, text(w));
     const e = await client.callTool({ name: "ht_edit", arguments: { edits: [{ path: "hello.txt", old_str: "hi", new_str: "hello" }] } }); assert.ok(!e.isError, text(e));
-    assert.match(text(await client.callTool({ name: "ht_read", arguments: { path: "hello.txt" } })), /hello there/);
+    assert.match(text(await client.callTool({ name: "ht_shell", arguments: { argv: ["cat", "hello.txt"] } })), /hello there/);
     assert.match(text(await client.callTool({ name: "ht_search", arguments: { pattern: "there" } })), /hello\.txt:1:/);
-    const bad = await client.callTool({ name: "ht_read", arguments: { path: "/etc/passwd" } }); assert.ok(bad.isError); assert.match(text(bad), /DENIED \[outside_roots\]/);
+    const bad = await client.callTool({ name: "ht_shell", arguments: { argv: ["cat", "/etc/passwd"] } }); assert.ok(bad.isError); assert.match(text(bad), /DENIED \[outside_roots\]/);
     const sh = await client.callTool({ name: "ht_shell", arguments: { argv: ["rm", "-rf", "hello.txt"] } }); assert.ok(!sh.isError, text(sh));
     assert.ok(!fs.existsSync(path.join(root, "hello.txt")));
     const st = JSON.parse(text(await client.callTool({ name: "ht_status", arguments: {} })));
@@ -83,7 +83,7 @@ test("e2e/http: auth, host check, origin check; shell+write are OFF by default i
     const ok = await rpc(port, init, { authorization: `Bearer ${token}` }); assert.equal(ok.status, 200); assert.match(await ok.text(), /hardtools/);
     const call = await rpc(port, { jsonrpc: "2.0", id: 2, method: "tools/call", params: { name: "ht_shell", arguments: { argv: ["ls"] } } }, { authorization: `Bearer ${token}` });
     assert.match(await call.text(), /shell_disabled/);
-    const w = await rpc(port, { jsonrpc: "2.0", id: 3, method: "tools/call", params: { name: "ht_write", arguments: { path: "x.txt", content: "x" } } }, { authorization: `Bearer ${token}` });
+    const w = await rpc(port, { jsonrpc: "2.0", id: 3, method: "tools/call", params: { name: "ht_shell", arguments: { argv: ["node", "-e", "const fs=require('fs'),p=require('path');fs.mkdirSync(p.dirname(process.argv[1])||'.',{recursive:true});fs.writeFileSync(process.argv[1],process.argv[2])", "x.txt", "x"] } } }, { authorization: `Bearer ${token}` });
     assert.match(await w.text(), /write_disabled/); assert.ok(!fs.existsSync(path.join(root, "x.txt")));
     const get = await fetch(`http://127.0.0.1:${port}/mcp`, { headers: { authorization: `Bearer ${token}` } }); assert.equal(get.status, 405);
   } finally { child.kill("SIGKILL"); }
@@ -124,7 +124,7 @@ test('e2e/http opt-in: command and argv both run in /work without the host envir
   const st=JSON.parse(await call('ht_status')); assert.equal(st.shell.execution,'workspace'); assert.equal(st.shell.shellSyntax,true);
   assert.equal(st.shell.network,'isolated');
   await sh({command:'test -z "${HTTPS_PROXY:-}" && test ! -S /runtime/https.sock'});
-  await call('ht_write',{path:'sub/input',content:'iki satır\n',mkdirp:true});
+  await call('ht_shell',{argv:['node','-e',"const fs=require('fs'),p=require('path');fs.mkdirSync('sub',{recursive:true});fs.writeFileSync('sub/input','iki satır\\n')"]});
   await call('ht_add_var',{name:'APP_TEST',value:'ekip'});
   const stdout=await sh({cwd:'/work/sub',stdin_file:'input',inherit_vars:['APP_TEST'],command:`test ! -e '${marker}' && cat | tr a-z A-Z > out && pwd && printf '%s' "$APP_TEST"`});
   assert.equal(stdout,'/work/sub\nekip'); assert.equal(fs.readFileSync(path.join(root,'sub','out'),'utf8'),'IKI SATıR\n');
@@ -139,14 +139,14 @@ test('e2e/http opt-in: command and argv both run in /work without the host envir
       hostenv:process.env.HT_HOST_FIXTURE ?? null, selected:process.env.APP_TEST ?? null,
       exec:process.execPath, runtime:[String(runtime.dev),String(runtime.ino)], inherited,
       pid:fs.readlinkSync('/proc/self/ns/pid'), net:fs.readlinkSync('/proc/self/ns/net')}));`;
-  await call('ht_write',{path:'sub/probe.cjs',content:probe});
+  await call('ht_shell',{argv:['node','-e',"require('fs').writeFileSync('sub/probe.cjs',process.argv[1])",probe]});
   const r=JSON.parse(await sh({cwd:'sub',argv:['node','/work/sub/probe.cjs']}));
   assert.equal(r.cwd,'/work/sub'); assert.equal(r.outside,false); assert.equal(r.hostenv,null); assert.equal(r.selected,null);
   const serverNode = fs.statSync('/proc/self/exe', {bigint:true}); // same binary as the HTTP subprocess
   assert.equal(r.exec,'/runtime/node'); assert.deepEqual(r.runtime,[String(serverNode.dev),String(serverNode.ino)]);
   assert.equal(r.inherited,false,'the guest did not inherit the launcher mount descriptor');
   for(const ns of ['pid','net']) assert.notEqual(r[ns],fs.readlinkSync(`/proc/self/ns/${ns}`));
-  assert.match(await call('ht_read',{path:'sub/out'}), /IKI SATıR/);
+  assert.match(await call('ht_shell',{argv:['cat','sub/out']}), /IKI SATıR/);
   assert.equal(fs.readFileSync(marker,'utf8'),'host fixture');
 });
 

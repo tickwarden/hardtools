@@ -125,12 +125,13 @@ export interface PageOptions {
   /** Üst çubukta "hardtools" yanında gösterilecek küçük yazı. */
   subtitle?: string;
   /** Üst çubukta sağa eklenen HTML (ör. kullanıcı adı, çıkış). */
-  actions?: string;
+  actions?: string;  /** Sunucu tarafı varsayılan tema (kullanıcı ayarı). */
+  theme?: "dark" | "light";
 }
 
 export function page(o: PageOptions): string {
   return `<!doctype html>
-<html lang="tr" data-theme="dark">
+<html lang="tr" data-theme="${o.theme === "light" ? "light" : "dark"}">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">

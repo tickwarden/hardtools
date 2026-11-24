@@ -7,18 +7,25 @@ import fs from "node:fs";
 import http from "node:http";
 import path from "node:path";
 import { page as uiPage, esc, heading, PAGE_CSP } from "./ui.js";
+import { VERSION } from "./version.js";
 
 export const ALL_TOOLS = [
-  "ht_read", "ht_write", "ht_edit", "ht_glob", "ht_search", "ht_mkdir", "ht_move", "ht_trash",
+  "ht_edit", "ht_glob", "ht_search", "ht_mkdir", "ht_trash",
   "ht_empty_trash", "ht_shell", "ht_fetch", "ht_image_search", "ht_share", "ht_transfer_file",
   "ht_status", "ht_stop", "ht_new_shell_env", "ht_add_var", "ht_list_vars", "ht_delete_var",
-  "ht_user_input", "ht_ask", "ht_list_all_tools", "ht_manage_tool",
+  "ht_user_input", "ht_ask", "ht_session_info", "ht_audit_query", "ht_list_all_tools", "ht_manage_tool",
 ] as const;
 
 export interface UserSettings {
   disabledTools: string[];
   networkEnabled: boolean;
   allowlistEnabled: boolean;
+  /** ht_shell is_bg izni (varsayılan açık). */
+  allowBgShell: boolean;
+  /** Bu hesapta ht_shell için üst sınır (saniye; 0 = profil varsayılanı). */
+  shellTimeoutS: number;
+  /** Sayfaların sunucu tarafı varsayılan teması. */
+  theme: "dark" | "light";
   allowedCommands: string[];
   allowedUrls: string[];
   updatedAt: number;
@@ -27,7 +34,7 @@ export interface UserSettings {
 }
 
 export const defaultSettings = (): UserSettings => ({
-  disabledTools: [], networkEnabled: true, allowlistEnabled: false,
+  disabledTools: [], networkEnabled: true, allowlistEnabled: false, allowBgShell: true, shellTimeoutS: 0, theme: "dark",
   allowedCommands: [], allowedUrls: [], updatedAt: 0,
 });
 
@@ -133,6 +140,15 @@ export class UserSettingsStore {
     return this.revoked.has(grant);
   }
 
+  /** RFC 7009 /revoke: tek bir grant'ı iptal et. */
+  revokeGrant(grant: string): boolean {
+    if (!grant) return false;
+    const had = this.grants.delete(grant);
+    this.revoked.add(grant);
+    this.save();
+    return had;
+  }
+
   /** Çıkış: bu kullanıcının tüm grant'larını iptal et (MCP bağlantısı düşer). */
   revokeUser(user: string): number {
     let n = 0;
@@ -188,6 +204,8 @@ export interface SettingsUIOptions {
   github?: { clientId: string; webBase?: string; apiBase?: string; allowAny?: boolean; allowedLogins?: string[]; allowedEmails?: string[] };
   origin?: (req: http.IncomingMessage) => string;
   audit?: (ev: Record<string, unknown>) => void;
+  /** Durum sayfasında gösterilen çalışma kökü. */
+  rootLabel?: string;
 }
 
 interface Pending { deviceCode: string; userCode: string; verifyUri: string; intervalS: number; exp: number; nextPoll: number }
@@ -228,7 +246,50 @@ export class SettingsUI {
     if (pathname === "/settings/token") return await this.tokenLogin(req, res, origin), true;
     if (pathname === "/settings/save") return await this.save(req, res, origin), true;
     if (pathname === "/settings/logout") return await this.logout(req, res, origin), true;
+    if (pathname === "/tools") return this.toolsPage(req, res), true;
+    if (pathname === "/status") return this.statusPage(req, res), true;
     return false;
+  }
+
+  /** /tools — araç kataloğu: hangi araç var, hangisi bu hesapta kapalı. */
+  private toolsPage(req: http.IncomingMessage, res: http.ServerResponse) {
+    if (req.method !== "GET") return this.html(res, 405, uiPage({ title: "Araçlar", body: `<p class="e">Yalnız GET.</p>` }));
+    const user = this.cookieUser(req);
+    const ALWAYS_ON = new Set(["ht_list_all_tools", "ht_manage_tool", "ht_status"]);
+    const s = user ? this.o.store.get(user) : null;
+    const rows = ALL_TOOLS.map(n => {
+      const off = s ? s.disabledTools.includes(n) : false;
+      return `<tr><td><code>${esc(n)}</code></td><td>${off ? `<span class="pill off">kapalı</span>` : `<span class="pill on">açık</span>`}</td><td class="muted">${ALWAYS_ON.has(n) ? "her zaman açık" : ""}</td></tr>`;
+    }).join("");
+    const body = `${heading("Araç kataloğu", `${ALL_TOOLS.length} araç. Kapalı araçlar MCP listesinde görünmez ve çağrılamaz.`)}
+${user ? "" : `<p class="e">Bu hesabın durumunu görmek için <a href="/settings">ayarlara giriş yap</a>.</p>`}
+<div class="card"><table><thead><tr><th>Araç</th><th>Durum</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>
+<p class="muted"><a href="/status">durum sayfası</a> · <a href="/settings">ayarlar</a></p>`;
+    this.html(res, 200, uiPage({ title: "Araçlar", subtitle: "catalog", body, theme: s?.theme }));
+  }
+
+  /** /status — sürüm, süre, araç sayıları ve hesabın ayar özeti. */
+  private statusPage(req: http.IncomingMessage, res: http.ServerResponse) {
+    if (req.method !== "GET") return this.html(res, 405, uiPage({ title: "Durum", body: `<p class="e">Yalnız GET.</p>` }));
+    const user = this.cookieUser(req);
+    const s = user ? this.o.store.get(user) : null;
+    const enabled = s ? ALL_TOOLS.length - s.disabledTools.length : null;
+    const rows: Array<[string, string]> = [
+      ["Sürüm", VERSION],
+      ["Süre (sn)", String(Math.round(process.uptime()))],
+      ["Çalışma kökü", this.o.rootLabel ?? "—"],
+      ["Araç sayısı", String(ALL_TOOLS.length)],
+      ["Bu hesapta açık", enabled === null ? "giriş yapılmadı" : String(enabled)],
+      ["Ağ istekleri", s ? (s.networkEnabled ? "açık" : "kapalı") : "—"],
+      ["Allowlist", s ? (s.allowlistEnabled ? "zorunlu" : "kapalı") : "—"],
+      ["Arka plan komut", s ? (s.allowBgShell ? "açık" : "kapalı") : "—"],
+      ["Tema", s ? s.theme : "—"],
+      ["Son ayar", s && s.updatedAt ? new Date(s.updatedAt).toISOString().replace("T", " ").slice(0, 19) : "—"],
+    ];
+    const body = `${heading("Durum", user ? `Kullanıcı: ${user}` : "Genel durum")}
+<div class="card"><table><tbody>${rows.map(([k, v]) => `<tr><th>${esc(k)}</th><td><code>${esc(v)}</code></td></tr>`).join("")}</tbody></table></div>
+<p class="muted"><a href="/tools">araç kataloğu</a> · <a href="/settings">ayarlar</a></p>`;
+    this.html(res, 200, uiPage({ title: "Durum", subtitle: "status", body, theme: s?.theme }));
   }
 
   private async body(req: http.IncomingMessage): Promise<URLSearchParams | null> {
@@ -286,6 +347,18 @@ ${gh ? `<p class="muted">Claude'da bağlanırken kullandığın GitHub hesabıyl
 <p class="muted" style="margin-top:.6rem">Allowlist açıkken yalnızca listelenen alan adlarına ve yalnızca listelenen komutlara izin verilir.</p>
 </div>
 
+<div class="card">
+<h2 style="margin-top:0">Görünüm ve kabuk</h2>
+<label for="theme">Varsayılan tema</label>
+<select id="theme" name="theme">
+  <option value="dark"${s.theme !== "light" ? " selected" : ""}>Koyu tema</option>
+  <option value="light"${s.theme === "light" ? " selected" : ""}>Açık tema (sıcak, aşırı beyaz değil)</option>
+</select>
+<label class="chip" style="margin-top:.6rem"><input type="checkbox" name="allowBgShell" value="1"${s.allowBgShell ? " checked" : ""}> <span>Arka plan komutlarına izin ver (<code>is_bg</code>)</span></label>
+<label for="shellTimeoutS">Kabuk zaman aşımı (saniye, 0 = profil varsayılanı)</label>
+<input id="shellTimeoutS" name="shellTimeoutS" type="number" min="0" max="600" step="5" value="${s.shellTimeoutS || 0}">
+</div>
+
 <p class="row"><button class="primary" type="submit">Kaydet</button><span class="muted">Son güncelleme: ${s.updatedAt ? esc(new Date(s.updatedAt).toISOString().replace("T", " ").slice(0, 19)) : "—"}</span></p>
 </form>
 
@@ -321,7 +394,7 @@ ${gh ? `<p class="muted">Claude'da bağlanırken kullandığın GitHub hesabıyl
 </form>
 </div>
 <p class="muted"><a href="${esc(origin)}/connect">bağlanma sayfası</a></p>`;
-    this.html(res, 200, uiPage({ title: "Ayarlar", subtitle: "settings", body, actions: `<form method="post" action="/settings/logout" style="margin:0"><button class="ghost" type="submit" data-once>Çıkış</button></form>` }));
+    this.html(res, 200, uiPage({ title: "Ayarlar", subtitle: "settings", theme: s.theme, body, actions: `<form method="post" action="/settings/logout" style="margin:0"><button class="ghost" type="submit" data-once>Çıkış</button></form>` }));
   }
 
   private async save(req: http.IncomingMessage, res: http.ServerResponse, origin: string) {
@@ -353,7 +426,11 @@ ${gh ? `<p class="muted">Claude'da bağlanırken kullandığın GitHub hesabıyl
     const allowedCommands = addCommand ? uniq([...cur.allowedCommands, addCommand]) : cur.allowedCommands;
     const allowedUrls = addUrl ? uniq([...cur.allowedUrls, addUrl]) : cur.allowedUrls;
     const networkEnabled = p.get("networkEnabled") === "1", allowlistEnabled = p.get("allowlistEnabled") === "1";
-    this.o.store.patch(user, { disabledTools, networkEnabled, allowlistEnabled, allowedCommands, allowedUrls }, user);
+    const allowBgShell = p.get("allowBgShell") === "1";
+    const themeRaw = p.get("theme"), theme: "dark" | "light" = themeRaw === "light" ? "light" : "dark";
+    const timeoutRaw = Number(p.get("shellTimeoutS") ?? 0);
+    const shellTimeoutS = Number.isFinite(timeoutRaw) ? Math.min(600, Math.max(0, Math.round(timeoutRaw))) : 0;
+    this.o.store.patch(user, { disabledTools, networkEnabled, allowlistEnabled, allowedCommands, allowedUrls, allowBgShell, theme, shellTimeoutS }, user);
     this.o.audit?.({ ev: "settings_save", user, tools: ALL_TOOLS.length - disabledTools.length, network: networkEnabled, allowlist: allowlistEnabled });
     return this.redirect(res, origin);
   }

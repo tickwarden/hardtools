@@ -35,11 +35,11 @@ test('MCP schema validation and tool calls work with V8 string code generation f
   const client = new Client({name:'interpreter-test',version:'1'});
   try {
     await client.connect(new StdioClientTransport({ command:process.execPath, args:['--disallow-code-generation-from-strings', path.resolve(process.env.HT_ENTRY ?? 'dist/index.js')], env:{PATH:process.env.PATH, HARDTOOLS_CONFIG:cfg, HARDTOOLS_ROOTS:root}, stderr:'ignore' }));
-    const {tools} = await client.listTools(); const write = tools.find(t=>t.name==='ht_write');
+    const {tools} = await client.listTools(); const write = tools.find(t=>t.name==='ht_shell');
     assert.equal(write.inputSchema.properties.content.type, 'string');
-    const bad = await client.callTool({ name:'ht_write', arguments:{path:'file.txt', content:7} });
+    const bad = await client.callTool({ name:'ht_shell', arguments:{ command:7 } });
     assert.equal(bad.isError,true); assert.equal(fs.existsSync(path.join(root,'file.txt')),false);
-    const good = await client.callTool({ name:'ht_write', arguments:{path:'file.txt', content:'ok'} });
+    const good = await client.callTool({ name:'ht_shell', arguments:{ argv:['echo','ok'] } });
     assert.ok(!good.isError, good.content[0]?.text); assert.equal(fs.readFileSync(path.join(root,'file.txt'),'utf8'),'ok');
   } finally { await client.close(); fs.rmSync(dir, {recursive:true,force:true}); }
 });

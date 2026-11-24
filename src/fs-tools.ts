@@ -130,7 +130,7 @@ export function htEdit(policy: Policy, a: { edits: EditItem[]; dry_run?: boolean
   const groups = new Map<string, { r: ReturnType<typeof resolveSafe>; items: EditItem[] }>();
   for (const e of a.edits) {
     const r = resolveSafe(policy, e.path, "write");
-    if (!r.exists) throw new PolicyError("not_found", `file does not exist: ${e.path} (use ht_write to create files)`);
+    if (!r.exists) throw new PolicyError("not_found", `file does not exist: ${e.path} (create files with the shell)`);
     const g = groups.get(r.abs) ?? { r, items: [] }; g.items.push(e); groups.set(r.abs, g);
   }
   if (groups.size > policy.fs.maxEditFiles) throw new PolicyError("too_many_files", `edit touches ${groups.size} files; limit is ${policy.fs.maxEditFiles}`);

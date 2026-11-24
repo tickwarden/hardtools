@@ -212,7 +212,7 @@ test('workspace/http: separate consent grants, stable refresh, private share lin
     }
     const rf = await as((await exchange({client_id, grant_type:'refresh_token', refresh_token:one.refresh_token})).access_token);
     if (worker) assert.deepEqual(JSON.parse(text(await rf.call('ht_list_vars'))).names,['HT_VAR_TEAM']);
-    text(await a.call('ht_write',{path:'report.txt',content:'merhaba'}));
+    text(await a.call('ht_shell',{argv:['node','-e',"require('fs').writeFileSync('report.txt','merhaba')"]}));
     const msg = text(await a.call('ht_share',{source_path:'report.txt',ttl_minutes:2,name:'Çıktı.txt'}));
     const meta = JSON.parse(msg.split('\n').at(-1)); assert.equal(new URL(meta.url).origin,s.base); assert.ok(!msg.includes(secret));
     assert.deepEqual(JSON.parse(text(await b.call('ht_share',{action:'list'}))).files,[]);

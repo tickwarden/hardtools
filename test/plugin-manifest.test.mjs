@@ -144,7 +144,7 @@ test("plugin manifest: allow_local_tools=false really makes the plugin read-only
     const status = JSON.parse(text(await client.callTool({ name: "ht_status", arguments: {} })));
     assert.equal(status.shell.execution, "disabled");
     assert.equal(status.shell.enabled, false);
-    const write = await client.callTool({ name: "ht_write", arguments: { path: "yeni.txt", content: "x\n" } });
+    const write = await client.callTool({ name: "ht_shell", arguments: { argv: ["node", "-e", "const fs=require('fs'),p=require('path');fs.mkdirSync(p.dirname(process.argv[1])||'.',{recursive:true});fs.writeFileSync(process.argv[1],process.argv[2])", "yeni.txt", "x\n"] } });
     assert.ok(write.isError, "yazma reddedilmeli");
     assert.ok(!fs.existsSync(path.join(userRoot, "yeni.txt")));
     const shell = await client.callTool({ name: "ht_shell", arguments: { argv: ["echo", "x"] } });
@@ -156,7 +156,7 @@ test("plugin manifest: defaults and true keep the previous writable behaviour", 
   await withServer({ HARDTOOLS_ALLOW_LOCAL_TOOLS: "true" }, async (client) => {
     const status = JSON.parse(text(await client.callTool({ name: "ht_status", arguments: {} })));
     assert.equal(status.shell.execution, "host");
-    const write = await client.callTool({ name: "ht_write", arguments: { path: "ok.txt", content: "selam\n" } });
+    const write = await client.callTool({ name: "ht_shell", arguments: { argv: ["node", "-e", "const fs=require('fs'),p=require('path');fs.mkdirSync(p.dirname(process.argv[1])||'.',{recursive:true});fs.writeFileSync(process.argv[1],process.argv[2])", "ok.txt", "selam\n"] } });
     assert.ok(!write.isError, text(write));
   });
   await withServer({}, async (client) => {

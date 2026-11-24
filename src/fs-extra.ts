@@ -154,7 +154,7 @@ export function htTrash(policy: Policy, a: { path: string; recursive?: boolean }
   const original = path.relative(src.root, src.abs);
   updateTrashIndex(policy, src.root, rows => rows.set(name, { ts: new Date().toISOString(), name, original, kind: st.isDirectory() ? "dir" : "file" }),
     () => moveNoClobber(src.abs, dst.abs, st.isFile()), () => moveNoClobber(dst.abs, src.abs, st.isFile()));
-  return `TRASHED ${original} -> ${TRASH_DIR}/${name}\nRestore with ht_move from=${JSON.stringify(`${TRASH_DIR}/${name}`)} to=${JSON.stringify(original)}`;
+  return `TRASHED ${original} -> ${TRASH_DIR}/${name}\nRestore by moving it back from ${JSON.stringify(`${TRASH_DIR}/${name}`)} (e.g. mv) to=${JSON.stringify(original)}`;
 }
 
 /** The caller selects an actual configured root, never the directory to delete. Keep the trash directory. */

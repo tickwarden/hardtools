@@ -85,6 +85,8 @@ export interface OAuthOptions {
   onGrant?: (grant: string, login: string) => void;
   /** Çıkış yapılmış grant'lar reddedilir: bağlantı anında düşer. */
   grantRevoked?: (grant: string) => boolean;
+  /** RFC 7009 /revoke: bu grant iptal edilsin (oturum düşsün). */
+  onRevoke?: (grant: string, login?: string) => void;
 }
 
 export class OAuth {
@@ -243,6 +245,9 @@ export class OAuth {
         grant_types_supported: ["authorization_code", "refresh_token"],
         code_challenge_methods_supported: ["S256"],
         token_endpoint_auth_methods_supported: ["none"],
+        revocation_endpoint: `${origin}/revoke`,
+        revocation_endpoint_auth_methods_supported: ["none"],
+        userinfo_endpoint: `${origin}/userinfo`,
       });
       return true;
     }
@@ -251,6 +256,8 @@ export class OAuth {
     if (path === "/oauth/github/callback") { await this.githubCallback(req, res, origin); return true; }
     if (path === "/oauth/github/poll")     { await this.githubPoll(req, res, origin); return true; }
     if (path === "/token")              { await this.tokenEndpoint(req, res); return true; }
+    if (path === "/revoke")             { await this.revokeEndpoint(req, res); return true; }
+    if (path === "/userinfo")           { await this.userinfoEndpoint(req, res); return true; }
     if (path.startsWith("/invite/"))    { await this.handleInvite(req, res, path, origin); return true; }
     return false;
   }
@@ -566,6 +573,32 @@ ${note ? `<p class="muted">${esc(note)}</p>` : ""}
       "content-security-policy": PAGE_CSP,
     });
     res.end(uiPage({ title: "hardtools · giriş", subtitle: "OAuth", body: `${heading("Bağlantı izni")}${error ? `<p class="e">${esc(error)}</p>` : ""}${form}` }));
+  }
+
+  // ---- RFC 7009: token iptali ----------------------------------------------------------------
+  private async revokeEndpoint(req: http.IncomingMessage, res: http.ServerResponse) {
+    if (req.method !== "POST") return this.oerr(res, 405, "invalid_request", "POST only");
+    const p = await this.readParams(req);
+    if (!p) return this.oerr(res, 400, "invalid_request", "malformed or oversized body");
+    const raw = String(p.token ?? "").replace(/^hta\./, "");
+    const at = this.verify(raw, "at"), rt = at ?? this.verify(raw, "rt");
+    // RFC 7009: geçersiz token de 200 döner (bilgi sızdırmamak için).
+    if (!rt) { this.o.audit?.({ ev: "oauth_revoke", ok: false, reason: "unknown_token" }); return this.json(res, 200, { revoked: false }); }
+    const grant = String(at ? rt.grant : rt.grant);
+    if (grant) this.o.onRevoke?.(grant, String(rt.login ?? ""));
+    this.o.audit?.({ ev: "oauth_revoke", ok: true, grant: grant.slice(0, 8) });
+    return this.json(res, 200, { revoked: true });
+  }
+
+  // ---- kullanıcı bilgisi (taşıyıcı token ile) -------------------------------------------------
+  private async userinfoEndpoint(req: http.IncomingMessage, res: http.ServerResponse) {
+    if (req.method !== "GET") return this.oerr(res, 405, "invalid_request", "GET only");
+    const h = String(req.headers.authorization ?? "");
+    const raw = h.startsWith("Bearer ") ? h.slice(7).replace(/^hta\./, "") : "";
+    const at = raw ? this.verify(raw, "at") : null;
+    if (!at) { res.writeHead(401, { "content-type": "application/json", "www-authenticate": 'Bearer error="invalid_token"' }); res.end(JSON.stringify({ error: "invalid_token" })); return; }
+    if (this.o.grantRevoked?.(String(at.grant))) { res.writeHead(401, { "content-type": "application/json", "www-authenticate": 'Bearer error="invalid_token"' }); res.end(JSON.stringify({ error: "invalid_token", error_description: "grant was revoked" })); return; }
+    return this.json(res, 200, { sub: String(at.grant ?? ""), client_id: String(at.cid ?? ""), scope: "mcp", exp: Number(at.exp ?? 0) });
   }
 
   // ---- token endpoint ---------------------------------------------------------------------

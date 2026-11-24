@@ -2,20 +2,19 @@
 
 Claude'un yerleşik dosya/arama/kabuk/web araçlarının **sınırlandırılmış, denetlenebilir** karşılıkları. Tek bir MCP sunucusu; Claude Code, Claude Desktop (stdio) ve uzak MCP (HTTP) üzerinden çalışır.
 
-> **Durum:** v0.5.2, kod AI tarafından yazıldı (bkz. `CREDITS.md`). Otomatik testler var; bağımsız insan güvenlik incelemesi yapılmadı. Pazar yerinden kurulum Claude Code CLI ile doğrulandı. MCP testleri SDK istemcisi ve ham HTTP ile yapılır; Claude Desktop ve claude.ai arayüzlerinde uçtan uca kurulum burada denenmedi.
+> **Durum:** v1.5.24, kod AI tarafından yazıldı (bkz. `CREDITS.md`). Otomatik testler var; bağımsız insan güvenlik incelemesi yapılmadı. Pazar yerinden kurulum Claude Code CLI ile doğrulandı. MCP testleri SDK istemcisi ve ham HTTP ile yapılır; Claude Desktop ve claude.ai arayüzlerinde uçtan uca kurulum burada denenmedi.
 
 ## Araçlar
 
 | Araç | Yerleşik karşılığı | Ne ekliyor |
 |---|---|---|
-| `ht_read` | dosya okuma / `ls` | satır aralığı, eol/BOM bilgisi, `sha256` (düzenlemede `if_hash` olarak kullanılır), korumalı dosyaları listede gizler |
 | `ht_edit` | `str_replace` | **çok dosyalı atomik** düzenleme, ya hep ya hiç + geri alma, `dry_run` diff, eşzamanlı değişiklik tespiti, CRLF/BOM korunur, `$&` gibi dizilerde bozulma yok |
-| `ht_write` | dosya yazma | varsayılan olarak üzerine yazmaz (`balanced`/`strict`: `overwrite`+`if_hash`), atomik, gizli veri taraması |
 | `ht_glob` | `find` | glob ile dosya/klasör listeler (`**/*.java`), symlink izlemez, gizli/korumalı dosyaları saklar, giriş/süre sınırı (`PARTIAL` olarak bildirilir), boyut+mtime verir |
 | `ht_mkdir` | `mkdir -p` | kök içinde idempotent klasör oluşturma; `.git` içine oluşturmaz |
-| `ht_move` | `mv` | **asla üstüne yazmaz** (hedef yoksa), symlink kaynağını/kökü/`.git`'i reddeder, kendi içine taşımayı reddeder, `mkdirp` |
-| `ht_trash` | `rm` | **geri alınabilir silme**: `.ht-trash/` içine taşır, `index.jsonl`'a özgün yolu yazar; geri yükleme `ht_move` ile; kalıcı boşaltma ayrı onay ister |
+| `ht_trash` | `rm` | **geri alınabilir silme**: `.ht-trash/` içine taşır, `index.jsonl`'a özgün yolu yazar; geri yükleme kabukla `mv` ile; kalıcı boşaltma ayrı onay ister |
 | `ht_empty_trash` | çöpü boşalt | varsayılanı yalnızca önizleme; `confirm:true` ile sadece seçili kökün çöp içeriğini ve indeksini siler |
+| `ht_session_info` | — | sunucudaki canlı oturumlar: kısa `sid`, oturum kökü, son kullanım, hangisi şu anki; çok sohbetli kurulumda kim nerede görünür |
+| `ht_audit_query` | — | denetim kayıtlarından son olaylar: `ev` filtresi, `limit`, `by_event` sayımı; `tail`/`grep` ile ham jsonl okumaya gerek yok |
 | `ht_search` | grep | regex/sabit, bağlam, glob, `.gitignore`, sonuç ve **süre** sınırı (ReDoS öldürülebilir worker'da) |
 | `ht_shell` | bash | `command` ile gerçek kabuk veya `argv` ile literal argümanlar; yerelde kullanıcı işlemi, HTTP’de etkinse izole `/work`; süre ve çıktı bütçeleri |
 | `ht_add_var` / `ht_list_vars` / `ht_delete_var` | oturum değişkenleri | isim/değer tanımla, yalnız adları listele veya tek adı kaldır; seçilen değerler `ht_shell` alt sürecine gider |
@@ -31,7 +30,7 @@ Claude'un yerleşik dosya/arama/kabuk/web araçlarının **sınırlandırılmı�
 
 `balanced` profilde iki biçimden **birini** seç:
 
-- `{"command":"printf 'merhaba' | tr a-z A-Z > sonuc.txt"}` gerçek bir POSIX boru hattı kurar. `ht_read` ile `sonuc.txt` içinde `MERHABA` okunur. Yerel Windows’ta `command` söz dizimi `cmd.exe`’ye aittir.
+- `{"command":"printf 'merhaba' | tr a-z A-Z > sonuc.txt"}` gerçek bir POSIX boru hattı kurar. `cat sonuc.txt` ile `MERHABA` okunur. Yerel Windows’ta `command` söz dizimi `cmd.exe`’ye aittir.
 - `{"argv":["echo","a | b"]}` kabuk açmaz; `|` bir argümanın parçasıdır.
 
 `ht_status.shell.execution` nerede çalıştığını gösterir: `host` (yerel stdio), `workspace` (izole HTTP) veya `disabled`. Yerelde `cwd` doğrulanır ama alt süreç işletim sistemi kullanıcısının izinlerine sahiptir; dosya araçlarının kök/secret kurallarını ve `ht_fetch` izin listesini devralmaz.
@@ -51,14 +50,14 @@ Değişken adları büyük harfe çevrilir. `APP_`, `MY_`, `PROJECT_`, `HT_VAR_`
 
 ### Çöpü geri yükle veya önizle
 
-Çöpe taşımak için `ht_trash`, geri almak için çıktısındaki `from`/`to` ile `ht_move` kullan. Hedef zaten varsa dosya ve indeks değişmez. Başarıda geri yüklenen üst düzey öğenin satırı `index.jsonl` içinden çıkarılır. Alt klasörden tek dosyayı almak, hâlâ çöpte olan klasörün satırını kaldırmaz. Eski sürümden kalan, artık diskte karşılığı olmayan satırlar sonraki başarılı çöpe taşıma/tam geri yüklemede ayıklanır.
+Çöpe taşımak için `ht_trash`, geri almak için çıktısındaki yolu kabukla `mv` ile geri taşı. Hedef zaten varsa dosya ve indeks değişmez. Başarıda geri yüklenen üst düzey öğenin satırı `index.jsonl` içinden çıkarılır. Alt klasörden tek dosyayı almak, hâlâ çöpte olan klasörün satırını kaldırmaz. Eski sürümden kalan, artık diskte karşılığı olmayan satırlar sonraki başarılı çöpe taşıma/tam geri yüklemede ayıklanır.
 
 1. `ht_empty_trash` → `{}`: gerçek üst düzey öğeleri sayar; bayat kayıtları ve indekssiz öğeleri bildirir. Önizleme indeksi düzeltmez, kilit oluşturmaz ve silmez.
-2. Sonucu kontrol ettikten sonra `{"confirm":true}`: yalnızca `.ht-trash/` içini ve `index.jsonl` dosyasını kalıcı olarak siler; **klasör kalır**. Çok köklü kurulumda `root` tam olarak tanımlanmış bir kök olmalıdır; varsayılan ilk köktür. Korumalı alt yollar varsa işlem reddedilir. Silmeden önce geri yükleme için `ht_trash` çıktısındaki `ht_move` komutunu kullan.
+2. Sonucu kontrol ettikten sonra `{"confirm":true}`: yalnızca `.ht-trash/` içini ve `index.jsonl` dosyasını kalıcı olarak siler; **klasör kalır**. Çok köklü kurulumda `root` tam olarak tanımlanmış bir kök olmalıdır; varsayılan ilk köktür. Korumalı alt yollar varsa işlem reddedilir. Silmeden önce geri yükleme için `ht_trash` çıktısındaki yolu not et.
 
 ### Kendi audit kaydını çevrimdışı doğrula
 
-1. `ht_status` → `{"audit_export":true}`. Yanıtın ilk bölümünde `entries` ve `expected_head`, ikinci bölümünde ise gerçek dosya baytlarını taşıyan bir MCP eki vardır. Açık indirme bağlantısı oluşturulmaz; `ht_read` için kök dışına istisna yoktur.
+1. `ht_status` → `{"audit_export":true}`. Yanıtın ilk bölümünde `entries` ve `expected_head`, ikinci bölümünde ise gerçek dosya baytlarını taşıyan bir MCP eki vardır. Açık indirme bağlantısı oluşturulmaz; kök dışına okuma için istisna yoktur.
 2. `next_offset` boşsa eki `hardtools-audit.jsonl` olarak kaydet. Değilse aynı `snapshot` değerini `audit_snapshot`, dönen **bayt** konumunu `audit_offset` olarak verip `audit_export:true` ile devam et. Her `resource.blob` parçasını **ayrı ayrı** Base64’ten çöz, baytları artan `offset` sırasıyla birleştir. Sonraki çağrılar kayda eklenir ama bu kopyanın sonunu değiştirmez. Bir kapsamda son dört kopya, en fazla 15 dakika tutulur.
 3. Kendi bilgisayarında, güvenilir CLI kopyanla çalıştır:
 
@@ -122,7 +121,7 @@ Manifest artık yalnızca zorunlu alanları değil, **kullanıcıdan istenen aya
 |---|---|---|---|
 | `profile` | `string`, `balanced` (`balanced`/`strict`/`open`) | `HARDTOOLS_PROFILE` | Yerel ve uzak sunucu |
 | `workspace_root` | `directory` (boş: çalışma dizini) | `HARDTOOLS_ROOTS` | Yerel sunucu |
-| `allow_local_tools` | `boolean`, `true` | `HARDTOOLS_ALLOW_LOCAL_TOOLS` | **Kapalıyken salt okunur**: `ht_write`, `ht_edit`, `ht_shell` reddedilir |
+| `allow_local_tools` | `boolean`, `true` | `HARDTOOLS_ALLOW_LOCAL_TOOLS` | **Kapalıyken salt okunur**: `ht_edit`, `ht_shell` reddedilir |
 | `allow_workspace_https` | `boolean`, `false` | `HARDTOOLS_WORKSPACE_HTTPS` | HTTP/izole çalışma modu; `ht_status.shell.network` |
 | `workspace_name` | `string`, `project` | – (Actions girdisi) | Yalnızca `serve` yayını |
 | `auto_renew` | `boolean`, `false` | – (Actions girdisi) | Yalnızca `serve` yayını |
@@ -175,8 +174,8 @@ node bundle/index.js --http --port 8787 --profile balanced      # 127.0.0.1'e ba
 | Mod | Bağlayıcı adresi | Giriş | Araçlar |
 |---|---|---|---|
 | `open` | `https://<host>/mcp` | **zorunlu** — statik bearer ya da OAuth oturumu (keşif yayınlanır, 401 + `www-authenticate` döner) | **tüm araçlar (21)** |
-| `open` + `HARDTOOLS_PUBLIC_TOOLS=safe` | `https://<host>/mcp` | yok | güvenli küme: `ht_read`, `ht_glob`, `ht_search`, `ht_status`, `ht_user_input`, `ht_image_search`, `ht_fetch`, `ht_share` |
-| `open` + `HARDTOOLS_PUBLIC_TOOLS="ht_read,ht_glob,…"` | `https://<host>/mcp` | yok | yalnız listelenen araçlar |
+| `open` + `HARDTOOLS_PUBLIC_TOOLS=safe` | `https://<host>/mcp` | yok | güvenli küme: `ht_glob`, `ht_search`, `ht_status`, `ht_user_input`, `ht_image_search`, `ht_fetch`, `ht_share` |
+| `open` + `HARDTOOLS_PUBLIC_TOOLS="ht_glob,ht_search,…"` | `https://<host>/mcp` | yok | yalnız listelenen araçlar |
 | `key` | `https://<host>/c/<anahtar>` | yok — anahtar (≥32 karakter) adreste kimlik yerine geçer | **tüm araçlar (21)** |
 
 ```bash

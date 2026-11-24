@@ -187,7 +187,7 @@ export async function runShell(policy: Policy, a: ShellArgs, vars = new Variable
       text: JSON.stringify({
         status: "started", background: true, pid: child.pid,
         output_file: `/work/home/tmp/${name}`,
-        note: "Komut arka planda çalışıyor. Çıktıyı ht_read ile oku; bitip bitmediğini dosyanın sonundaki '# bitti:' satırından anlarsın.",
+        note: "Komut arka planda çalışıyor. Çıktıyı tail/cat ile oku; bitip bitmediğini dosyanın sonundaki '# bitti:' satırından anlarsın.",
       }),
       isError: false,
     });

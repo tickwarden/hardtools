@@ -82,7 +82,7 @@ test("public mode (open): full tool set stays behind the login gate", async (t) 
   });
   assert.equal(withBearer.status, 200, withBearer.body);
   const names = parse(withBearer).result.tools.map((t2) => t2.name);
-  for (const wanted of ["ht_read", "ht_write", "ht_edit", "ht_shell", "ht_transfer_file", "ht_new_shell_env", "ht_add_var"]) {
+  for (const wanted of ["ht_glob", "ht_edit", "ht_shell", "ht_transfer_file", "ht_new_shell_env", "ht_add_var"]) {
     assert.ok(names.includes(wanted), `${wanted} açık olmalı; gelenler: ${names.join(",")}`);
   }
 });
@@ -104,17 +104,17 @@ test("public mode (open + safe list): login-free read-only connector keeps the o
   assert.equal(init.headers["www-authenticate"], undefined);
 
   const names = parse(await rpc(port, "/mcp", { jsonrpc: "2.0", id: 2, method: "tools/list", params: {} })).result.tools.map((t2) => t2.name).sort();
-  assert.ok(names.includes("ht_read"), names.join(","));
+  assert.ok(names.includes("ht_glob"), names.join(","));
   assert.ok(names.includes("ht_user_input"), names.join(","));
-  for (const forbidden of ["ht_shell", "ht_write", "ht_edit", "ht_transfer_file", "ht_new_shell_env"]) {
+  for (const forbidden of ["ht_shell", "ht_edit", "ht_transfer_file", "ht_new_shell_env"]) {
     assert.equal(names.includes(forbidden), false, `${forbidden} sızmamalı`);
   }
 });
 
 test("public mode (open + custom list): only the listed tools, still no login", async (t) => {
-  const { port } = await start(t, { HARDTOOLS_PUBLIC: "open", HARDTOOLS_PUBLIC_TOOLS: "ht_read,ht_status" });
+  const { port } = await start(t, { HARDTOOLS_PUBLIC: "open", HARDTOOLS_PUBLIC_TOOLS: "ht_glob,ht_status" });
   const names = parse(await rpc(port, "/mcp", { jsonrpc: "2.0", id: 1, method: "tools/list", params: {} })).result.tools.map((t2) => t2.name).sort();
-  assert.deepEqual(names, ["ht_read", "ht_status"]);
+  assert.deepEqual(names, ["ht_glob", "ht_status"]);
 });
 
 test("public mode (key): /mcp needs the key url, /c/<key> exposes the full tool set", async (t) => {
@@ -158,7 +158,7 @@ test("public mode (open + safe + key): /mcp kısıtlı, /c/<key> tam yetkili", a
 
   const anon = parse(await rpc(port, "/mcp", { jsonrpc: "2.0", id: 1, method: "tools/list", params: {} })).result.tools.map((x) => x.name);
   assert.equal(anon.includes("ht_shell"), false, "/mcp adsız kimlik kısıtlı kalmalı");
-  assert.ok(anon.includes("ht_read"), anon.join(","));
+  assert.ok(anon.includes("ht_glob"), anon.join(","));
 
   const keyed = parse(await rpc(port, `/c/${KEY}`, { jsonrpc: "2.0", id: 2, method: "tools/list", params: {} })).result.tools.map((x) => x.name);
   assert.ok(keyed.includes("ht_shell"), "anahtar kimliği tam set almalı: " + keyed.join(","));
@@ -171,6 +171,6 @@ test("public mode (open + all + ANON=1): tam araç seti girişsiz, keşif yine 4
   const init = await rpc(port, "/mcp", { jsonrpc: "2.0", id: 1, method: "initialize", params: { protocolVersion: "2025-06-18", capabilities: {}, clientInfo: { name: "t", version: "1" } } });
   assert.equal(init.status, 200, init.body);
   const names = parse(await rpc(port, "/mcp", { jsonrpc: "2.0", id: 2, method: "tools/list", params: {} })).result.tools.map((x) => x.name);
-  assert.ok(names.includes("ht_shell") && names.includes("ht_write") && names.includes("ht_delete_var"), names.join(","));
+  assert.ok(names.includes("ht_shell") && names.includes("ht_edit") && names.includes("ht_delete_var"), names.join(","));
   assert.equal((await request(port, { target: "/.well-known/oauth-protected-resource" })).status, 404);
 });

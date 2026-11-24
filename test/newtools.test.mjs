@@ -59,31 +59,6 @@ test("ht_mkdir: creates nested dirs, idempotent, refuses files/.git/outside", as
   } finally { await s.client.close(); }
 });
 
-test("ht_move: rename/move, never overwrites, mkdirp, dir moves, and all refusals", async () => {
-  const s = await session();
-  try {
-    fs.writeFileSync(R(s, "a.txt"), "AAA"); fs.writeFileSync(R(s, "b.txt"), "BBB"); fs.mkdirSync(R(s, "d/sub"), { recursive: true }); fs.writeFileSync(R(s, "d/sub/f.txt"), "F");
-    let r = await s.call("ht_move", { from: "a.txt", to: "a2.txt" }); assert.ok(!r.err, r.t); assert.ok(!fs.existsSync(R(s, "a.txt"))); assert.equal(fs.readFileSync(R(s, "a2.txt"), "utf8"), "AAA");
-    r = await s.call("ht_move", { from: "a2.txt", to: "b.txt" }); assert.ok(r.err); assert.match(r.t, /exists/); assert.equal(fs.readFileSync(R(s, "b.txt"), "utf8"), "BBB"); assert.ok(fs.existsSync(R(s, "a2.txt")));
-    r = await s.call("ht_move", { from: "a2.txt", to: "new/dir/a.txt" }); assert.ok(r.err); assert.match(r.t, /no_parent/);
-    r = await s.call("ht_move", { from: "a2.txt", to: "new/dir/a.txt", mkdirp: true }); assert.ok(!r.err, r.t); assert.equal(fs.readFileSync(R(s, "new/dir/a.txt"), "utf8"), "AAA");
-    r = await s.call("ht_move", { from: "d", to: "d2" }); assert.ok(!r.err, r.t); assert.ok(fs.existsSync(R(s, "d2/sub/f.txt")));
-    r = await s.call("ht_move", { from: "d2", to: "d2/sub/inner" }); assert.ok(r.err); assert.match(r.t, /into_self/);
-    r = await s.call("ht_move", { from: "b.txt", to: "d2" }); assert.ok(r.err); assert.match(r.t, /exists/); // no "move into dir" semantics
-    r = await s.call("ht_move", { from: "nope", to: "x" }); assert.ok(r.err); assert.match(r.t, /not_found/);
-    r = await s.call("ht_move", { from: ".", to: "x" }); assert.ok(r.err);
-    fs.mkdirSync(R(s, ".git")); fs.writeFileSync(R(s, ".git/config"), "x");
-    r = await s.call("ht_move", { from: ".git", to: "gitcopy" }); assert.ok(r.err); assert.ok(fs.existsSync(R(s, ".git/config")));
-    r = await s.call("ht_move", { from: "b.txt", to: ".git/b.txt" }); assert.ok(r.err); assert.ok(fs.existsSync(R(s, "b.txt")));
-    fs.writeFileSync(path.join(s.outside, "o.txt"), "OUT");
-    r = await s.call("ht_move", { from: path.join(s.outside, "o.txt"), to: "stolen.txt" }); assert.ok(r.err); assert.ok(fs.existsSync(path.join(s.outside, "o.txt")));
-    r = await s.call("ht_move", { from: "b.txt", to: path.join(s.outside, "b.txt") }); assert.ok(r.err); assert.ok(!fs.existsSync(path.join(s.outside, "b.txt")));
-    fs.symlinkSync(path.join(s.outside, "o.txt"), R(s, "sl")); r = await s.call("ht_move", { from: "sl", to: "sl2" }); assert.ok(r.err); assert.match(r.t, /symlink|outside_roots/); assert.ok(fs.existsSync(path.join(s.outside, "o.txt")));
-    fs.symlinkSync(R(s, "b.txt"), R(s, "inroot-link")); r = await s.call("ht_move", { from: "inroot-link", to: "moved-link" }); assert.ok(r.err); assert.match(r.t, /symlink_source/); assert.ok(fs.existsSync(R(s, "b.txt")));
-    fs.writeFileSync(R(s, ".env"), "S=1"); r = await s.call("ht_move", { from: ".env", to: "env.txt" }); assert.ok(r.err); assert.ok(fs.existsSync(R(s, ".env")));
-  } finally { await s.client.close(); }
-});
-
 test("ht_trash: reversible delete with manifest; refuses roots/.git/outside and re-trashing", async () => {
   const s = await session();
   try {
@@ -93,7 +68,7 @@ test("ht_trash: reversible delete with manifest; refuses roots/.git/outside and 
     assert.equal(fs.readFileSync(path.join(tdir, items[0]), "utf8"), "KEEP-ME");
     assert.equal(JSON.parse(fs.readFileSync(path.join(tdir, "index.jsonl"), "utf8").trim()).original, "x.txt");
     assert.equal(fs.statSync(tdir).mode & 0o777, 0o700);
-    r = await s.call("ht_move", { from: `.ht-trash/${items[0]}`, to: "x.txt" }); assert.ok(!r.err, r.t); assert.equal(fs.readFileSync(R(s, "x.txt"), "utf8"), "KEEP-ME"); // restore
+    r = await s.call("ht_shell", { argv: ["mv", `.ht-trash/${items[0]}`, "x.txt"] }); assert.ok(!r.err, r.t); assert.equal(fs.readFileSync(R(s, "x.txt"), "utf8"), "KEEP-ME"); // restore
     r = await s.call("ht_trash", { path: "dir" }); assert.ok(r.err); assert.match(r.t, /needs_recursive/); assert.ok(fs.existsSync(R(s, "dir/in/y.txt")));
     r = await s.call("ht_trash", { path: "dir", recursive: true }); assert.ok(!r.err, r.t); assert.ok(!fs.existsSync(R(s, "dir")));
     const after = fs.readdirSync(tdir).filter(n => n !== "index.jsonl"); assert.equal(after.length, 1);
@@ -113,11 +88,11 @@ test("ht_trash: reversible delete with manifest; refuses roots/.git/outside and 
   } finally { await s.client.close(); }
 });
 
-test("write-disabled policy disables ht_mkdir/ht_move/ht_trash but not ht_glob", async () => {
+test("write-disabled policy disables ht_mkdir/ht_trash but not ht_glob", async () => {
   const s = await session({ fs: { writeEnabled: false } });
   try {
     fs.writeFileSync(R(s, "a.txt"), "A");
-    for (const [n, a] of [["ht_mkdir", { path: "d" }], ["ht_move", { from: "a.txt", to: "b.txt" }], ["ht_trash", { path: "a.txt" }]]) { const r = await s.call(n, a); assert.ok(r.err, n); assert.match(r.t, /write_disabled/, n); }
+    for (const [n, a] of [["ht_mkdir", { path: "d" }], ["ht_trash", { path: "a.txt" }]]) { const r = await s.call(n, a); assert.ok(r.err, n); assert.match(r.t, /write_disabled/, n); }
     assert.ok(fs.existsSync(R(s, "a.txt"))); assert.ok(!(await s.call("ht_glob", { pattern: "*.txt" })).err);
   } finally { await s.client.close(); }
 });

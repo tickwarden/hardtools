@@ -38,7 +38,7 @@ const text = (r) => r.content.map(c => c.text ?? "").join("\n");
 test("ht_new_shell_env: a fresh root, the old tree in the recycle bin, variables cleared", async (t) => {
   const root = tmp("ht-env-root-"); const envs = tmp("ht-env-base-");
   const { client } = await connect(t, { root, envs });
-  await client.callTool({ name: "ht_write", arguments: { path: "eski.txt", content: "eski içerik\n" } });
+  await client.callTool({ name: "ht_shell", arguments: { argv: ["node", "-e", "const fs=require('fs'),p=require('path');fs.mkdirSync(p.dirname(process.argv[1])||'.',{recursive:true});fs.writeFileSync(process.argv[1],process.argv[2])", "eski.txt", "eski içerik\n"] } });
   await client.callTool({ name: "ht_add_var", arguments: { name: "RENK", value: "mavi" } });
 
   const res = await client.callTool({ name: "ht_new_shell_env", arguments: { label: "temiz" } });
@@ -52,10 +52,10 @@ test("ht_new_shell_env: a fresh root, the old tree in the recycle bin, variables
   assert.equal(info.variables_cleared, 1);
 
   // Yeni kök aktif: yazma buraya gider, eski dosya görünmez.
-  const w = await client.callTool({ name: "ht_write", arguments: { path: "yeni.txt", content: "yeni\n" } });
+  const w = await client.callTool({ name: "ht_shell", arguments: { argv: ["node", "-e", "const fs=require('fs'),p=require('path');fs.mkdirSync(p.dirname(process.argv[1])||'.',{recursive:true});fs.writeFileSync(process.argv[1],process.argv[2])", "yeni.txt", "yeni\n"] } });
   assert.ok(!w.isError, text(w));
   assert.ok(fs.existsSync(path.join(info.root, "yeni.txt")));
-  const rd = await client.callTool({ name: "ht_read", arguments: { path: "eski.txt" } });
+  const rd = await client.callTool({ name: "ht_shell", arguments: { argv: ["cat", "eski.txt"] } });
   assert.ok(rd.isError, "eski dosya yeni kökte olmamalı");
 
   const status = JSON.parse(text(await client.callTool({ name: "ht_status", arguments: {} })));
@@ -68,7 +68,7 @@ test("ht_new_shell_env: a fresh root, the old tree in the recycle bin, variables
 test("ht_new_shell_env: carry_files=true keeps the tree, and bad labels are refused", async (t) => {
   const root = tmp("ht-env-root-"); const envs = tmp("ht-env-base-");
   const { client } = await connect(t, { root, envs });
-  await client.callTool({ name: "ht_write", arguments: { path: "kalsin.txt", content: "veri\n" } });
+  await client.callTool({ name: "ht_shell", arguments: { argv: ["node", "-e", "const fs=require('fs'),p=require('path');fs.mkdirSync(p.dirname(process.argv[1])||'.',{recursive:true});fs.writeFileSync(process.argv[1],process.argv[2])", "kalsin.txt", "veri\n"] } });
   const res = JSON.parse(text(await client.callTool({ name: "ht_new_shell_env", arguments: { carry_files: true } })));
   assert.equal(res.previous_moved_to, null);
   assert.ok(fs.existsSync(path.join(res.root, "kalsin.txt")), "taşınan dosya yeni kökte olmalı");
@@ -93,7 +93,7 @@ test("ht_new_shell_env: the default base stays put across rotations", async (t) 
 test("ht_stop: reset + yapılandırılmış end_conversation direktifi", async (t) => {
   const root = tmp("ht-env-root-"); const envs = tmp("ht-env-base-"); const audit = tmp("ht-env-audit-");
   const { client } = await connect(t, { root, envs, audit });
-  await client.callTool({ name: "ht_write", arguments: { path: "is.txt", content: "x\n" } });
+  await client.callTool({ name: "ht_shell", arguments: { argv: ["node", "-e", "const fs=require('fs'),p=require('path');fs.mkdirSync(p.dirname(process.argv[1])||'.',{recursive:true});fs.writeFileSync(process.argv[1],process.argv[2])", "is.txt", "x\n"] } });
   const res = await client.callTool({ name: "ht_stop", arguments: { title: "Refactor bitti", reason: "İş tamamlandı" } });
   assert.ok(!res.isError, text(res));
   const info = JSON.parse(text(res));

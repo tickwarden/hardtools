@@ -68,7 +68,7 @@ test("tüm tarayıcı sayfaları ortak arayüzü kullanır: koyu/kör mod + tek 
 test("ayar sayfası: giriş, kaydetme, araç kapatma ve çıkış", async (t) => {
   const { port } = await httpServer(t);
 
-  const denied = await req(port, { method: "POST", target: "/settings/save", headers: { "content-type": "application/x-www-form-urlencoded" }, body: "tool=ht_read" });
+  const denied = await req(port, { method: "POST", target: "/settings/save", headers: { "content-type": "application/x-www-form-urlencoded" }, body: "tool=ht_glob" });
   assert.equal(denied.status, 200);
   assert.match(denied.body, /GitHub ile giriş/, "oturum yoksa giriş sayfası");
 
@@ -83,7 +83,7 @@ test("ayar sayfası: giriş, kaydetme, araç kapatma ve çıkış", async (t) =>
   assert.match(pageOk.body, /ht_shell/);
 
   // ht_shell'i kapat: formdan yalnızca açık kalanlar gelir
-  const keep = ["ht_read", "ht_status"];
+  const keep = ["ht_glob", "ht_status"];
   const save = await req(port, {
     method: "POST", target: "/settings/save", headers: { cookie, "content-type": "application/x-www-form-urlencoded" },
     body: new URLSearchParams([["tool", keep[0]], ["tool", keep[1]], ["networkEnabled", "1"], ["addUrl", "api.github.com"], ["addCommand", "git"]]).toString(),
@@ -92,7 +92,7 @@ test("ayar sayfası: giriş, kaydetme, araç kapatma ve çıkış", async (t) =>
 
   const after = await mcp(port, TOKEN);
   assert.ok(!after.tools.includes("ht_shell"), "kapatılan araç listelenmemeli: " + after.tools.join(","));
-  assert.ok(after.tools.includes("ht_read"));
+  assert.ok(after.tools.includes("ht_glob"));
 
   // çıkış: çerez silinir, iptal raporlanır
   const out = await req(port, { method: "POST", target: "/settings/logout", headers: { cookie } });
@@ -214,6 +214,6 @@ test("ayar formu da aynı origin'den gönderilebilir", async (t) => {
   const login = await req(port, { method: "POST", target: "/settings/token", headers: { origin, "content-type": "application/x-www-form-urlencoded" }, body: new URLSearchParams({ token: TOKEN }).toString() });
   assert.equal(login.status, 303, login.body);
   const cookie = String(login.headers["set-cookie"]).split(";")[0];
-  const save = await req(port, { method: "POST", target: "/settings/save", headers: { origin, cookie, "content-type": "application/x-www-form-urlencoded" }, body: "tool=ht_read" });
+  const save = await req(port, { method: "POST", target: "/settings/save", headers: { origin, cookie, "content-type": "application/x-www-form-urlencoded" }, body: "tool=ht_glob" });
   assert.equal(save.status, 303, save.body);
 });

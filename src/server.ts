@@ -2,10 +2,12 @@
 import "./schema-runtime.js";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import * as z from "zod/v4";
+import fs from "node:fs";
+import pathMod from "node:path";
 import { Audit, summarize } from "./audit.js";
 import type { Policy } from "./config.js";
-import { htEmptyTrash, htGlob, htMkdir, htMove, htTrash } from "./fs-extra.js";
-import { htEdit, htRead, htWrite } from "./fs-tools.js";
+import { htEmptyTrash, htGlob, htMkdir, htTrash } from "./fs-extra.js";
+import { htEdit } from "./fs-tools.js";
 import { PolicyError } from "./guard.js";
 import { safeFetch } from "./net.js";
 import { htSearch } from "./search.js";
@@ -21,7 +23,7 @@ import { ErrorCode, ListResourcesRequestSchema, ListResourceTemplatesRequestSche
 
 // The HTTP worker can change its project tree. Do not race a running child against
 // host-side path checks (including cwd and stdin_file preparation for the next child).
-const usesProject = new Set(["ht_transfer_file", "ht_new_shell_env", "ht_stop","ht_read", "ht_write", "ht_edit", "ht_glob", "ht_search", "ht_move", "ht_mkdir", "ht_trash", "ht_empty_trash", "ht_shell", "ht_share"]);
+const usesProject = new Set(["ht_transfer_file", "ht_new_shell_env", "ht_stop", "ht_edit", "ht_glob", "ht_search", "ht_mkdir", "ht_trash", "ht_empty_trash", "ht_shell", "ht_share"]);
 export const createWorkspace = (inputStore?: string, shared?: { inputs?: import("./user-input.js").UserInputs; shares?: import("./share.js").Shares; vars?: import("./variables.js").Variables }) => ({
   // Değişkenler sahiplik (hesap) düzeyinde: aynı hesabın yeni sohbeti sırlarını kaybetmez.
   vars: shared?.vars ?? new Variables(),
@@ -37,9 +39,14 @@ export interface ServerOptions {
   tools?: Set<string> | null;
   /** MCP oturum etiketi; ht_status içinde gösterilir (hangi sohbetin hangi kökte olduğu). */
   sessionId?: string;
+  /** Bu kullanıcının MCP oturumları (sohbetleri): ht_session_info için. */
+  sessions?: () => Array<{ sid: string; dir: string; last: number }>;
   /** Kullanıcı ayarları: kapalı araçlar kaydedilmez, ht_manage_tool bunları değiştirir. */
   settings?: {
-    store: { get(u: string): { disabledTools: string[] }; setTool(u: string, n: string, e: boolean, by?: string): { settings: { disabledTools: string[] }; changed: boolean } };
+    store: {
+      get(u: string): { disabledTools: string[]; allowBgShell?: boolean; shellTimeoutS?: number; theme?: "dark" | "light" };
+      setTool(u: string, n: string, e: boolean, by?: string): { settings: { disabledTools: string[] }; changed: boolean };
+    };
     user: string;
     all: readonly string[];
   };
@@ -80,12 +87,6 @@ export function createServer(policy: Policy, audit: Audit, workspace = createWor
     } finally { release?.(); }
   };
 
-  register("ht_read", {
-    title: "Read file or list directory (confined)",
-    description: "Read a text file (with line numbers, line ranges, eol/BOM info and a sha256 to pass as if_hash when editing) or list a directory. Paths are confined to the configured roots; secrets files (.env, keys) are not readable.",
-    inputSchema: { path: z.string().describe("Path relative to the first root, or absolute inside a root"), start_line: z.number().int().min(1).optional(), end_line: z.number().int().min(1).optional(), numbered: z.boolean().optional() },
-    annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false },
-  }, wrap("ht_read", async (a: any) => workspace.inputs.mask(await htRead(policy, a))));
 
   register("ht_edit", {
     title: "Atomic multi-file exact-match edit",
@@ -97,12 +98,6 @@ export function createServer(policy: Policy, audit: Audit, workspace = createWor
     annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
   }, wrap("ht_edit", (a: any) => htEdit(policy, a)));
 
-  register("ht_write", {
-    title: "Create or atomically overwrite a text file",
-    description: "Create a new file (never clobbers an existing one unless overwrite=true). Overwriting requires if_hash from ht_read in strict/balanced profiles, so you cannot overwrite something you have not seen. Content is scanned for secrets.",
-    inputSchema: { path: z.string(), content: z.string(), overwrite: z.boolean().optional(), if_hash: z.string().regex(/^[0-9a-f]{64}$/).optional(), mkdirp: z.boolean().optional() },
-    annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false },
-  }, wrap("ht_write", (a: any) => htWrite(policy, a)));
 
   register("ht_search", {
     title: "Search code (regex, bounded, ReDoS-safe)",
@@ -129,12 +124,6 @@ export function createServer(policy: Policy, audit: Audit, workspace = createWor
     annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
   }, wrap("ht_mkdir", (a: any) => htMkdir(policy, a)));
 
-  register("ht_move", {
-    title: "Move / rename a file or directory (never overwrites)",
-    description: "Rename or move a regular file or directory within the allowed roots. `to` is the full new path (not a target directory) and must not exist: moves never overwrite. Refuses symlink sources, roots, anything inside .git, and moving a directory into itself. Use mkdirp=true for missing parents. Restore an item out of the trash with this tool; use ht_trash, not ht_move, to put an item in the managed trash.",
-    inputSchema: { from: z.string(), to: z.string(), mkdirp: z.boolean().optional() },
-    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
-  }, wrap("ht_move", (a: any) => htMove(policy, a)));
 
   register("ht_trash", {
     title: "Reversible delete: move to .ht-trash",
@@ -176,12 +165,16 @@ export function createServer(policy: Policy, audit: Audit, workspace = createWor
       expected_exit_codes: z.array(z.number().int().min(0).max(255)).min(1).max(32).optional().describe("If provided, unexpected exits, signals or timeouts set the MCP error flag"),
       inherit_vars: z.array(key).max(32).optional().describe("Names from ht_add_var; none by default"),
       max_output_bytes: z.number().int().positive().optional().describe("May only lower the profile's captured-output budget (bytes, before formatting)"),
-      is_bg: z.boolean().optional().describe("true: arka planda çalıştır, hemen dön. Çıktı /work/home/tmp/hardtools-bg-out-<oturum>-<sıra>.txt dosyasına yazılır; ht_read ile oku."),
+      is_bg: z.boolean().optional().describe("true: arka planda çalıştır, hemen dön. Çıktı /work/home/tmp/hardtools-bg-out-<oturum>-<sıra>.txt dosyasına yazılır; tail/cat ile oku."),
     },
     annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true },
   }, wrap("ht_shell", async (a: ShellArgs) => {
     // HT_USER_INPUT comes from ht_user_input and is never an MCP argument.
-    const r = await runShell(policy, { ...a, user_env: workspace.inputs.envFor(owner), session_id: opts.sessionId }, workspace.vars, owner);
+    const us = opts.settings?.store.get(opts.settings.user);
+    if (a.is_bg && us && us.allowBgShell === false)
+      throw new PolicyError("bg_disabled", "arka plan çalıştırma bu hesapta kapalı (Ayarlar → Kabuk)");
+    const timeoutOverride = us?.shellTimeoutS ? { timeout_ms: us.shellTimeoutS * 1000 } : {};
+    const r = await runShell(policy, { ...a, ...timeoutOverride, user_env: workspace.inputs.envFor(owner), session_id: opts.sessionId }, workspace.vars, owner);
     return { ...asText(workspace.inputs.mask(r.text)), isError: r.isError };
   }));
 
@@ -428,7 +421,7 @@ Returned: {status, question, selected[], custom, request_id, elapsed_s}.`,
       action: "new_environment", name: info.name, root: info.root, base: envBase(policy),
       previous_moved_to: info.recycled ?? null, files_moved: info.carriedFiles,
       carried_files: Boolean(a.carry_files), variables_cleared: vars,
-      next: "ht_shell, ht_read and ht_write all use the new root now. Previous contents (if any) are in the recycle bin under the environment base.",
+      next: "ht_shell and ht_edit use the new root now. Previous contents (if any) are in the recycle bin under the environment base.",
     }, null, 2);
   }));
 
@@ -477,6 +470,67 @@ Returned: {status, question, selected[], custom, request_id, elapsed_s}.`,
 
   type StatusArgs = { audit_export?: boolean; audit_snapshot?: string; audit_offset?: number };
   // ---- araç yönetimi ---------------------------------------------------------------------
+  // ---- yeni bağımsız araçlar (kabukla yapılamayan, sunucu tarafı durum) -------------------
+  register("ht_session_info", {
+    title: "Bu hesabın MCP oturumları (sohbetleri)",
+    description: "Sunucunun bildiği sohbetleri listeler: kısa oturum kimliği, çalışma kökü ve son kullanım zamanı. Her sohbet ayrı bir çalışma kökünde çalışır; bu bilgi yalnızca sunucuda tutulur, kabuktan görülemez. Şu anki oturum `current` alanında işaretlenir.",
+    inputSchema: { limit: z.number().int().min(1).max(100).optional().describe("En fazla kaç oturum (varsayılan 20)") },
+    annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false },
+  }, wrap("ht_session_info", (a: { limit?: number }) => {
+    const rows = (opts.sessions?.() ?? []).slice().sort((x, y) => y.last - x.last).slice(0, a.limit ?? 20);
+    const current = opts.sessionId ?? null;
+    return JSON.stringify({
+      current: current ? "s-" + current.replace(/^s-/, "") : null,
+      count: rows.length,
+      sessions: rows.map(r => ({
+        session: "s-" + r.sid.slice(0, 12),
+        current: current === "s-" + r.sid.slice(0, 12),
+        root: r.dir,
+        last_used: new Date(r.last).toISOString(),
+      })),
+      note: "Farklı sohbetler farklı köklerde çalışır; dosyalar sohbetler arasında paylaşılmaz.",
+    }, null, 2);
+  }));
+
+  register("ht_audit_query", {
+    title: "Denetim kaydını sorgula",
+    description: "Sunucunun denetim (audit) kayıtlarını okur: son olaylar, olay tipine göre filtre, özet sayım. Kayıtlar hash zinciriyle korunur ve yalnızca sunucudaki denetim dizininde durur; kabuk bu dizine erişemez. Sırlar ve dosya içerikleri kayda yazılmaz.",
+    inputSchema: {
+      limit: z.number().int().min(1).max(500).optional().describe("En fazla kaç olay dönsün (varsayılan 50)"),
+      ev: z.string().max(60).optional().describe("Yalnızca bu olay tipi (ör. shell, write, share, oauth_token)"),
+      files: z.number().int().min(1).max(10).optional().describe("En yeni kaç denetim dosyasına bakılsın (varsayılan 3)"),
+    },
+    annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false },
+  }, wrap("ht_audit_query", (a: { limit?: number; ev?: string; files?: number }) => {
+    const dir = pathMod.dirname(audit.file);
+    const names = (() => { try { return fs.readdirSync(dir).filter(n => n.endsWith(".jsonl")); } catch { return [] as string[]; } })()
+      .sort().slice(-(a.files ?? 3));
+    const events: Array<Record<string, unknown>> = [];
+    for (const n of names) {
+      let text = "";
+      try {
+        const st = fs.statSync(pathMod.join(dir, n));
+        const take = Math.min(st.size, 512 * 1024);
+        const fd = fs.openSync(pathMod.join(dir, n), "r");
+        try { const buf = Buffer.alloc(take); fs.readSync(fd, buf, 0, take, Math.max(0, st.size - take)); text = buf.toString("utf8"); }
+        finally { fs.closeSync(fd); }
+      } catch { continue; }
+      for (const line of text.split("\n")) {
+        if (!line.trim().startsWith("{")) continue;
+        try {
+          const row = JSON.parse(line) as Record<string, unknown>;
+          if (a.ev && String(row.ev) !== a.ev) continue;
+          if (typeof row.ev !== "string") continue;
+          events.push({ at: row.at ?? row.ts ?? null, ev: row.ev, ...(row.tool ? { tool: row.tool } : {}), ...(row.ok !== undefined ? { ok: row.ok } : {}) });
+        } catch { /* bozuk satır atlanır */ }
+      }
+    }
+    const picked = events.slice(-(a.limit ?? 50));
+    const byEvent: Record<string, number> = {};
+    for (const e of events) byEvent[String(e.ev)] = (byEvent[String(e.ev)] ?? 0) + 1;
+    return JSON.stringify({ scanned_files: names.length, matched: events.length, by_event: byEvent, events: picked }, null, 2);
+  }));
+
   register("ht_list_all_tools", {
     title: "List every hardtools tool (enabled, disabled, all)",
     description: "Shows all hardtools tools with their current state for this user: enabled, disabled and the complete catalog. Use it before ht_manage_tool when you are not sure what is off.",

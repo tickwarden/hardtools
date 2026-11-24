@@ -7347,12 +7347,12 @@ var require_dist = __commonJS({
         throw new Error(`Unknown format "${name}"`);
       return f;
     };
-    function addFormats(ajv, list, fs15, exportName) {
+    function addFormats(ajv, list, fs16, exportName) {
       var _a3;
       var _b;
       (_a3 = (_b = ajv.opts.code).formats) !== null && _a3 !== void 0 ? _a3 : _b.formats = (0, codegen_1._)`require("ajv-formats/dist/formats").${exportName}`;
       for (const f of list)
-        ajv.addFormat(f, fs15[f]);
+        ajv.addFormat(f, fs16[f]);
     }
     module.exports = exports = formatsPlugin;
     Object.defineProperty(exports, "__esModule", { value: true });
@@ -12796,7 +12796,7 @@ function equalSecret(candidate, expected) {
 
 // src/index.ts
 import crypto11 from "node:crypto";
-import fs14 from "node:fs";
+import fs15 from "node:fs";
 import path15 from "node:path";
 import { basename as pathBase, dirname as pathDir } from "node:path";
 import http3 from "node:http";
@@ -17029,7 +17029,7 @@ var GUARD_JS = `
 })();`;
 function page(o) {
   return `<!doctype html>
-<html lang="tr" data-theme="dark">
+<html lang="tr" data-theme="${o.theme === "light" ? "light" : "dark"}">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
@@ -17256,7 +17256,10 @@ var OAuth = class {
         response_types_supported: ["code"],
         grant_types_supported: ["authorization_code", "refresh_token"],
         code_challenge_methods_supported: ["S256"],
-        token_endpoint_auth_methods_supported: ["none"]
+        token_endpoint_auth_methods_supported: ["none"],
+        revocation_endpoint: `${origin}/revoke`,
+        revocation_endpoint_auth_methods_supported: ["none"],
+        userinfo_endpoint: `${origin}/userinfo`
       });
       return true;
     }
@@ -17278,6 +17281,14 @@ var OAuth = class {
     }
     if (path16 === "/token") {
       await this.tokenEndpoint(req, res);
+      return true;
+    }
+    if (path16 === "/revoke") {
+      await this.revokeEndpoint(req, res);
+      return true;
+    }
+    if (path16 === "/userinfo") {
+      await this.userinfoEndpoint(req, res);
       return true;
     }
     if (path16.startsWith("/invite/")) {
@@ -17610,6 +17621,40 @@ ${note ? `<p class="muted">${esc4(note)}</p>` : ""}
       "content-security-policy": PAGE_CSP
     });
     res.end(page({ title: "hardtools \xB7 giri\u015F", subtitle: "OAuth", body: `${heading("Ba\u011Flant\u0131 izni")}${error2 ? `<p class="e">${esc4(error2)}</p>` : ""}${form}` }));
+  }
+  // ---- RFC 7009: token iptali ----------------------------------------------------------------
+  async revokeEndpoint(req, res) {
+    if (req.method !== "POST") return this.oerr(res, 405, "invalid_request", "POST only");
+    const p = await this.readParams(req);
+    if (!p) return this.oerr(res, 400, "invalid_request", "malformed or oversized body");
+    const raw = String(p.token ?? "").replace(/^hta\./, "");
+    const at = this.verify(raw, "at"), rt = at ?? this.verify(raw, "rt");
+    if (!rt) {
+      this.o.audit?.({ ev: "oauth_revoke", ok: false, reason: "unknown_token" });
+      return this.json(res, 200, { revoked: false });
+    }
+    const grant = String(at ? rt.grant : rt.grant);
+    if (grant) this.o.onRevoke?.(grant, String(rt.login ?? ""));
+    this.o.audit?.({ ev: "oauth_revoke", ok: true, grant: grant.slice(0, 8) });
+    return this.json(res, 200, { revoked: true });
+  }
+  // ---- kullanıcı bilgisi (taşıyıcı token ile) -------------------------------------------------
+  async userinfoEndpoint(req, res) {
+    if (req.method !== "GET") return this.oerr(res, 405, "invalid_request", "GET only");
+    const h = String(req.headers.authorization ?? "");
+    const raw = h.startsWith("Bearer ") ? h.slice(7).replace(/^hta\./, "") : "";
+    const at = raw ? this.verify(raw, "at") : null;
+    if (!at) {
+      res.writeHead(401, { "content-type": "application/json", "www-authenticate": 'Bearer error="invalid_token"' });
+      res.end(JSON.stringify({ error: "invalid_token" }));
+      return;
+    }
+    if (this.o.grantRevoked?.(String(at.grant))) {
+      res.writeHead(401, { "content-type": "application/json", "www-authenticate": 'Bearer error="invalid_token"' });
+      res.end(JSON.stringify({ error: "invalid_token", error_description: "grant was revoked" }));
+      return;
+    }
+    return this.json(res, 200, { sub: String(at.grant ?? ""), client_id: String(at.cid ?? ""), scope: "mcp", exp: Number(at.exp ?? 0) });
   }
   // ---- token endpoint ---------------------------------------------------------------------
   async tokenEndpoint(req, res) {
@@ -25694,6 +25739,10 @@ var EMPTY_COMPLETION_RESULT = {
   }
 };
 
+// src/server.ts
+import fs13 from "node:fs";
+import pathMod from "node:path";
+
 // src/fs-extra.ts
 import crypto6 from "node:crypto";
 import fs6 from "node:fs";
@@ -25736,47 +25785,6 @@ var detectEol = (s) => {
   const lf = (s.match(/\n/g) ?? []).length - crlf;
   return crlf && lf ? "mixed" : crlf ? "crlf" : lf ? "lf" : "none";
 };
-function htRead(policy, a) {
-  const r = resolveSafe(policy, a.path, "read");
-  const lst = fs4.lstatSync(r.abs);
-  if (lst.isDirectory()) {
-    const names = fs4.readdirSync(r.abs, { withFileTypes: true });
-    let hidden = 0;
-    const rows = [];
-    for (const d of names.sort((x, y) => x.name.localeCompare(y.name))) {
-      const child = path4.join(r.abs, d.name);
-      if (isDeniedRead(policy, child)) {
-        hidden++;
-        continue;
-      }
-      if (rows.length >= 300) {
-        rows.push("\u2026 (truncated at 300 entries)");
-        break;
-      }
-      rows.push(d.isDirectory() ? `${d.name}/` : d.isSymbolicLink() ? `${d.name}@ (symlink)` : `${d.name}	${fs4.statSync(child).size} B`);
-    }
-    return `DIR ${path4.relative(r.root, r.abs) || "."}
-${rows.join("\n")}${hidden ? `
-(${hidden} protected entries hidden)` : ""}`;
-  }
-  const buf = readBytesNoFollow(r.abs, policy.fs.maxReadBytes);
-  if (looksBinary(buf)) throw new PolicyError("binary_file", `binary file (${buf.length} bytes); not returned`);
-  let text = buf.toString("utf8");
-  const bom = text.charCodeAt(0) === 65279;
-  if (bom) text = text.slice(1);
-  const lossy = text.includes("\uFFFD");
-  const lines = text.split(/\r?\n/);
-  if (lines.at(-1) === "") lines.pop();
-  const s = Math.max(1, a.start_line ?? 1);
-  const e = Math.min(lines.length, a.end_line ?? Math.min(lines.length, s + 1999));
-  if (s > lines.length && lines.length) throw new PolicyError("range", `start_line ${s} is beyond end of file (${lines.length} lines)`);
-  const numbered = a.numbered ?? true;
-  const body = lines.slice(s - 1, e).map((l, i) => numbered ? `${s + i}	${l}` : l).join("\n");
-  const head = `FILE ${path4.relative(r.root, r.abs)} | lines ${lines.length ? s : 0}-${e} of ${lines.length} | eol=${detectEol(text)}${bom ? " | bom" : ""}${lossy ? " | NOT valid UTF-8 (lossy; ht_edit will refuse)" : ""} | sha256=${sha2(buf)}`;
-  return `${head}
-${body}${e < lines.length ? `
-\u2026 ${lines.length - e} more lines (use start_line/end_line)` : ""}`;
-}
 function atomicWrite(abs, data, mode, noClobber) {
   const dir = path4.dirname(abs);
   const tmp = path4.join(dir, `.${path4.basename(abs)}.ht-${crypto4.randomBytes(6).toString("hex")}.tmp`);
@@ -25804,35 +25812,6 @@ function atomicWrite(abs, data, mode, noClobber) {
     } catch {
     }
   }
-}
-function htWrite(policy, a) {
-  const r = resolveSafe(policy, a.path, "write");
-  if (a.content.includes("\0")) throw new PolicyError("binary_content", "NUL bytes are not allowed (text files only)");
-  const data = Buffer.from(a.content, "utf8");
-  if (data.length > policy.fs.maxWriteBytes) throw new PolicyError("too_large", `content is ${data.length} bytes; limit is ${policy.fs.maxWriteBytes}`);
-  const warnings = enforceSecrets(policy, a.content, "content");
-  let mode = 420;
-  let existed = false;
-  if (r.exists) {
-    const st = fs4.lstatSync(r.abs);
-    if (!st.isFile()) throw new PolicyError("not_a_file", "target exists and is not a regular file");
-    existed = true;
-    mode = st.mode;
-    if (!a.overwrite) throw new PolicyError("exists", "file exists; set overwrite=true" + (policy.fs.requireHashForOverwrite ? " and pass if_hash from ht_read" : ""));
-    if (policy.fs.requireHashForOverwrite && !a.if_hash) throw new PolicyError("hash_required", "overwriting requires if_hash (read the file first with ht_read)");
-    if (a.if_hash) {
-      const cur = sha2(readBytesNoFollow(r.abs, Math.max(policy.fs.maxReadBytes, st.size)));
-      if (cur !== a.if_hash) throw new PolicyError("hash_mismatch", "file changed since it was read (if_hash mismatch); re-read it");
-    }
-  } else {
-    const dir = path4.dirname(r.abs);
-    if (!fs4.existsSync(dir)) {
-      if (!a.mkdirp) throw new PolicyError("no_parent", "parent directory does not exist (set mkdirp=true)");
-      fs4.mkdirSync(dir, { recursive: true });
-    }
-  }
-  atomicWrite(r.abs, data, mode, !existed);
-  return `${existed ? "OVERWROTE" : "CREATED"} ${path4.relative(r.root, r.abs)} | ${data.length} bytes | sha256=${sha2(data)}${warnings.length ? "\nWARNINGS:\n- " + warnings.join("\n- ") : ""}`;
 }
 function lineOf(text, idx) {
   let n = 1;
@@ -25877,7 +25856,7 @@ function htEdit(policy, a) {
   const groups = /* @__PURE__ */ new Map();
   for (const e of a.edits) {
     const r = resolveSafe(policy, e.path, "write");
-    if (!r.exists) throw new PolicyError("not_found", `file does not exist: ${e.path} (use ht_write to create files)`);
+    if (!r.exists) throw new PolicyError("not_found", `file does not exist: ${e.path} (create files with the shell)`);
     const g = groups.get(r.abs) ?? { r, items: [] };
     g.items.push(e);
     groups.set(r.abs, g);
@@ -26157,33 +26136,6 @@ function moveNoClobber(from, to, isFile) {
     throw e;
   }
 }
-function htMove(policy, a) {
-  refuseSymlinkSource(policy, a.from);
-  const src = resolveSafe(policy, a.from, "write");
-  if (!src.exists) throw new PolicyError("not_found", `source does not exist: ${a.from}`);
-  assertNotProtectedTree(policy, src, "move");
-  const st = fs6.lstatSync(src.abs);
-  if (!st.isFile() && !st.isDirectory()) throw new PolicyError("unsupported_type", "only regular files and directories can be moved");
-  const dst = resolveSafe(policy, a.to, "write");
-  if (dst.exists) throw new PolicyError("exists", "destination already exists; moves never overwrite (give the full new path, not a target directory)");
-  assertNotProtectedTree(policy, dst, "move into");
-  if (st.isDirectory() && isInside(src.abs, dst.abs)) throw new PolicyError("into_self", "cannot move a directory into itself");
-  const parts = relParts(src);
-  if (parts[0] === TRASH_DIR && parts[1] === INDEX) throw new PolicyError("trash_protected", "cannot move the trash index");
-  if (relParts(dst)[0] === TRASH_DIR) throw new PolicyError("trash_protected", "use ht_trash to move an item into the trash");
-  const move = () => {
-    const parent = path6.dirname(dst.abs);
-    if (!fs6.existsSync(parent)) {
-      if (!a.mkdirp) throw new PolicyError("no_parent", "destination directory does not exist (set mkdirp=true)");
-      fs6.mkdirSync(parent, { recursive: true });
-    }
-    moveNoClobber(src.abs, dst.abs, st.isFile());
-  };
-  if (parts[0] === TRASH_DIR && parts.length === 2) {
-    updateTrashIndex(policy, src.root, (rows) => rows.delete(parts[1]), move, () => moveNoClobber(dst.abs, src.abs, st.isFile()));
-  } else move();
-  return `MOVED ${path6.relative(src.root, src.abs)} -> ${path6.relative(dst.root, dst.abs)} (${st.isDirectory() ? "directory" : `file, ${st.size} B`})`;
-}
 function htTrash(policy, a) {
   refuseSymlinkSource(policy, a.path);
   const src = resolveSafe(policy, a.path, "write");
@@ -26213,7 +26165,7 @@ function htTrash(policy, a) {
     () => moveNoClobber(dst.abs, src.abs, st.isFile())
   );
   return `TRASHED ${original} -> ${TRASH_DIR}/${name}
-Restore with ht_move from=${JSON.stringify(`${TRASH_DIR}/${name}`)} to=${JSON.stringify(original)}`;
+Restore by moving it back from ${JSON.stringify(`${TRASH_DIR}/${name}`)} (e.g. mv) to=${JSON.stringify(original)}`;
 }
 function htEmptyTrash(policy, a) {
   const mode = a.confirm === true ? "write" : "read";
@@ -26293,7 +26245,7 @@ function anyMatch(patterns, value) {
 }
 
 // src/version.ts
-var VERSION = "0.5.24";
+var VERSION = "1.5.24";
 
 // src/net.ts
 var blocked = new net.BlockList();
@@ -27324,7 +27276,7 @@ async function runShell(policy, a, vars = new Variables(), owner = "stdio") {
         background: true,
         pid: child.pid,
         output_file: `/work/home/tmp/${name}`,
-        note: "Komut arka planda \xE7al\u0131\u015F\u0131yor. \xC7\u0131kt\u0131y\u0131 ht_read ile oku; bitip bitmedi\u011Fini dosyan\u0131n sonundaki '# bitti:' sat\u0131r\u0131ndan anlars\u0131n."
+        note: "Komut arka planda \xE7al\u0131\u015F\u0131yor. \xC7\u0131kt\u0131y\u0131 tail/cat ile oku; bitip bitmedi\u011Fini dosyan\u0131n sonundaki '# bitti:' sat\u0131r\u0131ndan anlars\u0131n."
       }),
       isError: false
     });
@@ -28286,7 +28238,7 @@ var UserInputs = class {
 };
 
 // src/server.ts
-var usesProject = /* @__PURE__ */ new Set(["ht_transfer_file", "ht_new_shell_env", "ht_stop", "ht_read", "ht_write", "ht_edit", "ht_glob", "ht_search", "ht_move", "ht_mkdir", "ht_trash", "ht_empty_trash", "ht_shell", "ht_share"]);
+var usesProject = /* @__PURE__ */ new Set(["ht_transfer_file", "ht_new_shell_env", "ht_stop", "ht_edit", "ht_glob", "ht_search", "ht_mkdir", "ht_trash", "ht_empty_trash", "ht_shell", "ht_share"]);
 var createWorkspace = (inputStore, shared) => ({
   // Değişkenler sahiplik (hesap) düzeyinde: aynı hesabın yeni sohbeti sırlarını kaybetmez.
   vars: shared?.vars ?? new Variables(),
@@ -28336,12 +28288,6 @@ function createServer(policy, audit, workspace = createWorkspace(), owner = "std
       release?.();
     }
   };
-  register("ht_read", {
-    title: "Read file or list directory (confined)",
-    description: "Read a text file (with line numbers, line ranges, eol/BOM info and a sha256 to pass as if_hash when editing) or list a directory. Paths are confined to the configured roots; secrets files (.env, keys) are not readable.",
-    inputSchema: { path: string2().describe("Path relative to the first root, or absolute inside a root"), start_line: number2().int().min(1).optional(), end_line: number2().int().min(1).optional(), numbered: boolean2().optional() },
-    annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false }
-  }, wrap("ht_read", async (a) => workspace.inputs.mask(await htRead(policy, a))));
   register("ht_edit", {
     title: "Atomic multi-file exact-match edit",
     description: "Apply exact-string edits across one or more files ALL-OR-NOTHING: every edit is validated in memory first (unique match, if_hash precondition, secret scan, size), concurrent modification is detected, files are written atomically (temp+rename) and rolled back on failure. Use dry_run=true to preview a diff. CRLF files are handled automatically; $-sequences in new_str are literal.",
@@ -28351,12 +28297,6 @@ function createServer(policy, audit, workspace = createWorkspace(), owner = "std
     },
     annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false }
   }, wrap("ht_edit", (a) => htEdit(policy, a)));
-  register("ht_write", {
-    title: "Create or atomically overwrite a text file",
-    description: "Create a new file (never clobbers an existing one unless overwrite=true). Overwriting requires if_hash from ht_read in strict/balanced profiles, so you cannot overwrite something you have not seen. Content is scanned for secrets.",
-    inputSchema: { path: string2(), content: string2(), overwrite: boolean2().optional(), if_hash: string2().regex(/^[0-9a-f]{64}$/).optional(), mkdirp: boolean2().optional() },
-    annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false }
-  }, wrap("ht_write", (a) => htWrite(policy, a)));
   register("ht_search", {
     title: "Search code (regex, bounded, ReDoS-safe)",
     description: "Regex or fixed-string search across files under a root with context lines, include/exclude globs, .gitignore support, result limits and a hard time budget (runs in a killable worker, so catastrophic regexes cannot hang the server). Never follows symlinks; skips binaries and protected files.",
@@ -28386,12 +28326,6 @@ function createServer(policy, audit, workspace = createWorkspace(), owner = "std
     inputSchema: { path: string2() },
     annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false }
   }, wrap("ht_mkdir", (a) => htMkdir(policy, a)));
-  register("ht_move", {
-    title: "Move / rename a file or directory (never overwrites)",
-    description: "Rename or move a regular file or directory within the allowed roots. `to` is the full new path (not a target directory) and must not exist: moves never overwrite. Refuses symlink sources, roots, anything inside .git, and moving a directory into itself. Use mkdirp=true for missing parents. Restore an item out of the trash with this tool; use ht_trash, not ht_move, to put an item in the managed trash.",
-    inputSchema: { from: string2(), to: string2(), mkdirp: boolean2().optional() },
-    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false }
-  }, wrap("ht_move", (a) => htMove(policy, a)));
   register("ht_trash", {
     title: "Reversible delete: move to .ht-trash",
     description: "Delete by moving a file or directory into <root>/.ht-trash/ and logging its original path in .ht-trash/index.jsonl; restore with ht_move, which also removes the restored top-level row. For a managed permanent purge use ht_empty_trash with explicit confirmation. Directories require recursive=true. Refuses roots, anything inside .git, and items already in the trash.",
@@ -28438,11 +28372,15 @@ function createServer(policy, audit, workspace = createWorkspace(), owner = "std
       expected_exit_codes: array(number2().int().min(0).max(255)).min(1).max(32).optional().describe("If provided, unexpected exits, signals or timeouts set the MCP error flag"),
       inherit_vars: array(key).max(32).optional().describe("Names from ht_add_var; none by default"),
       max_output_bytes: number2().int().positive().optional().describe("May only lower the profile's captured-output budget (bytes, before formatting)"),
-      is_bg: boolean2().optional().describe("true: arka planda \xE7al\u0131\u015Ft\u0131r, hemen d\xF6n. \xC7\u0131kt\u0131 /work/home/tmp/hardtools-bg-out-<oturum>-<s\u0131ra>.txt dosyas\u0131na yaz\u0131l\u0131r; ht_read ile oku.")
+      is_bg: boolean2().optional().describe("true: arka planda \xE7al\u0131\u015Ft\u0131r, hemen d\xF6n. \xC7\u0131kt\u0131 /work/home/tmp/hardtools-bg-out-<oturum>-<s\u0131ra>.txt dosyas\u0131na yaz\u0131l\u0131r; tail/cat ile oku.")
     },
     annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true }
   }, wrap("ht_shell", async (a) => {
-    const r = await runShell(policy, { ...a, user_env: workspace.inputs.envFor(owner), session_id: opts.sessionId }, workspace.vars, owner);
+    const us = opts.settings?.store.get(opts.settings.user);
+    if (a.is_bg && us && us.allowBgShell === false)
+      throw new PolicyError("bg_disabled", "arka plan \xE7al\u0131\u015Ft\u0131rma bu hesapta kapal\u0131 (Ayarlar \u2192 Kabuk)");
+    const timeoutOverride = us?.shellTimeoutS ? { timeout_ms: us.shellTimeoutS * 1e3 } : {};
+    const r = await runShell(policy, { ...a, ...timeoutOverride, user_env: workspace.inputs.envFor(owner), session_id: opts.sessionId }, workspace.vars, owner);
     return { ...asText(workspace.inputs.mask(r.text)), isError: r.isError };
   }));
   register("ht_user_input", {
@@ -28704,7 +28642,7 @@ Returned: {status, question, selected[], custom, request_id, elapsed_s}.`,
       files_moved: info.carriedFiles,
       carried_files: Boolean(a.carry_files),
       variables_cleared: vars,
-      next: "ht_shell, ht_read and ht_write all use the new root now. Previous contents (if any) are in the recycle bin under the environment base."
+      next: "ht_shell and ht_edit use the new root now. Previous contents (if any) are in the recycle bin under the environment base."
     }, null, 2);
   }));
   register("ht_stop", {
@@ -28751,6 +28689,77 @@ Returned: {status, question, selected[], custom, request_id, elapsed_s}.`,
     },
     annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false }
   }, wrap("ht_transfer_file", (a) => htTransferFile(policy, a)));
+  register("ht_session_info", {
+    title: "Bu hesab\u0131n MCP oturumlar\u0131 (sohbetleri)",
+    description: "Sunucunun bildi\u011Fi sohbetleri listeler: k\u0131sa oturum kimli\u011Fi, \xE7al\u0131\u015Fma k\xF6k\xFC ve son kullan\u0131m zaman\u0131. Her sohbet ayr\u0131 bir \xE7al\u0131\u015Fma k\xF6k\xFCnde \xE7al\u0131\u015F\u0131r; bu bilgi yaln\u0131zca sunucuda tutulur, kabuktan g\xF6r\xFClemez. \u015Eu anki oturum `current` alan\u0131nda i\u015Faretlenir.",
+    inputSchema: { limit: number2().int().min(1).max(100).optional().describe("En fazla ka\xE7 oturum (varsay\u0131lan 20)") },
+    annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false }
+  }, wrap("ht_session_info", (a) => {
+    const rows = (opts.sessions?.() ?? []).slice().sort((x, y) => y.last - x.last).slice(0, a.limit ?? 20);
+    const current = opts.sessionId ?? null;
+    return JSON.stringify({
+      current: current ? "s-" + current.replace(/^s-/, "") : null,
+      count: rows.length,
+      sessions: rows.map((r) => ({
+        session: "s-" + r.sid.slice(0, 12),
+        current: current === "s-" + r.sid.slice(0, 12),
+        root: r.dir,
+        last_used: new Date(r.last).toISOString()
+      })),
+      note: "Farkl\u0131 sohbetler farkl\u0131 k\xF6klerde \xE7al\u0131\u015F\u0131r; dosyalar sohbetler aras\u0131nda payla\u015F\u0131lmaz."
+    }, null, 2);
+  }));
+  register("ht_audit_query", {
+    title: "Denetim kayd\u0131n\u0131 sorgula",
+    description: "Sunucunun denetim (audit) kay\u0131tlar\u0131n\u0131 okur: son olaylar, olay tipine g\xF6re filtre, \xF6zet say\u0131m. Kay\u0131tlar hash zinciriyle korunur ve yaln\u0131zca sunucudaki denetim dizininde durur; kabuk bu dizine eri\u015Femez. S\u0131rlar ve dosya i\xE7erikleri kayda yaz\u0131lmaz.",
+    inputSchema: {
+      limit: number2().int().min(1).max(500).optional().describe("En fazla ka\xE7 olay d\xF6ns\xFCn (varsay\u0131lan 50)"),
+      ev: string2().max(60).optional().describe("Yaln\u0131zca bu olay tipi (\xF6r. shell, write, share, oauth_token)"),
+      files: number2().int().min(1).max(10).optional().describe("En yeni ka\xE7 denetim dosyas\u0131na bak\u0131ls\u0131n (varsay\u0131lan 3)")
+    },
+    annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false }
+  }, wrap("ht_audit_query", (a) => {
+    const dir = pathMod.dirname(audit.file);
+    const names = (() => {
+      try {
+        return fs13.readdirSync(dir).filter((n) => n.endsWith(".jsonl"));
+      } catch {
+        return [];
+      }
+    })().sort().slice(-(a.files ?? 3));
+    const events = [];
+    for (const n of names) {
+      let text = "";
+      try {
+        const st = fs13.statSync(pathMod.join(dir, n));
+        const take = Math.min(st.size, 512 * 1024);
+        const fd = fs13.openSync(pathMod.join(dir, n), "r");
+        try {
+          const buf = Buffer.alloc(take);
+          fs13.readSync(fd, buf, 0, take, Math.max(0, st.size - take));
+          text = buf.toString("utf8");
+        } finally {
+          fs13.closeSync(fd);
+        }
+      } catch {
+        continue;
+      }
+      for (const line of text.split("\n")) {
+        if (!line.trim().startsWith("{")) continue;
+        try {
+          const row = JSON.parse(line);
+          if (a.ev && String(row.ev) !== a.ev) continue;
+          if (typeof row.ev !== "string") continue;
+          events.push({ at: row.at ?? row.ts ?? null, ev: row.ev, ...row.tool ? { tool: row.tool } : {}, ...row.ok !== void 0 ? { ok: row.ok } : {} });
+        } catch {
+        }
+      }
+    }
+    const picked = events.slice(-(a.limit ?? 50));
+    const byEvent = {};
+    for (const e of events) byEvent[String(e.ev)] = (byEvent[String(e.ev)] ?? 0) + 1;
+    return JSON.stringify({ scanned_files: names.length, matched: events.length, by_event: byEvent, events: picked }, null, 2);
+  }));
   register("ht_list_all_tools", {
     title: "List every hardtools tool (enabled, disabled, all)",
     description: "Shows all hardtools tools with their current state for this user: enabled, disabled and the complete catalog. Use it before ht_manage_tool when you are not sure what is off.",
@@ -28822,16 +28831,13 @@ Returned: {status, question, selected[], custom, request_id, elapsed_s}.`,
 
 // src/settings.ts
 import crypto10 from "node:crypto";
-import fs13 from "node:fs";
+import fs14 from "node:fs";
 import path14 from "node:path";
 var ALL_TOOLS = [
-  "ht_read",
-  "ht_write",
   "ht_edit",
   "ht_glob",
   "ht_search",
   "ht_mkdir",
-  "ht_move",
   "ht_trash",
   "ht_empty_trash",
   "ht_shell",
@@ -28847,6 +28853,8 @@ var ALL_TOOLS = [
   "ht_delete_var",
   "ht_user_input",
   "ht_ask",
+  "ht_session_info",
+  "ht_audit_query",
   "ht_list_all_tools",
   "ht_manage_tool"
 ];
@@ -28854,6 +28862,9 @@ var defaultSettings = () => ({
   disabledTools: [],
   networkEnabled: true,
   allowlistEnabled: false,
+  allowBgShell: true,
+  shellTimeoutS: 0,
+  theme: "dark",
   allowedCommands: [],
   allowedUrls: [],
   updatedAt: 0
@@ -28879,8 +28890,8 @@ var UserSettingsStore = class {
   // ---- kalıcılık ---------------------------------------------------------------------------
   load() {
     try {
-      if (this.store && fs13.existsSync(this.store)) {
-        const d = JSON.parse(fs13.readFileSync(this.store, "utf8"));
+      if (this.store && fs14.existsSync(this.store)) {
+        const d = JSON.parse(fs14.readFileSync(this.store, "utf8"));
         for (const [u, s] of Object.entries(d.users ?? {})) this.users.set(u, { ...defaultSettings(), ...s });
         for (const [g, u] of Object.entries(d.grants ?? {})) this.grants.set(g, u);
         for (const g of d.revoked ?? []) this.revoked.add(g);
@@ -28891,12 +28902,12 @@ var UserSettingsStore = class {
   save() {
     if (!this.store) return;
     try {
-      fs13.mkdirSync(path14.dirname(this.store), { recursive: true, mode: 448 });
+      fs14.mkdirSync(path14.dirname(this.store), { recursive: true, mode: 448 });
       const items = Object.fromEntries(this.users);
       const grants = Object.fromEntries(this.grants);
       const tmp = this.store + ".tmp";
-      fs13.writeFileSync(tmp, JSON.stringify({ v: 1, users: items, grants, revoked: [...this.revoked] }), { mode: 384 });
-      fs13.renameSync(tmp, this.store);
+      fs14.writeFileSync(tmp, JSON.stringify({ v: 1, users: items, grants, revoked: [...this.revoked] }), { mode: 384 });
+      fs14.renameSync(tmp, this.store);
     } catch {
     }
   }
@@ -28905,14 +28916,14 @@ var UserSettingsStore = class {
   refreshIfChanged() {
     if (!this.store) return;
     try {
-      const m = fs13.statSync(this.store).mtimeMs;
+      const m = fs14.statSync(this.store).mtimeMs;
       if (m !== this.mtime) {
         this.mtime = m;
         this.users.clear();
         this.grants.clear();
         this.revoked.clear();
         this.load();
-        this.mtime = fs13.statSync(this.store).mtimeMs;
+        this.mtime = fs14.statSync(this.store).mtimeMs;
       }
     } catch {
     }
@@ -28960,6 +28971,14 @@ var UserSettingsStore = class {
   isRevoked(grant) {
     return this.revoked.has(grant);
   }
+  /** RFC 7009 /revoke: tek bir grant'ı iptal et. */
+  revokeGrant(grant) {
+    if (!grant) return false;
+    const had = this.grants.delete(grant);
+    this.revoked.add(grant);
+    this.save();
+    return had;
+  }
   /** Çıkış: bu kullanıcının tüm grant'larını iptal et (MCP bağlantısı düşer). */
   revokeUser(user) {
     let n = 0;
@@ -28975,15 +28994,15 @@ var UserSettingsStore = class {
   signingKey() {
     if (this.key) return this.key;
     try {
-      if (this.keyPath && fs13.existsSync(this.keyPath)) this.key = fs13.readFileSync(this.keyPath);
+      if (this.keyPath && fs14.existsSync(this.keyPath)) this.key = fs14.readFileSync(this.keyPath);
     } catch {
     }
     if (!this.key || this.key.length < 32) {
       this.key = crypto10.randomBytes(32);
       try {
         if (this.keyPath) {
-          fs13.mkdirSync(path14.dirname(this.keyPath), { recursive: true, mode: 448 });
-          fs13.writeFileSync(this.keyPath, this.key, { mode: 384 });
+          fs14.mkdirSync(path14.dirname(this.keyPath), { recursive: true, mode: 448 });
+          fs14.writeFileSync(this.keyPath, this.key, { mode: 384 });
         }
       } catch {
       }
@@ -29052,7 +29071,48 @@ var SettingsUI = class {
     if (pathname === "/settings/token") return await this.tokenLogin(req, res, origin), true;
     if (pathname === "/settings/save") return await this.save(req, res, origin), true;
     if (pathname === "/settings/logout") return await this.logout(req, res, origin), true;
+    if (pathname === "/tools") return this.toolsPage(req, res), true;
+    if (pathname === "/status") return this.statusPage(req, res), true;
     return false;
+  }
+  /** /tools — araç kataloğu: hangi araç var, hangisi bu hesapta kapalı. */
+  toolsPage(req, res) {
+    if (req.method !== "GET") return this.html(res, 405, page({ title: "Ara\xE7lar", body: `<p class="e">Yaln\u0131z GET.</p>` }));
+    const user = this.cookieUser(req);
+    const ALWAYS_ON = /* @__PURE__ */ new Set(["ht_list_all_tools", "ht_manage_tool", "ht_status"]);
+    const s = user ? this.o.store.get(user) : null;
+    const rows = ALL_TOOLS.map((n) => {
+      const off = s ? s.disabledTools.includes(n) : false;
+      return `<tr><td><code>${esc2(n)}</code></td><td>${off ? `<span class="pill off">kapal\u0131</span>` : `<span class="pill on">a\xE7\u0131k</span>`}</td><td class="muted">${ALWAYS_ON.has(n) ? "her zaman a\xE7\u0131k" : ""}</td></tr>`;
+    }).join("");
+    const body = `${heading("Ara\xE7 katalo\u011Fu", `${ALL_TOOLS.length} ara\xE7. Kapal\u0131 ara\xE7lar MCP listesinde g\xF6r\xFCnmez ve \xE7a\u011Fr\u0131lamaz.`)}
+${user ? "" : `<p class="e">Bu hesab\u0131n durumunu g\xF6rmek i\xE7in <a href="/settings">ayarlara giri\u015F yap</a>.</p>`}
+<div class="card"><table><thead><tr><th>Ara\xE7</th><th>Durum</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>
+<p class="muted"><a href="/status">durum sayfas\u0131</a> \xB7 <a href="/settings">ayarlar</a></p>`;
+    this.html(res, 200, page({ title: "Ara\xE7lar", subtitle: "catalog", body, theme: s?.theme }));
+  }
+  /** /status — sürüm, süre, araç sayıları ve hesabın ayar özeti. */
+  statusPage(req, res) {
+    if (req.method !== "GET") return this.html(res, 405, page({ title: "Durum", body: `<p class="e">Yaln\u0131z GET.</p>` }));
+    const user = this.cookieUser(req);
+    const s = user ? this.o.store.get(user) : null;
+    const enabled = s ? ALL_TOOLS.length - s.disabledTools.length : null;
+    const rows = [
+      ["S\xFCr\xFCm", VERSION],
+      ["S\xFCre (sn)", String(Math.round(process.uptime()))],
+      ["\xC7al\u0131\u015Fma k\xF6k\xFC", this.o.rootLabel ?? "\u2014"],
+      ["Ara\xE7 say\u0131s\u0131", String(ALL_TOOLS.length)],
+      ["Bu hesapta a\xE7\u0131k", enabled === null ? "giri\u015F yap\u0131lmad\u0131" : String(enabled)],
+      ["A\u011F istekleri", s ? s.networkEnabled ? "a\xE7\u0131k" : "kapal\u0131" : "\u2014"],
+      ["Allowlist", s ? s.allowlistEnabled ? "zorunlu" : "kapal\u0131" : "\u2014"],
+      ["Arka plan komut", s ? s.allowBgShell ? "a\xE7\u0131k" : "kapal\u0131" : "\u2014"],
+      ["Tema", s ? s.theme : "\u2014"],
+      ["Son ayar", s && s.updatedAt ? new Date(s.updatedAt).toISOString().replace("T", " ").slice(0, 19) : "\u2014"]
+    ];
+    const body = `${heading("Durum", user ? `Kullan\u0131c\u0131: ${user}` : "Genel durum")}
+<div class="card"><table><tbody>${rows.map(([k, v]) => `<tr><th>${esc2(k)}</th><td><code>${esc2(v)}</code></td></tr>`).join("")}</tbody></table></div>
+<p class="muted"><a href="/tools">ara\xE7 katalo\u011Fu</a> \xB7 <a href="/settings">ayarlar</a></p>`;
+    this.html(res, 200, page({ title: "Durum", subtitle: "status", body, theme: s?.theme }));
   }
   async body(req) {
     const chunks = [];
@@ -29110,6 +29170,18 @@ ${gh ? `<p class="muted">Claude'da ba\u011Flan\u0131rken kulland\u0131\u011F\u01
 <p class="muted" style="margin-top:.6rem">Allowlist a\xE7\u0131kken yaln\u0131zca listelenen alan adlar\u0131na ve yaln\u0131zca listelenen komutlara izin verilir.</p>
 </div>
 
+<div class="card">
+<h2 style="margin-top:0">G\xF6r\xFCn\xFCm ve kabuk</h2>
+<label for="theme">Varsay\u0131lan tema</label>
+<select id="theme" name="theme">
+  <option value="dark"${s.theme !== "light" ? " selected" : ""}>Koyu tema</option>
+  <option value="light"${s.theme === "light" ? " selected" : ""}>A\xE7\u0131k tema (s\u0131cak, a\u015F\u0131r\u0131 beyaz de\u011Fil)</option>
+</select>
+<label class="chip" style="margin-top:.6rem"><input type="checkbox" name="allowBgShell" value="1"${s.allowBgShell ? " checked" : ""}> <span>Arka plan komutlar\u0131na izin ver (<code>is_bg</code>)</span></label>
+<label for="shellTimeoutS">Kabuk zaman a\u015F\u0131m\u0131 (saniye, 0 = profil varsay\u0131lan\u0131)</label>
+<input id="shellTimeoutS" name="shellTimeoutS" type="number" min="0" max="600" step="5" value="${s.shellTimeoutS || 0}">
+</div>
+
 <p class="row"><button class="primary" type="submit">Kaydet</button><span class="muted">Son g\xFCncelleme: ${s.updatedAt ? esc2(new Date(s.updatedAt).toISOString().replace("T", " ").slice(0, 19)) : "\u2014"}</span></p>
 </form>
 
@@ -29145,7 +29217,7 @@ ${gh ? `<p class="muted">Claude'da ba\u011Flan\u0131rken kulland\u0131\u011F\u01
 </form>
 </div>
 <p class="muted"><a href="${esc2(origin)}/connect">ba\u011Flanma sayfas\u0131</a></p>`;
-    this.html(res, 200, page({ title: "Ayarlar", subtitle: "settings", body, actions: `<form method="post" action="/settings/logout" style="margin:0"><button class="ghost" type="submit" data-once>\xC7\u0131k\u0131\u015F</button></form>` }));
+    this.html(res, 200, page({ title: "Ayarlar", subtitle: "settings", theme: s.theme, body, actions: `<form method="post" action="/settings/logout" style="margin:0"><button class="ghost" type="submit" data-once>\xC7\u0131k\u0131\u015F</button></form>` }));
   }
   async save(req, res, origin) {
     if (req.method !== "POST") return this.html(res, 405, page({ title: "Ayarlar", body: `<p class="e">Yaln\u0131z POST.</p>` }));
@@ -29177,7 +29249,11 @@ ${gh ? `<p class="muted">Claude'da ba\u011Flan\u0131rken kulland\u0131\u011F\u01
     const allowedCommands = addCommand ? uniq([...cur.allowedCommands, addCommand]) : cur.allowedCommands;
     const allowedUrls = addUrl ? uniq([...cur.allowedUrls, addUrl]) : cur.allowedUrls;
     const networkEnabled = p.get("networkEnabled") === "1", allowlistEnabled = p.get("allowlistEnabled") === "1";
-    this.o.store.patch(user, { disabledTools, networkEnabled, allowlistEnabled, allowedCommands, allowedUrls }, user);
+    const allowBgShell = p.get("allowBgShell") === "1";
+    const themeRaw = p.get("theme"), theme = themeRaw === "light" ? "light" : "dark";
+    const timeoutRaw = Number(p.get("shellTimeoutS") ?? 0);
+    const shellTimeoutS = Number.isFinite(timeoutRaw) ? Math.min(600, Math.max(0, Math.round(timeoutRaw))) : 0;
+    this.o.store.patch(user, { disabledTools, networkEnabled, allowlistEnabled, allowedCommands, allowedUrls, allowBgShell, theme, shellTimeoutS }, user);
     this.o.audit?.({ ev: "settings_save", user, tools: ALL_TOOLS.length - disabledTools.length, network: networkEnabled, allowlist: allowlistEnabled });
     return this.redirect(res, origin);
   }
@@ -29342,7 +29418,7 @@ async function main() {
   const publicMode = (process.env.HARDTOOLS_PUBLIC ?? "off").trim().toLowerCase();
   const isPublic = ["1", "true", "open", "key"].includes(publicMode);
   const publicKey = (process.env.HARDTOOLS_PUBLIC_KEY ?? "").trim();
-  const SAFE_TOOLS = ["ht_read", "ht_glob", "ht_search", "ht_status", "ht_user_input", "ht_image_search", "ht_fetch", "ht_share"];
+  const SAFE_TOOLS = ["ht_glob", "ht_search", "ht_status", "ht_user_input", "ht_image_search", "ht_fetch", "ht_share"];
   const rawPublicTools = (process.env.HARDTOOLS_PUBLIC_TOOLS ?? "").trim().toLowerCase();
   let publicTools = null;
   if (isPublic) {
@@ -29414,7 +29490,10 @@ async function main() {
     extraRedirectUris: (process.env.HARDTOOLS_OAUTH_REDIRECT_URIS ?? "").split(",").map((s) => s.trim()).filter(Boolean),
     github,
     onGrant: (grant, login) => settingsStore.bindGrant(grant, login),
-    grantRevoked: (grant) => settingsStore.isRevoked(grant)
+    grantRevoked: (grant) => settingsStore.isRevoked(grant),
+    onRevoke: (grant) => {
+      settingsStore.revokeGrant(grant);
+    }
   });
   const inviteOrigin = process.env.HARDTOOLS_INVITE_ORIGIN ?? "";
   if (inviteOrigin) {
@@ -29433,7 +29512,7 @@ async function main() {
   const sessMap = /* @__PURE__ */ new Map();
   if (sessionsFile) {
     try {
-      const d = JSON.parse(fs14.readFileSync(sessionsFile, "utf8"));
+      const d = JSON.parse(fs15.readFileSync(sessionsFile, "utf8"));
       for (const r of d.items ?? []) if (r?.sid && r?.dir) sessMap.set(r.sid, { owner: r.owner ?? "", dir: r.dir, last: r.last ?? 0 });
     } catch {
     }
@@ -29446,17 +29525,17 @@ async function main() {
       try {
         const now = Date.now();
         for (const [sid, r] of sessMap) if (now - r.last > 7 * 24 * 36e5) sessMap.delete(sid);
-        fs14.mkdirSync(path15.dirname(sessionsFile), { recursive: true, mode: 448 });
+        fs15.mkdirSync(path15.dirname(sessionsFile), { recursive: true, mode: 448 });
         const tmp = sessionsFile + ".tmp";
-        fs14.writeFileSync(tmp, JSON.stringify({ v: 1, items: [...sessMap].map(([sid, r]) => ({ sid, ...r })) }), { mode: 384 });
-        fs14.renameSync(tmp, sessionsFile);
+        fs15.writeFileSync(tmp, JSON.stringify({ v: 1, items: [...sessMap].map(([sid, r]) => ({ sid, ...r })) }), { mode: 384 });
+        fs15.renameSync(tmp, sessionsFile);
       } catch {
       }
     }, 250);
     sessSaveTimer.unref?.();
   };
   const mkRoot = (dir) => {
-    fs14.mkdirSync(dir, { recursive: true, mode: 448 });
+    fs15.mkdirSync(dir, { recursive: true, mode: 448 });
     return dir;
   };
   const accountRoot = (owner) => mkRoot(path15.join(baseRoot, "a-" + crypto11.createHash("sha256").update(owner).digest("hex").slice(0, 16)));
@@ -29496,7 +29575,7 @@ async function main() {
       }
       const h = String(req.headers.host ?? "").toLowerCase();
       if (!allowedHosts.has(h)) return send(403, "host not allowed");
-      if (path16 === "/settings" || path16.startsWith("/settings/")) {
+      if (path16 === "/settings" || path16.startsWith("/settings/") || path16 === "/tools" || path16 === "/status") {
         if (await settingsUI.handle(req, res, path16)) return;
       }
       if (sharedInputs.handle(req, res, path16, oauth.origin(req))) return;
@@ -29561,7 +29640,7 @@ async function main() {
       if (perSession && owner !== "static" && baseRoot && !baseIsFsRoot && sessionBase) {
         const rec = sid ? sessMap.get(sid) : void 0;
         const liveBase = policy.roots[0];
-        const recFresh = Boolean(rec && rec.owner === owner && fs14.existsSync(rec.dir) && pathDir(rec.dir) === liveBase && pathBase(rec.dir).startsWith("u-"));
+        const recFresh = Boolean(rec && rec.owner === owner && fs15.existsSync(rec.dir) && pathDir(rec.dir) === liveBase && pathBase(rec.dir).startsWith("u-"));
         if (rec && !recFresh && sid) sessMap.delete(sid);
         if (rec && recFresh && rec.dir) {
           workDir = rec.dir;
@@ -29587,6 +29666,7 @@ async function main() {
         {
           ...owner === "public" ? { tools: publicTools } : {},
           ...sid ? { sessionId: "s-" + sid.slice(0, 12) } : {},
+          sessions: () => [...sessMap].filter(([, r]) => r.owner === owner).map(([sid2, r]) => ({ sid: sid2, dir: r.dir, last: r.last })),
           settings: { store: settingsStore, user: userFor(owner), all: ALL_TOOLS }
         }
       );
@@ -29619,7 +29699,8 @@ async function main() {
     operatorToken: hasToken ? token : void 0,
     github: github ? { clientId: github.clientId, webBase: github.webBase, apiBase: github.apiBase, allowAny: github.allowAny, allowedLogins: github.allowedLogins, allowedEmails: github.allowedEmails } : void 0,
     audit: (e) => audit.write(e),
-    origin: (r) => oauth.origin(r)
+    origin: (r) => oauth.origin(r),
+    rootLabel: policy.roots[0]
   });
   const userFor = (owner) => {
     if (owner === "static") return "operator";
