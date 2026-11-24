@@ -22,7 +22,14 @@ import { ErrorCode, ListResourcesRequestSchema, ListResourceTemplatesRequestSche
 // The HTTP worker can change its project tree. Do not race a running child against
 // host-side path checks (including cwd and stdin_file preparation for the next child).
 const usesProject = new Set(["ht_transfer_file", "ht_new_shell_env", "ht_stop","ht_read", "ht_write", "ht_edit", "ht_glob", "ht_search", "ht_move", "ht_mkdir", "ht_trash", "ht_empty_trash", "ht_shell", "ht_share"]);
-export const createWorkspace = (inputStore?: string) => ({ vars: new Variables(), shares: new Shares(), inputs: new UserInputs(inputStore ? { store: inputStore } : {}), projectReady: Promise.resolve() });
+export const createWorkspace = (inputStore?: string, shared?: { inputs?: import("./user-input.js").UserInputs; shares?: import("./share.js").Shares }) => ({
+  vars: new Variables(),
+  // input formları ve paylaşım linkleri tüm oturumlarca görülmeli (owner ile ayrılırlar),
+  // dosya kökü ise oturum başına ayrıdır.
+  shares: shared?.shares ?? new Shares(),
+  inputs: shared?.inputs ?? new UserInputs(inputStore ? { store: inputStore } : {}),
+  projectReady: Promise.resolve(),
+});
 const asText = (text: string): CallToolResult => ({ content: [{ type: "text", text }] });
 export interface ServerOptions {
   /** When set, only these tool names are registered (used by the no-login public connector). */

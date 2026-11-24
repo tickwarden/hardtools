@@ -4,6 +4,7 @@ import "./schema-runtime.js";
 import { pipeline } from "node:stream/promises";
 import { equalSecret } from "./credentials.js";
 import crypto from "node:crypto";
+import fs from "node:fs";
 import path from "node:path";
 import http from "node:http";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
@@ -12,6 +13,8 @@ import { Audit, verifyAuditFile } from "./audit.js";
 import { envFlag, loadPolicy, type Policy, type ProfileName } from "./config.js";
 import { OAuth, type GithubIdp } from "./oauth.js";
 import { createServer, createWorkspace } from "./server.js";
+import { UserInputs } from "./user-input.js";
+import { Shares } from "./share.js";
 import { VERSION } from "./version.js";
 import { probeWorkspaceHttps, probeWorkspaceShell } from "./workspace-shell.js";
 
@@ -134,7 +137,28 @@ async function main() {
   // Form yanıtları hacimde saklanır: sunucu yeniden başlarsa (Fly deneme hesabı 5 dk'da bir
   // yeniden başlatıyor) soru/cevap kaybolmaz. Sır içeren formlar bilerek yazılmaz.
   const inputStore = policy.audit.dir ? path.join(path.dirname(policy.audit.dir), "state", "inputs.json") : undefined;
-  const workspace = createWorkspace(inputStore); // survives individual stateless MCP HTTP requests
+  // Oturum bazlı çalışma alanı: her kimlik (OAuth oturumu, /c/<anahtar>, anonim) kendi /work kökünü alır.
+  // Böylece bir oturumun klonladığı depo başka oturumlarda görünmez. HARDTOOLS_PER_SESSION_WORKSPACE=0
+  // ile eski (tek, paylaşılan kök) davranışa dönülür.
+  const sharedInputs = new UserInputs(inputStore ? { store: inputStore } : {});
+  const sharedShares = new Shares();
+  const perSession = (process.env.HARDTOOLS_PER_SESSION_WORKSPACE ?? "1").trim() !== "0";
+  const baseRoot = policy.roots[0];
+  const grants = new Map<string, { policy: Policy; workspace: ReturnType<typeof createWorkspace> }>();
+  const grantFor = (owner: string) => {
+    const cached = grants.get(owner);
+    if (cached) return cached;
+    let p = policy;
+    if (perSession && owner !== "static" && baseRoot && baseRoot !== path.parse(baseRoot).root) {
+      const dir = path.join(baseRoot, "u-" + crypto.createHash("sha256").update(owner).digest("hex").slice(0, 16));
+      fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
+      p = { ...policy, roots: [dir] };
+    }
+    const g = { policy: p, workspace: createWorkspace(undefined, { inputs: sharedInputs, shares: sharedShares }) };
+    grants.set(owner, g);
+    return g;
+  };
+  const workspace = createWorkspace(inputStore, { inputs: sharedInputs, shares: sharedShares }); // ortak form/paylaşım kayıtları
   const srv = http.createServer(async (req, res) => {
     const send = (code: number, msg: string, headers: Record<string, string> = {}) => { res.writeHead(code, { "content-type": "application/json", ...headers }); res.end(JSON.stringify({ error: msg })); };
     try {
@@ -158,7 +182,7 @@ async function main() {
       if (!allowedHosts.has(h)) return send(403, "host not allowed");                 // DNS-rebinding defence
       // Capability URL for ht_user_input: a random one-time id, answered by the user's browser
       // (so it must be checked before the browser-origin rejection below).
-      if (workspace.inputs.handle(req, res, path, oauth.origin(req))) return;
+      if (sharedInputs.handle(req, res, path, oauth.origin(req))) return;
       // Machine-to-machine endpoint: browser origins are refused, except the consent page posting to itself.
       if (req.headers.origin && !(path === "/authorize" && req.headers.origin === oauth.origin(req))) return send(403, "browser origins are not allowed");
       const ip = req.socket.remoteAddress ?? "?"; const now = Date.now();
@@ -167,7 +191,7 @@ async function main() {
       if (now > b.reset) { b.n = 0; b.reset = now + 60_000; } b.n++; hits.set(ip, b);
       if (b.n > 120) return send(429, "rate limited");
 
-      if (workspace.shares.download(req, res, path)) return;
+      if (sharedShares.download(req, res, path)) return;
 
       // No-login mode: never advertise OAuth metadata, otherwise claude.ai shows a sign-in button.
       if (loginFree) {
@@ -201,7 +225,8 @@ async function main() {
       // directly instead of reparsing an arbitrary incoming URL with a second HTTP framework.
       const origin = oauth.origin(req);
       // Araç kısıtı yalnızca adsız public kimliğe uygulanır; /c/<anahtar> kimliği her zaman tam settir.
-      const server = createServer(policy, audit.forGrant(owner), workspace, owner, origin, owner === "public" ? { tools: publicTools } : {});
+      const grant = grantFor(owner);
+      const server = createServer(grant.policy, audit.forGrant(owner), grant.workspace, owner, origin, owner === "public" ? { tools: publicTools } : {});
       const transport = new WebStandardStreamableHTTPServerTransport({ sessionIdGenerator: undefined });
       const abort = new AbortController();
       res.once("close", () => { if (!res.writableFinished) abort.abort(); void server.close(); });

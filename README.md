@@ -265,6 +265,16 @@ fly secrets set HARDTOOLS_OAUTH_ALLOW_ANY=1 -a hardtools-mcp
 - Bilinmeyen/eski `request_id` artık hata değil, `{"status":"lost"}` + "soruyu yeniden sor" yönlendirmesi döner — modelin çağrısı kilitlenmez.
 - Fly deneme hesabı makineyi 5 dakikada bir yeniden başlattığı için bu, form akışının çalışması için gerekli.
 
+### Oturum bazlı çalışma alanı (0.5.8)
+
+Her kimlik **kendi `/work` kökünü** alır; bir oturumda klonlanan depo başka oturumlarda görünmez.
+
+- Kök: `<HARDTOOLS_ROOTS[0]>/u-<sha256(kimlik)[:16]>` (0700). Kimlik = OAuth oturumu, `/c/<anahtar>` ya da anonim bağlantı.
+- `static` (operatörün `HARDTOOLS_HTTP_TOKEN`'ı) taban kökte kalır; sunucu yönetimi ve mevcut dosyalar oradadır.
+- Formlar (`ht_user_input`/`ht_ask`) ve paylaşım bağlantıları ortak kalır (kimlikle ayrılır) — tarayıcıdan açılan link her oturumda çalışır.
+- `HARDTOOLS_PER_SESSION_WORKSPACE=0` eski tek-paylaşılan-kök davranışına döner.
+- Oturum kökleri hacimde birikir; `ht_status` hangi kökte olduğunuzu gösterir.
+
 ### 0.5.2 değişiklikleri
 
 - **`HARDTOOLS_PUBLIC=open` artık tüm araçları açar ama girişi zorunlu tutar**: kimliksiz istek 401 + `www-authenticate`, OAuth keşfi yayınlanır, `/healthz` içinde `"login":"required"`. Girişsiz okuma modu `HARDTOOLS_PUBLIC_TOOLS=safe` (ya da kendi listeniz) ile korunur.
