@@ -167,10 +167,11 @@ export async function runShell(policy: Policy, a: ShellArgs, vars = new Variable
     let child: ChildProcess;
     try {
       child = policy.shellWorker
-        ? spawnWorkspaceShell(policy, cwdR.abs, file, args, selected, undefined)
+        ? spawnWorkspaceShell(policy, cwdR.abs, file, args, selected, lease)
         : spawn(file, args, { cwd: cwdR.abs, env: Object.assign(buildEnv(policy, policy.roots), selected), shell: false, detached: true, stdio: ["ignore", "pipe", "pipe"], windowsHide: true });
     } catch (e) {
       fs.closeSync(fd);
+      lease?.close();                    // arka plan yolu: lease çocuk yaşadıkça açık kalır, burada kapanır
       return Promise.reject(e instanceof PolicyError ? e : new Error(`spawn failed: ${(e as Error).message}`));
     }
     const write = fs.createWriteStream(abs, { fd, flags: "a" });
@@ -181,6 +182,7 @@ export async function runShell(policy: Policy, a: ShellArgs, vars = new Variable
       write.write(`\n# bitti: exit=${code ?? "null"}${signal ? ` signal=${signal}` : ""} ${new Date().toISOString()}\n`);
       write.end();
       active.delete(child);
+      lease?.close();                    // egress lease arka plan çocuğunun ömrüne bağlı
     });
     child.unref();
     return Promise.resolve({

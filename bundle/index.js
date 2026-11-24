@@ -26395,7 +26395,7 @@ function anyMatch(patterns, value) {
 }
 
 // src/version.ts
-var VERSION = "1.5.24";
+var VERSION = "1.5.25";
 
 // src/net.ts
 var blocked = new net.BlockList();
@@ -27402,9 +27402,10 @@ async function runShell(policy, a, vars = new Variables(), owner = "stdio") {
     const fd = fs9.openSync(abs, "a", 384);
     let child;
     try {
-      child = policy.shellWorker ? spawnWorkspaceShell(policy, cwdR.abs, file, args, selected, void 0) : spawn2(file, args, { cwd: cwdR.abs, env: Object.assign(buildEnv(policy, policy.roots), selected), shell: false, detached: true, stdio: ["ignore", "pipe", "pipe"], windowsHide: true });
+      child = policy.shellWorker ? spawnWorkspaceShell(policy, cwdR.abs, file, args, selected, lease) : spawn2(file, args, { cwd: cwdR.abs, env: Object.assign(buildEnv(policy, policy.roots), selected), shell: false, detached: true, stdio: ["ignore", "pipe", "pipe"], windowsHide: true });
     } catch (e) {
       fs9.closeSync(fd);
+      lease?.close();
       return Promise.reject(e instanceof PolicyError ? e : new Error(`spawn failed: ${e.message}`));
     }
     const write = fs9.createWriteStream(abs, { fd, flags: "a" });
@@ -27418,6 +27419,7 @@ async function runShell(policy, a, vars = new Variables(), owner = "stdio") {
 `);
       write.end();
       active.delete(child);
+      lease?.close();
     });
     child.unref();
     return Promise.resolve({
