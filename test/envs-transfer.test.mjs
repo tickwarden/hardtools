@@ -55,8 +55,7 @@ test("ht_new_shell_env: a fresh root, the old tree in the recycle bin, variables
   const w = await client.callTool({ name: "ht_shell", arguments: { argv: ["node", "-e", "const fs=require('fs'),p=require('path');fs.mkdirSync(p.dirname(process.argv[1])||'.',{recursive:true});fs.writeFileSync(process.argv[1],process.argv[2])", "yeni.txt", "yeni\n"] } });
   assert.ok(!w.isError, text(w));
   assert.ok(fs.existsSync(path.join(info.root, "yeni.txt")));
-  const rd = await client.callTool({ name: "ht_shell", arguments: { argv: ["cat", "eski.txt"] } });
-  assert.ok(rd.isError, "eski dosya yeni kökte olmamalı");
+  assert.equal(fs.existsSync(path.join(info.root, "eski.txt")), false, "eski dosya yeni kökte olmamalı");
 
   const status = JSON.parse(text(await client.callTool({ name: "ht_status", arguments: {} })));
   assert.equal(status.roots[0], info.root);

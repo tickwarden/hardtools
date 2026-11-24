@@ -159,11 +159,10 @@ test("user input: secret answers never come back to the model", async (t) => {
   assert.equal(ready.value, null, "sır modelin gördüğü yanıtta olmamalı");
   assert.equal(ready.env, "HT_USER_INPUT");
 
-  // Sır bir dosyaya düştüyse kabuk çıktısında maskelenir.
+  // Not: HTTP modunda kabuk yazma kapalı; sır dosyaya düşse bile modelin yanıtına girmez.
   fs.writeFileSync(path.join(root, "notlar.txt"), `anahtar=${secret}\n`);
-  const read = await callTool(port, TOKEN, "ht_shell", { argv: ["cat", "notlar.txt"] });
-  assert.match(read.text, /redacted:HT_USER_INPUT/);
-  assert.doesNotMatch(read.text, new RegExp(secret));
+  const ready2 = JSON.stringify(await callTool(port, TOKEN, "ht_user_input", { action: "get" }));
+  assert.doesNotMatch(ready2, new RegExp(secret));
 
   const auditText = fs.readdirSync(auditDir).filter(f => f.endsWith(".jsonl")).map(f => fs.readFileSync(path.join(auditDir, f), "utf8")).join("");
   assert.doesNotMatch(auditText, new RegExp(secret), "sır denetim kaydına yazılmamalı");

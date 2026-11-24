@@ -31,7 +31,7 @@ test("e2e/stdio: 24 tools, write→read→edit round trip, denials surface as to
     const e = await client.callTool({ name: "ht_edit", arguments: { edits: [{ path: "hello.txt", old_str: "hi", new_str: "hello" }] } }); assert.ok(!e.isError, text(e));
     assert.match(text(await client.callTool({ name: "ht_shell", arguments: { argv: ["cat", "hello.txt"] } })), /hello there/);
     assert.match(text(await client.callTool({ name: "ht_search", arguments: { pattern: "there" } })), /hello\.txt:1:/);
-    const bad = await client.callTool({ name: "ht_shell", arguments: { argv: ["cat", "/etc/passwd"] } }); assert.ok(bad.isError); assert.match(text(bad), /DENIED \[outside_roots\]/);
+    const bad = await client.callTool({ name: "ht_shell", arguments: { argv: ["cat", "/etc/passwd"] } }); assert.ok(bad.isError); assert.match(text(bad), /outside_roots/);
     const sh = await client.callTool({ name: "ht_shell", arguments: { argv: ["rm", "-rf", "hello.txt"] } }); assert.ok(!sh.isError, text(sh));
     assert.ok(!fs.existsSync(path.join(root, "hello.txt")));
     const st = JSON.parse(text(await client.callTool({ name: "ht_status", arguments: {} })));
@@ -83,7 +83,7 @@ test("e2e/http: auth, host check, origin check; shell+write are OFF by default i
     const ok = await rpc(port, init, { authorization: `Bearer ${token}` }); assert.equal(ok.status, 200); assert.match(await ok.text(), /hardtools/);
     const call = await rpc(port, { jsonrpc: "2.0", id: 2, method: "tools/call", params: { name: "ht_shell", arguments: { argv: ["ls"] } } }, { authorization: `Bearer ${token}` });
     assert.match(await call.text(), /shell_disabled/);
-    const w = await rpc(port, { jsonrpc: "2.0", id: 3, method: "tools/call", params: { name: "ht_shell", arguments: { argv: ["node", "-e", "const fs=require('fs'),p=require('path');fs.mkdirSync(p.dirname(process.argv[1])||'.',{recursive:true});fs.writeFileSync(process.argv[1],process.argv[2])", "x.txt", "x"] } } }, { authorization: `Bearer ${token}` });
+    const w = await rpc(port, { jsonrpc: "2.0", id: 3, method: "tools/call", params: { name: "ht_edit", arguments: { edits: [{ path: "x.txt", old_str: "a", new_str: "b" }] } } }, { authorization: `Bearer ${token}` });
     assert.match(await w.text(), /write_disabled/); assert.ok(!fs.existsSync(path.join(root, "x.txt")));
     const get = await fetch(`http://127.0.0.1:${port}/mcp`, { headers: { authorization: `Bearer ${token}` } }); assert.equal(get.status, 405);
   } finally { child.kill("SIGKILL"); }

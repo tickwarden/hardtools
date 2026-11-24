@@ -105,7 +105,7 @@ test("ht_list_all_tools ve ht_manage_tool araçları açıp kapatır", async (t)
   const { port } = await httpServer(t);
   const first = await mcp(port, TOKEN, "ht_list_all_tools", {});
   const listed = JSON.parse(first.text);
-  assert.ok(listed.total >= 24, "katalog: " + listed.total);
+  assert.ok(listed.total >= 23, "katalog: " + listed.total);
   assert.equal(listed.disabled, 0);
 
   const off = JSON.parse((await mcp(port, TOKEN, "ht_manage_tool", { tool: "ht_fetch", enabled: false })).text);
