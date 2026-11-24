@@ -2,7 +2,7 @@
 
 Claude'un yerleşik dosya/arama/kabuk/web araçlarının **sınırlandırılmış, denetlenebilir** karşılıkları. Tek bir MCP sunucusu; Claude Code, Claude Desktop (stdio) ve uzak MCP (HTTP) üzerinden çalışır.
 
-> **Durum:** v0.5.2, kod AI tarafından yazıldı (bkz. `CREDITS.md`). Otomatik testler var; bağımsız insan güvenlik incelemesi yapılmadı. Pazar yerinden kurulum Claude Code CLI ile doğrulandı. MCP testleri SDK istemcisi ve ham HTTP ile yapılır; Claude Desktop ve claude.ai arayüzlerinde uçtan uca kurulum burada denenmedi.
+> **Durum:** v1.5.24, kod AI tarafından yazıldı (bkz. `CREDITS.md`). Otomatik testler var; bağımsız insan güvenlik incelemesi yapılmadı. Pazar yerinden kurulum Claude Code CLI ile doğrulandı. MCP testleri SDK istemcisi ve ham HTTP ile yapılır; Claude Desktop ve claude.ai arayüzlerinde uçtan uca kurulum burada denenmedi.
 
 ## Araçlar
 
@@ -16,6 +16,9 @@ Claude'un yerleşik dosya/arama/kabuk/web araçlarının **sınırlandırılmı�
 | `ht_move` | `mv` | **asla üstüne yazmaz** (hedef yoksa), symlink kaynağını/kökü/`.git`'i reddeder, kendi içine taşımayı reddeder, `mkdirp` |
 | `ht_trash` | `rm` | **geri alınabilir silme**: `.ht-trash/` içine taşır, `index.jsonl`'a özgün yolu yazar; geri yükleme `ht_move` ile; kalıcı boşaltma ayrı onay ister |
 | `ht_empty_trash` | çöpü boşalt | varsayılanı yalnızca önizleme; `confirm:true` ile sadece seçili kökün çöp içeriğini ve indeksini siler |
+| `ht_undo` | — | **kabukla yapılamaz**: son dosya değiştiren araç çağrısını geri alır; oluşturulanı siler, değiştirileni/taşınanı çağrı öncesi görüntüsünden geri yükler (işlem günlüğü sunucuda) |
+| `ht_schedule` | — | **kabukla yapılamaz**: kabuk MCP araçlarını çağıramaz; bir araç çağrısını N saniye sonra aynı oturumda planlar, sonucu sonra toplar |
+| `ht_memory` | — | **kabukla yapılamaz**: her sohbet kendi kökünde; bu not defteri köklerin dışında, hesap kapsamlı — yeni sohbet öncekinin notlarını görür |
 | `ht_search` | grep | regex/sabit, bağlam, glob, `.gitignore`, sonuç ve **süre** sınırı (ReDoS öldürülebilir worker'da) |
 | `ht_shell` | bash | `command` ile gerçek kabuk veya `argv` ile literal argümanlar; yerelde kullanıcı işlemi, HTTP’de etkinse izole `/work`; süre ve çıktı bütçeleri |
 | `ht_add_var` / `ht_list_vars` / `ht_delete_var` | oturum değişkenleri | isim/değer tanımla, yalnız adları listele veya tek adı kaldır; seçilen değerler `ht_shell` alt sürecine gider |

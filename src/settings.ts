@@ -12,7 +12,7 @@ export const ALL_TOOLS = [
   "ht_read", "ht_write", "ht_edit", "ht_glob", "ht_search", "ht_mkdir", "ht_move", "ht_trash",
   "ht_empty_trash", "ht_shell", "ht_fetch", "ht_image_search", "ht_share", "ht_transfer_file",
   "ht_status", "ht_stop", "ht_new_shell_env", "ht_add_var", "ht_list_vars", "ht_delete_var",
-  "ht_user_input", "ht_ask", "ht_list_all_tools", "ht_manage_tool",
+  "ht_user_input", "ht_ask", "ht_undo", "ht_schedule", "ht_memory", "ht_list_all_tools", "ht_manage_tool",
 ] as const;
 
 export interface UserSettings {
@@ -21,13 +21,25 @@ export interface UserSettings {
   allowlistEnabled: boolean;
   allowedCommands: string[];
   allowedUrls: string[];
+  /** ht_share için varsayılan bağlantı süresi (dakika, 1–60); 0 = araç varsayılanı. */
+  shareTtlMinutes: number;
+  /** ht_shell çıktı bütçesi (bayt); 0 = profil varsayılanı, politika sınırını yalnız aşağı çeker. */
+  shellMaxOutputBytes: number;
+  /** ht_schedule ile planlanabilecek en uzun gecikme (saniye, 0–3600). */
+  scheduleMaxS: number;
   updatedAt: number;
   /** Ayarları değiştiren son eylem (arayüzde gösterilir). */
   updatedBy?: string;
 }
 
+const clampInt = (v: unknown, lo: number, hi: number) => {
+  const n = Math.round(Number(v));
+  return Number.isFinite(n) ? Math.min(hi, Math.max(lo, n)) : lo;
+};
+
 export const defaultSettings = (): UserSettings => ({
   disabledTools: [], networkEnabled: true, allowlistEnabled: false,
+  shareTtlMinutes: 0, shellMaxOutputBytes: 0, scheduleMaxS: 3600,
   allowedCommands: [], allowedUrls: [], updatedAt: 0,
 });
 
@@ -98,6 +110,9 @@ export class UserSettingsStore {
       disabledTools: p.disabledTools ? uniq(p.disabledTools.filter(n => (ALL_TOOLS as readonly string[]).includes(n))) : cur.disabledTools,
       allowedCommands: p.allowedCommands ? uniq(p.allowedCommands) : cur.allowedCommands,
       allowedUrls: p.allowedUrls ? uniq(p.allowedUrls) : cur.allowedUrls,
+      shareTtlMinutes: clampInt(p.shareTtlMinutes ?? cur.shareTtlMinutes, 0, 60),
+      shellMaxOutputBytes: clampInt(p.shellMaxOutputBytes ?? cur.shellMaxOutputBytes, 0, 1 << 20),
+      scheduleMaxS: clampInt(p.scheduleMaxS ?? cur.scheduleMaxS, 0, 3600),
       updatedAt: Date.now(),
       ...(by ? { updatedBy: by } : {}),
     };
@@ -302,6 +317,17 @@ ${gh ? `<p class="muted">Claude'da bağlanırken kullandığın GitHub hesabıyl
 </div>
 
 <div class="card">
+<h2 style="margin-top:0">Araç bütçeleri</h2>
+<p class="muted">Bu değerler yalnızca profilin izin verdiği sınırı <strong>aşağı çeker</strong>; politika hiçbir zaman gevşetilmez.</p>
+<label for="shareTtlMinutes">Paylaşım bağlantısı süresi (dakika; 0 = araç varsayılanı)</label>
+<input id="shareTtlMinutes" name="shareTtlMinutes" type="number" min="0" max="60" step="1" value="${s.shareTtlMinutes || 0}">
+<label for="shellMaxOutputBytes">Kabuk çıktı bütçesi (bayt; 0 = profil varsayılanı)</label>
+<input id="shellMaxOutputBytes" name="shellMaxOutputBytes" type="number" min="0" max="1048576" step="1024" value="${s.shellMaxOutputBytes || 0}">
+<label for="scheduleMaxS">Zamanlanmış çağrı için en uzun gecikme (saniye, 0–3600)</label>
+<input id="scheduleMaxS" name="scheduleMaxS" type="number" min="0" max="3600" step="60" value="${s.scheduleMaxS ?? 3600}">
+</div>
+
+<div class="card">
 <h2 style="margin-top:0">İzinli URL / alan adları</h2>
 <p class="muted">Ağ allowlist'i yalnızca "Allowlist zorunlu olsun" açıkken uygulanır; liste boşsa kısıt uygulanmaz. Joker desteklenir: <code>*</code>, <code>*.github.com</code>, <code>api*.example.com</code>.</p>
 <ul class="clean">${urlRows || `<li class="muted">Henüz kayıt yok.</li>`}</ul>
@@ -353,7 +379,10 @@ ${gh ? `<p class="muted">Claude'da bağlanırken kullandığın GitHub hesabıyl
     const allowedCommands = addCommand ? uniq([...cur.allowedCommands, addCommand]) : cur.allowedCommands;
     const allowedUrls = addUrl ? uniq([...cur.allowedUrls, addUrl]) : cur.allowedUrls;
     const networkEnabled = p.get("networkEnabled") === "1", allowlistEnabled = p.get("allowlistEnabled") === "1";
-    this.o.store.patch(user, { disabledTools, networkEnabled, allowlistEnabled, allowedCommands, allowedUrls }, user);
+    const shareTtlMinutes = clampInt(p.get("shareTtlMinutes") ?? 0, 0, 60);
+    const shellMaxOutputBytes = clampInt(p.get("shellMaxOutputBytes") ?? 0, 0, 1 << 20);
+    const scheduleMaxS = clampInt(p.get("scheduleMaxS") ?? 3600, 0, 3600);
+    this.o.store.patch(user, { disabledTools, networkEnabled, allowlistEnabled, allowedCommands, allowedUrls, shareTtlMinutes, shellMaxOutputBytes, scheduleMaxS }, user);
     this.o.audit?.({ ev: "settings_save", user, tools: ALL_TOOLS.length - disabledTools.length, network: networkEnabled, allowlist: allowlistEnabled });
     return this.redirect(res, origin);
   }

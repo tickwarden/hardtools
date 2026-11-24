@@ -3367,8 +3367,8 @@ var require_utils = __commonJS({
       }
       return ind;
     }
-    function removeDotSegments(path16) {
-      let input = path16;
+    function removeDotSegments(path18) {
+      let input = path18;
       const output = [];
       let nextSlash = -1;
       let len = 0;
@@ -3442,11 +3442,11 @@ var require_utils = __commonJS({
       }
       return output.join("");
     }
-    function removeDotSegmentsRelative(path16) {
-      if (path16 === "" || path16[0] === "/") {
-        return removeDotSegments(path16);
+    function removeDotSegmentsRelative(path18) {
+      if (path18 === "" || path18[0] === "/") {
+        return removeDotSegments(path18);
       }
-      const segments = path16.split("/");
+      const segments = path18.split("/");
       const last = segments.length - 1;
       const output = [];
       let trailingDirectory = false;
@@ -3809,8 +3809,8 @@ var require_schemes = __commonJS({
       }
       if (wsComponent.resourceName) {
         const queryIndex = wsComponent.resourceName.indexOf("?");
-        const path16 = queryIndex === -1 ? wsComponent.resourceName : wsComponent.resourceName.slice(0, queryIndex);
-        wsComponent.path = path16 && path16 !== "/" ? path16 : void 0;
+        const path18 = queryIndex === -1 ? wsComponent.resourceName : wsComponent.resourceName.slice(0, queryIndex);
+        wsComponent.path = path18 && path18 !== "/" ? path18 : void 0;
         wsComponent.query = queryIndex === -1 ? void 0 : wsComponent.resourceName.slice(queryIndex + 1);
         wsComponent.resourceName = void 0;
       }
@@ -7347,12 +7347,12 @@ var require_dist = __commonJS({
         throw new Error(`Unknown format "${name}"`);
       return f;
     };
-    function addFormats(ajv, list, fs15, exportName) {
+    function addFormats(ajv, list, fs17, exportName) {
       var _a3;
       var _b;
       (_a3 = (_b = ajv.opts.code).formats) !== null && _a3 !== void 0 ? _a3 : _b.formats = (0, codegen_1._)`require("ajv-formats/dist/formats").${exportName}`;
       for (const f of list)
-        ajv.addFormat(f, fs15[f]);
+        ajv.addFormat(f, fs17[f]);
     }
     module.exports = exports = formatsPlugin;
     Object.defineProperty(exports, "__esModule", { value: true });
@@ -7597,10 +7597,10 @@ function mergeDefs(...defs) {
 function cloneDef(schema) {
   return mergeDefs(schema._zod.def);
 }
-function getElementAtPath(obj, path16) {
-  if (!path16)
+function getElementAtPath(obj, path18) {
+  if (!path18)
     return obj;
-  return path16.reduce((acc, key) => acc?.[key], obj);
+  return path18.reduce((acc, key) => acc?.[key], obj);
 }
 function promiseAllObject(promisesObj) {
   const keys = Object.keys(promisesObj);
@@ -7940,11 +7940,11 @@ function explicitlyAborted(x, startIndex = 0) {
   }
   return false;
 }
-function prefixIssues(path16, issues) {
+function prefixIssues(path18, issues) {
   return issues.map((iss) => {
     var _a3;
     (_a3 = iss).path ?? (_a3.path = []);
-    iss.path.unshift(path16);
+    iss.path.unshift(path18);
     return iss;
   });
 }
@@ -8402,16 +8402,16 @@ function flattenError(error2, mapper = (issue2) => issue2.message) {
 }
 function formatError(error2, mapper = (issue2) => issue2.message) {
   const fieldErrors = { _errors: [] };
-  const processError = (error3, path16 = []) => {
+  const processError = (error3, path18 = []) => {
     for (const issue2 of error3.issues) {
       if (issue2.code === "invalid_union" && issue2.errors.length) {
-        issue2.errors.map((issues) => processError({ issues }, [...path16, ...issue2.path]));
+        issue2.errors.map((issues) => processError({ issues }, [...path18, ...issue2.path]));
       } else if (issue2.code === "invalid_key") {
-        processError({ issues: issue2.issues }, [...path16, ...issue2.path]);
+        processError({ issues: issue2.issues }, [...path18, ...issue2.path]);
       } else if (issue2.code === "invalid_element") {
-        processError({ issues: issue2.issues }, [...path16, ...issue2.path]);
+        processError({ issues: issue2.issues }, [...path18, ...issue2.path]);
       } else {
-        const fullpath = [...path16, ...issue2.path];
+        const fullpath = [...path18, ...issue2.path];
         if (fullpath.length === 0) {
           fieldErrors._errors.push(mapper(issue2));
         } else {
@@ -12795,9 +12795,9 @@ function equalSecret(candidate, expected) {
 }
 
 // src/index.ts
-import crypto11 from "node:crypto";
-import fs14 from "node:fs";
-import path15 from "node:path";
+import crypto12 from "node:crypto";
+import fs16 from "node:fs";
+import path17 from "node:path";
 import { basename as pathBase, dirname as pathDir } from "node:path";
 import http3 from "node:http";
 
@@ -16345,8 +16345,8 @@ function matchesAny(absPath, patterns) {
   return false;
 }
 function isInside(root, p) {
-  const rel = path.relative(root, p);
-  return rel === "" || rel !== ".." && !rel.startsWith(".." + path.sep) && !path.isAbsolute(rel);
+  const rel2 = path.relative(root, p);
+  return rel2 === "" || rel2 !== ".." && !rel2.startsWith(".." + path.sep) && !path.isAbsolute(rel2);
 }
 function isDeniedRead(p, abs) {
   if (p.protectedDirs.some((d) => isInside(d, abs))) return true;
@@ -17082,7 +17082,6 @@ function redirectAllowed(uri, extra) {
   return false;
 }
 var OAuth = class {
-  // device-flow ticket -> bekleyen giriş
   constructor(o) {
     this.o = o;
     this.key = crypto3.createHash("sha256").update("hardtools-oauth-v1\0" + o.token).digest();
@@ -17101,6 +17100,9 @@ var OAuth = class {
   extra;
   github;
   ghPending = /* @__PURE__ */ new Map();
+  // device-flow ticket -> bekleyen giriş
+  // RFC 8628: bu sunucuya bağlanan MCP istemcileri için kendi cihaz akışımız.
+  devices = /* @__PURE__ */ new Map();
   // ---- signed blobs ---------------------------------------------------------------------
   sign(p) {
     const body = B64(JSON.stringify(p));
@@ -17232,10 +17234,10 @@ var OAuth = class {
   // ---- routing --------------------------------------------------------------------------
   /** Returns true when the request was an OAuth/discovery/invite route and has been fully handled. */
   async handle(req, res) {
-    const path16 = (req.url ?? "").split("?")[0];
+    const path18 = (req.url ?? "").split("?")[0];
     const method = req.method ?? "GET";
     const origin = this.origin(req);
-    if (path16 === "/.well-known/oauth-protected-resource" || path16 === "/.well-known/oauth-protected-resource/mcp") {
+    if (path18 === "/.well-known/oauth-protected-resource" || path18 === "/.well-known/oauth-protected-resource/mcp") {
       if (method !== "GET") {
         this.oerr(res, 405, "invalid_request", "GET only");
         return true;
@@ -17243,7 +17245,7 @@ var OAuth = class {
       this.json(res, 200, { resource: `${origin}/mcp`, authorization_servers: [origin], bearer_methods_supported: ["header"] });
       return true;
     }
-    if (path16 === "/.well-known/oauth-authorization-server" || path16 === "/.well-known/oauth-authorization-server/mcp") {
+    if (path18 === "/.well-known/oauth-authorization-server" || path18 === "/.well-known/oauth-authorization-server/mcp") {
       if (method !== "GET") {
         this.oerr(res, 405, "invalid_request", "GET only");
         return true;
@@ -17253,46 +17255,55 @@ var OAuth = class {
         authorization_endpoint: `${origin}/authorize`,
         token_endpoint: `${origin}/token`,
         registration_endpoint: `${origin}/register`,
+        device_authorization_endpoint: `${origin}/device/authorize`,
         response_types_supported: ["code"],
-        grant_types_supported: ["authorization_code", "refresh_token"],
+        grant_types_supported: ["authorization_code", "refresh_token", "urn:ietf:params:oauth:grant-type:device_code"],
         code_challenge_methods_supported: ["S256"],
         token_endpoint_auth_methods_supported: ["none"]
       });
       return true;
     }
-    if (path16 === "/register") {
+    if (path18 === "/register") {
       await this.register(req, res);
       return true;
     }
-    if (path16 === "/authorize") {
+    if (path18 === "/authorize") {
       await this.authorize(req, res, origin);
       return true;
     }
-    if (path16 === "/oauth/github/callback") {
+    if (path18 === "/oauth/github/callback") {
       await this.githubCallback(req, res, origin);
       return true;
     }
-    if (path16 === "/oauth/github/poll") {
+    if (path18 === "/oauth/github/poll") {
       await this.githubPoll(req, res, origin);
       return true;
     }
-    if (path16 === "/token") {
+    if (path18 === "/device/authorize") {
+      await this.deviceAuthorize(req, res, origin);
+      return true;
+    }
+    if (path18 === "/device") {
+      await this.devicePage(req, res, origin);
+      return true;
+    }
+    if (path18 === "/token") {
       await this.tokenEndpoint(req, res);
       return true;
     }
-    if (path16.startsWith("/invite/")) {
-      await this.handleInvite(req, res, path16, origin);
+    if (path18.startsWith("/invite/")) {
+      await this.handleInvite(req, res, path18, origin);
       return true;
     }
     return false;
   }
   // ---- /invite/<code> -------------------------------------------------------------------
-  async handleInvite(req, res, path16, origin) {
+  async handleInvite(req, res, path18, origin) {
     if (req.method !== "GET") {
       this.oerr(res, 405, "invalid_request", "GET only");
       return;
     }
-    const code = decodeURIComponent(path16.slice("/invite/".length));
+    const code = decodeURIComponent(path18.slice("/invite/".length));
     const sessionId = this.redeemInvite(code);
     if (!sessionId) {
       this.page(res, 410, "Bu davet kullan\u0131lm\u0131\u015F veya s\xFCresi dolmu\u015F. Daveti az \xF6nce a\xE7t\u0131ysan ayn\u0131 taray\u0131c\u0131 profilinde Claude\u2019dan devam et. Aksi halde yay\u0131n sahibiyle ileti\u015Fime ge\xE7.", null);
@@ -17611,6 +17622,77 @@ ${note ? `<p class="muted">${esc4(note)}</p>` : ""}
     });
     res.end(page({ title: "hardtools \xB7 giri\u015F", subtitle: "OAuth", body: `${heading("Ba\u011Flant\u0131 izni")}${error2 ? `<p class="e">${esc4(error2)}</p>` : ""}${form}` }));
   }
+  // ---- RFC 8628 cihaz yetkilendirme -----------------------------------------------------------
+  /** POST /device/authorize — istemci (MCP) kendi cihaz kodunu alır, kullanıcı koduyla onaylatır. */
+  async deviceAuthorize(req, res, origin) {
+    if (req.method !== "POST") return this.oerr(res, 405, "invalid_request", "POST only");
+    const p = await this.readParams(req);
+    if (!p) return this.oerr(res, 400, "invalid_request", "malformed or oversized body");
+    const cid = String(p.client_id ?? "device-client").slice(0, 200);
+    const alphabet = "BCDFGHJKLMNPQRSTVWXZ";
+    const pick2 = (n) => Array.from(crypto3.randomBytes(n)).map((b) => alphabet[b % alphabet.length]).join("");
+    const userCode = `${pick2(4)}-${pick2(4)}`;
+    const deviceCode = crypto3.randomBytes(32).toString("base64url");
+    const nowS = this.now();
+    for (const [k, d] of this.devices) if (d.exp < nowS) this.devices.delete(k);
+    if (this.devices.size >= 200) return this.oerr(res, 429, "slow_down", "too many pending device codes");
+    this.devices.set(deviceCode, { uc: userCode, cid, exp: nowS + 600, interval: 5, approved: false, polls: 0, lastPoll: 0 });
+    this.o.audit?.({ ev: "oauth_device_authorize", client: cid.slice(0, 40) });
+    return this.json(res, 200, {
+      device_code: deviceCode,
+      user_code: userCode,
+      verification_uri: `${origin}/device`,
+      verification_uri_complete: `${origin}/device?user_code=${encodeURIComponent(userCode)}`,
+      expires_in: 600,
+      interval: 5
+    });
+  }
+  /** GET/POST /device — kullanıcı kodu onay sayfası (webview'de de çalışır: düz form). */
+  async devicePage(req, res, origin) {
+    const url = new URL(req.url ?? "/device", origin);
+    const prefill = String(url.searchParams.get("user_code") ?? "");
+    const escH = (v) => v.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
+    let msg = "", cls = "";
+    if (req.method === "POST") {
+      const p = await this.readParams(req);
+      if (!p) return this.oerr(res, 400, "invalid_request", "malformed body");
+      const code = String(p.user_code ?? "").trim().toUpperCase();
+      const entry = [...this.devices.entries()].find(([, d]) => d.uc === code && d.exp >= this.now());
+      if (!entry) {
+        msg = "Kod ge\xE7ersiz ya da s\xFCresi doldu.";
+        cls = "e";
+      } else if (typeof p.access_token !== "string" || !equalSecret(p.access_token.trim(), this.o.token)) {
+        msg = "Eri\u015Fim anahtar\u0131 yanl\u0131\u015F.";
+        cls = "e";
+        this.o.audit?.({ ev: "oauth_device_approve", ok: false });
+      } else {
+        const [dc, d] = entry;
+        if (d.approved) {
+          msg = "Bu kod zaten onayland\u0131.";
+          cls = "e";
+        } else {
+          d.approved = true;
+          d.grant = crypto3.randomBytes(12).toString("base64url");
+          this.o.onGrant?.(d.grant, "device");
+          this.o.audit?.({ ev: "oauth_device_approve", ok: true, code: code.slice(0, 9) });
+          msg = `Onayland\u0131. \u0130stemci birka\xE7 saniye i\xE7inde ba\u011Flanacak (${d.cid.slice(0, 30)}). Bu sekmeyi kapatabilirsin.`;
+          cls = "ok";
+          void dc;
+        }
+      }
+    }
+    const body = `${heading("Cihaz onay\u0131", "\u0130stemcinin ekran\u0131nda g\xF6rd\xFC\u011F\xFCn kodu gir, eri\u015Fim anahtar\u0131n\u0131 yaz. Kod 10 dakika ge\xE7erlidir.")}
+${msg ? `<p class="${cls}">${escH(msg)}</p>` : ""}
+<div class="card"><form method="post" action="/device" autocomplete="off">
+<label for="user_code">Kullan\u0131c\u0131 kodu</label>
+<input id="user_code" name="user_code" value="${escH(prefill)}" placeholder="XXXX-XXXX" required autocomplete="off" autocapitalize="characters">
+<label for="access_token">Eri\u015Fim anahtar\u0131</label>
+<input id="access_token" name="access_token" type="password" required autocomplete="off" placeholder="Bearer olmadan">
+<p class="row" style="margin-top:.8rem"><button class="primary" type="submit" data-once>Onayla</button></p>
+</form></div>`;
+    res.writeHead(200, { "content-type": "text/html; charset=utf-8", "cache-control": "no-store", "x-frame-options": "DENY", "referrer-policy": "same-origin", "content-security-policy": PAGE_CSP });
+    res.end(page({ title: "hardtools \xB7 cihaz onay\u0131", subtitle: "OAuth device", body }));
+  }
   // ---- token endpoint ---------------------------------------------------------------------
   async tokenEndpoint(req, res) {
     if (req.method !== "POST") return this.oerr(res, 405, "invalid_request", "POST only");
@@ -17638,6 +17720,26 @@ ${note ? `<p class="muted">${esc4(note)}</p>` : ""}
       this.usedCodes.set(c.jti, c.exp);
       this.o.audit?.({ ev: "oauth_token", grant: "authorization_code" });
       return this.json(res, 200, mint(c.cid, c.jti));
+    }
+    if (p.grant_type === "urn:ietf:params:oauth:grant-type:device_code") {
+      const nowS = this.now();
+      for (const [k, d2] of this.devices) if (d2.exp < nowS) this.devices.delete(k);
+      const d = this.devices.get(String(p.device_code ?? ""));
+      if (!d) return this.oerr(res, 400, "expired_token", "unknown or expired device code");
+      if (p.client_id && p.client_id !== d.cid) return this.oerr(res, 400, "invalid_grant", "client_id mismatch");
+      if (!d.approved) {
+        if (nowS - d.lastPoll < d.interval) {
+          d.lastPoll = nowS;
+          return this.oerr(res, 400, "slow_down", "polling too fast");
+        }
+        d.lastPoll = nowS;
+        d.polls++;
+        return this.oerr(res, 400, "authorization_pending", "the user has not approved the device yet");
+      }
+      this.devices.delete(String(p.device_code));
+      const grant = d.grant ?? crypto3.randomBytes(12).toString("base64url");
+      this.o.audit?.({ ev: "oauth_token", grant: "device_code", user: String(d.grant ?? "-").slice(0, 8) });
+      return this.json(res, 200, mint(d.cid, grant));
     }
     if (p.grant_type === "refresh_token") {
       const r = this.verify(p.refresh_token, "rt");
@@ -18024,8 +18126,8 @@ function getErrorMap() {
 
 // node_modules/zod/v3/helpers/parseUtil.js
 var makeIssue = (params) => {
-  const { data, path: path16, errorMaps, issueData } = params;
-  const fullPath = [...path16, ...issueData.path || []];
+  const { data, path: path18, errorMaps, issueData } = params;
+  const fullPath = [...path18, ...issueData.path || []];
   const fullIssue = {
     ...issueData,
     path: fullPath
@@ -18140,11 +18242,11 @@ var errorUtil;
 
 // node_modules/zod/v3/types.js
 var ParseInputLazyPath = class {
-  constructor(parent, value, path16, key) {
+  constructor(parent, value, path18, key) {
     this._cachedPath = [];
     this.parent = parent;
     this.data = value;
-    this._path = path16;
+    this._path = path18;
     this._key = key;
   }
   get path() {
@@ -21695,11 +21797,11 @@ function normalizeObjectSchema(schema) {
   }
   return void 0;
 }
-function getDotPath(path16) {
-  if (path16.length === 0) {
+function getDotPath(path18) {
+  if (path18.length === 0) {
     return "object root";
   }
-  return path16.reduce((acc, seg, index) => {
+  return path18.reduce((acc, seg, index) => {
     if (index === 0) {
       return String(seg);
     }
@@ -25848,7 +25950,7 @@ function indicesOf(hay, needle) {
   }
   return out;
 }
-function miniDiff(rel, a, b) {
+function miniDiff(rel2, a, b) {
   const A = a.split("\n"), B = b.split("\n");
   let p = 0;
   while (p < A.length && p < B.length && A[p] === B[p]) p++;
@@ -25858,7 +25960,7 @@ function miniDiff(rel, a, b) {
     sb--;
   }
   const ctx = 3, from = Math.max(0, p - ctx);
-  const out = [`--- a/${rel}`, `+++ b/${rel}`, `@@ -${from + 1} +${from + 1} @@`];
+  const out = [`--- a/${rel2}`, `+++ b/${rel2}`, `@@ -${from + 1} +${from + 1} @@`];
   for (let i = from; i < p; i++) out.push(" " + A[i]);
   const rem = A.slice(p, sa), add = B.slice(p, sb);
   let shown = 0;
@@ -25900,31 +26002,31 @@ function htEdit(policy, a) {
     if (bom) text = text.slice(1);
     const origSha = sha2(orig);
     const eol = detectEol(text);
-    const rel = path4.relative(r.root, r.abs);
-    for (const it of items) if (it.if_hash && it.if_hash !== origSha) throw new PolicyError("hash_mismatch", `${rel} changed since it was read (if_hash mismatch); re-read it`);
+    const rel2 = path4.relative(r.root, r.abs);
+    for (const it of items) if (it.if_hash && it.if_hash !== origSha) throw new PolicyError("hash_mismatch", `${rel2} changed since it was read (if_hash mismatch); re-read it`);
     const before = text;
     items.forEach((it, n) => {
-      if (it.old_str === "") throw new PolicyError("empty_old_str", `${rel} edit #${n + 1}: old_str is empty`);
+      if (it.old_str === "") throw new PolicyError("empty_old_str", `${rel2} edit #${n + 1}: old_str is empty`);
       let o = it.old_str, w = it.new_str;
       if (eol === "crlf" && !o.includes("\r")) {
         o = o.replace(/\n/g, "\r\n");
         w = w.replace(/\r?\n/g, "\r\n");
       }
-      if (o === w) throw new PolicyError("noop_edit", `${rel} edit #${n + 1}: old_str equals new_str`);
+      if (o === w) throw new PolicyError("noop_edit", `${rel2} edit #${n + 1}: old_str equals new_str`);
       const idx = indicesOf(text, o);
       if (idx.length === 0) {
         const first = it.old_str.split(/\r?\n/).map((s) => s.trim()).find(Boolean) ?? "";
         const hints = first ? text.split(/\r?\n/).flatMap((l, i) => l.includes(first) ? [i + 1] : []).slice(0, 5) : [];
-        throw new PolicyError("no_match", `${rel} edit #${n + 1}: old_str not found (whitespace/indentation must match exactly).${hints.length ? ` First line of old_str appears at line(s): ${hints.join(", ")}.` : ""}`);
+        throw new PolicyError("no_match", `${rel2} edit #${n + 1}: old_str not found (whitespace/indentation must match exactly).${hints.length ? ` First line of old_str appears at line(s): ${hints.join(", ")}.` : ""}`);
       }
-      if (idx.length > 1 && !it.replace_all) throw new PolicyError("ambiguous", `${rel} edit #${n + 1}: old_str matches ${idx.length} times (lines ${idx.slice(0, 6).map((i) => lineOf(text, i)).join(", ")}${idx.length > 6 ? ", \u2026" : ""}). Add surrounding context or set replace_all=true.`);
-      warnings.push(...enforceSecrets(policy, it.new_str, `${rel} edit #${n + 1} new_str`));
+      if (idx.length > 1 && !it.replace_all) throw new PolicyError("ambiguous", `${rel2} edit #${n + 1}: old_str matches ${idx.length} times (lines ${idx.slice(0, 6).map((i) => lineOf(text, i)).join(", ")}${idx.length > 6 ? ", \u2026" : ""}). Add surrounding context or set replace_all=true.`);
+      warnings.push(...enforceSecrets(policy, it.new_str, `${rel2} edit #${n + 1} new_str`));
       text = it.replace_all ? text.split(o).join(w) : text.slice(0, idx[0]) + w + text.slice(idx[0] + o.length);
     });
-    if (text === before) throw new PolicyError("noop_edit", `${rel}: edits produce no change`);
+    if (text === before) throw new PolicyError("noop_edit", `${rel2}: edits produce no change`);
     const next = Buffer.from((bom ? "\uFEFF" : "") + text, "utf8");
-    if (next.length > policy.fs.maxWriteBytes) throw new PolicyError("too_large", `${rel}: result is ${next.length} bytes; limit is ${policy.fs.maxWriteBytes}`);
-    staged.push({ rel, abs: r.abs, orig, origSha, next, mode: st.mode, diff: miniDiff(rel, before, text) });
+    if (next.length > policy.fs.maxWriteBytes) throw new PolicyError("too_large", `${rel2}: result is ${next.length} bytes; limit is ${policy.fs.maxWriteBytes}`);
+    staged.push({ rel: rel2, abs: r.abs, orig, origSha, next, mode: st.mode, diff: miniDiff(rel2, before, text) });
   }
   const summary2 = staged.map((s) => s.diff).join("\n\n");
   const wtxt = warnings.length ? `
@@ -26103,17 +26205,17 @@ function htGlob(policy, a) {
         hidden++;
         continue;
       }
-      const rel = path6.relative(base.abs, abs).split(path6.sep).join("/");
+      const rel2 = path6.relative(base.abs, abs).split(path6.sep).join("/");
       if (d.isDirectory()) {
         if (SKIP_DIRS.has(d.name)) continue;
         stack.push(abs);
-        if ((want === "dir" || want === "any") && rx.test(rel)) {
+        if ((want === "dir" || want === "any") && rx.test(rel2)) {
           const s = fs6.lstatSync(abs);
-          hits.push({ rel: rel + "/", dir: true, size: 0, mtime: s.mtimeMs });
+          hits.push({ rel: rel2 + "/", dir: true, size: 0, mtime: s.mtimeMs });
         }
-      } else if (d.isFile() && (want === "file" || want === "any") && rx.test(rel)) {
+      } else if (d.isFile() && (want === "file" || want === "any") && rx.test(rel2)) {
         const s = fs6.lstatSync(abs);
-        hits.push({ rel, dir: false, size: s.size, mtime: s.mtimeMs });
+        hits.push({ rel: rel2, dir: false, size: s.size, mtime: s.mtimeMs });
       }
       if (hits.length >= MAX_COLLECT) {
         cut = `match cap (${MAX_COLLECT})`;
@@ -26293,7 +26395,7 @@ function anyMatch(patterns, value) {
 }
 
 // src/version.ts
-var VERSION = "0.5.24";
+var VERSION = "1.5.24";
 
 // src/net.ts
 var blocked = new net.BlockList();
@@ -26612,8 +26714,8 @@ async function htSearch(policy, a) {
     for (let i = 0; i < m.after.length; i++) lines.push(`${m.file}-${m.line + 1 + i}-${m.after[i]}`);
     if (q.context) lines.push("--");
   }
-  const rel = path7.relative(r.root, r.abs) || ".";
-  return `SEARCH ${JSON.stringify(a.pattern)} in ${rel} | ${matches.length} match(es) | files scanned=${meta2.scanned} skipped=${meta2.skipped}${meta2.truncated ? " | RESULT LIMIT REACHED" : ""}${timedOut ? ` | TIME BUDGET (${policy.search.timeBudgetMs} ms) EXCEEDED \u2014 results are partial (pattern may be too expensive)` : ""}
+  const rel2 = path7.relative(r.root, r.abs) || ".";
+  return `SEARCH ${JSON.stringify(a.pattern)} in ${rel2} | ${matches.length} match(es) | files scanned=${meta2.scanned} skipped=${meta2.skipped}${meta2.truncated ? " | RESULT LIMIT REACHED" : ""}${timedOut ? ` | TIME BUDGET (${policy.search.timeBudgetMs} ms) EXCEEDED \u2014 results are partial (pattern may be too expensive)` : ""}
 ${lines.join("\n")}`;
 }
 
@@ -27538,9 +27640,9 @@ function sourceFile(p, a) {
   let abs;
   if (a.source_path !== void 0) abs = path10.resolve(p.roots[0], a.source_path);
   else {
-    const rel = a.path.startsWith(SHARE_CWD) ? a.path.slice(SHARE_CWD.length) : a.path;
-    if (!rel || /[\\:\0]/.test(rel) || rel.split("/").some((c) => !c || c === "." || c === "..")) throw new PolicyError("bad_share_path", `path must be a file inside ${SHARE_CWD}`);
-    abs = path10.join(p.roots[0], SHARE_CWD.slice(1), rel);
+    const rel2 = a.path.startsWith(SHARE_CWD) ? a.path.slice(SHARE_CWD.length) : a.path;
+    if (!rel2 || /[\\:\0]/.test(rel2) || rel2.split("/").some((c) => !c || c === "." || c === "..")) throw new PolicyError("bad_share_path", `path must be a file inside ${SHARE_CWD}`);
+    abs = path10.join(p.roots[0], SHARE_CWD.slice(1), rel2);
   }
   const r = resolveSafe(p, abs, "read");
   if (!r.exists) throw new PolicyError("not_found", `no such source file; stage path under ${SHARE_CWD} or use source_path`);
@@ -28201,8 +28303,8 @@ var UserInputs = class {
   }
   // ---- browser UI -------------------------------------------------------------------
   /** Serve /ui/input/<id>. Returns false when the path is not ours. */
-  handle(req, res, path16, origin) {
-    const m = /^\/ui\/input\/([A-Za-z0-9_-]{20,64})$/.exec(path16);
+  handle(req, res, path18, origin) {
+    const m = /^\/ui\/input\/([A-Za-z0-9_-]{20,64})$/.exec(path18);
     if (!m) return false;
     const id = m[1];
     const req_ = this.byId.get(id);
@@ -28249,7 +28351,7 @@ var UserInputs = class {
           }).join("") : "";
           page2(200, shell(`<p>Kaydedildi. Sohbete d\xF6n${secrets ? "" : `; de\u011Fer <code>$HT_USER_INPUT</code> olarak kullan\u0131labilir`}.</p>${summary2 ? `<ul class="m">${summary2}</ul>` : ""}${secrets ? `<p class="m">Gizli de\u011Ferler bu sayfada tekrar g\xF6sterilmez; modelin g\xF6rece\u011Fi \xE7\u0131kt\u0131da maskelenir.</p>` : ""}`));
         } catch (e) {
-          return page2(400, shell(`<p class="e">${esc3(e.message)}</p><p class="m"><a href="${esc3(path16)}">Geri d\xF6n</a></p>`));
+          return page2(400, shell(`<p class="e">${esc3(e.message)}</p><p class="m"><a href="${esc3(path18)}">Geri d\xF6n</a></p>`));
         }
       });
       req.on("error", () => {
@@ -28274,16 +28376,351 @@ var UserInputs = class {
     };
     const mins = Math.max(1, Math.round((req_.expiresAt - Date.now()) / 6e4));
     const body = req_.fields ? `<p class="q">${esc3(req_.title)}</p>${req_.help ? `<p class="m">${esc3(req_.help)}</p>` : ""}
-<form method="post" action="${esc3(path16)}" autocomplete="off"><fieldset>${req_.fields.map(field).join("")}</fieldset>
+<form method="post" action="${esc3(path18)}" autocomplete="off"><fieldset>${req_.fields.map(field).join("")}</fieldset>
 <button type="submit">G\xF6nder</button><button type="submit" name="action" value="cancel" formnovalidate>Vazge\xE7</button></form>
 <p class="m">Yan\u0131tlar <code>$HT_USER_INPUT</code> (JSON) ve her alan i\xE7in <code>$HT_USER_INPUT_ADI</code> olarak komutlara ge\xE7er. Bu ba\u011Flant\u0131 tek kullan\u0131ml\u0131kt\u0131r, ~${mins} dk ge\xE7erlidir.</p>` : `<p class="q">${esc3(req_.title)}</p>
-<form method="post" action="${esc3(path16)}" autocomplete="off">${field({ name: req_.secret ? "secret" : "value", title: "Yan\u0131t", kind: req_.kind, secret: req_.secret, required: true, ...req_.choices ? { choices: req_.choices } : {}, ...req_.default !== void 0 ? { default: req_.default } : {}, ...req_.placeholder ? { placeholder: req_.placeholder } : {} })}
+<form method="post" action="${esc3(path18)}" autocomplete="off">${field({ name: req_.secret ? "secret" : "value", title: "Yan\u0131t", kind: req_.kind, secret: req_.secret, required: true, ...req_.choices ? { choices: req_.choices } : {}, ...req_.default !== void 0 ? { default: req_.default } : {}, ...req_.placeholder ? { placeholder: req_.placeholder } : {} })}
 <button type="submit">G\xF6nder</button><button type="submit" name="action" value="cancel" formnovalidate>Vazge\xE7</button></form>
 <p class="m">${req_.secret ? "Bu de\u011Fer gizli kabul edilir: sohbete geri d\xF6nmez, denetim kayd\u0131na yaz\u0131lmaz, komut \xE7\u0131kt\u0131s\u0131nda maskelenir." : `T\xFCr: ${esc3(req_.kind)}. De\u011Fer <code>$HT_USER_INPUT</code> olarak komutlara ge\xE7er.`} ~${mins} dk ge\xE7erlidir.</p>`;
     page2(200, shell(body));
     return true;
   }
 };
+
+// src/undo.ts
+import fs13 from "node:fs";
+import path14 from "node:path";
+var MAX_OPS = 10;
+var MAX_OP_BYTES = 4 << 20;
+var MAX_FILES = 400;
+var SKIP = /* @__PURE__ */ new Set([".git", ".ht-trash", "node_modules"]);
+function captureAbs(policy, abs, rel2, out, budget) {
+  const st = fs13.lstatSync(abs);
+  if (st.isSymbolicLink()) {
+    budget.files++;
+    return;
+  }
+  if (st.isDirectory()) {
+    out.push({ path: rel2, kind: "dir", mode: st.mode & 511 });
+    for (const name of fs13.readdirSync(abs).sort()) {
+      if (SKIP.has(name)) continue;
+      captureAbs(policy, path14.join(abs, name), path14.join(rel2, name), out, budget);
+    }
+    return;
+  }
+  if (!st.isFile()) {
+    budget.files++;
+    return;
+  }
+  budget.files++;
+  budget.bytes += st.size;
+  if (budget.files > MAX_FILES || budget.bytes > MAX_OP_BYTES) return;
+  out.push({ path: rel2, kind: "file", data: fs13.readFileSync(abs), mode: st.mode & 511 });
+}
+function touchedPaths(tool, args) {
+  const out = [], push = (v) => {
+    if (typeof v === "string" && v) out.push(v);
+  };
+  if (tool === "ht_write" || tool === "ht_mkdir" || tool === "ht_trash") push(args.path);
+  if (tool === "ht_move") {
+    push(args.from);
+    push(args.to);
+  }
+  if (tool === "ht_edit" && Array.isArray(args.edits)) for (const e of args.edits) push(e?.path);
+  return out;
+}
+var UndoJournal = class {
+  byOwner = /* @__PURE__ */ new Map();
+  /** Çağrı öncesi durumu kaydet. Hata yutulur: geri alma asla ana işlemi engellemez. */
+  record(policy, owner, tool, args) {
+    const raw = touchedPaths(tool, args);
+    if (!raw.length) return;
+    const snaps = [];
+    const budget = { bytes: 0, files: 0 };
+    const seen = /* @__PURE__ */ new Set();
+    let complete = true;
+    for (const input of raw) {
+      let r;
+      try {
+        r = resolveSafe(policy, input, "write");
+      } catch {
+        complete = false;
+        continue;
+      }
+      if (seen.has(r.abs)) continue;
+      seen.add(r.abs);
+      if (r.exists) {
+        try {
+          captureAbs(policy, r.abs, r.abs, snaps, budget);
+        } catch {
+          complete = false;
+        }
+      } else snaps.push({ path: r.abs, kind: "file" });
+    }
+    if (budget.bytes > MAX_OP_BYTES || budget.files > MAX_FILES) complete = false;
+    const stack = this.byOwner.get(owner) ?? [];
+    stack.push({ tool, at: Date.now(), paths: raw, snaps: complete ? snaps : [], complete, reason: complete ? void 0 : "snapshot_limit" });
+    while (stack.length > MAX_OPS) stack.shift();
+    this.byOwner.set(owner, stack);
+  }
+  list(owner) {
+    return this.byOwner.get(owner) ?? [];
+  }
+  last(owner) {
+    return this.list(owner).at(-1);
+  }
+  pop(owner) {
+    const s = this.byOwner.get(owner) ?? [];
+    const e = s.pop();
+    this.byOwner.set(owner, s);
+    return e;
+  }
+  /** Çağrı reddedildi/başarısız olduysa son kaydı at (geri alınacak bir etki yok). */
+  dropLast(owner) {
+    const s2 = this.byOwner.get(owner);
+    if (s2?.length) {
+      s2.pop();
+      this.byOwner.set(owner, s2);
+    }
+  }
+  clear(owner) {
+    const n = this.list(owner).length;
+    this.byOwner.set(owner, []);
+    return n;
+  }
+};
+var rel = (policy, abs) => policy.roots.map((r) => isInside(r, abs) ? path14.relative(r, abs) || "." : null).find(Boolean) ?? abs;
+var human = (e) => `${new Date(e.at).toISOString().replace("T", " ").slice(0, 19)} \xB7 ${e.tool} \xB7 ${e.paths.length} path(s)${e.complete ? "" : ` \xB7 NOT UNDOABLE (${e.reason})`}`;
+function htUndo(policy, journal, owner, a) {
+  const action = a.action ?? "list";
+  if (action === "list") {
+    const items = journal.list(owner);
+    if (!items.length) return "UNDO: kay\u0131t yok (bu oturumda dosya de\u011Fi\u015Ftiren ara\xE7 \xE7a\u011Fr\u0131s\u0131 g\xF6r\xFClmedi).";
+    return `UNDO: ${items.length} i\u015Flem (en yenisi sonda)
+${items.map((e, i) => `${i + 1}. ${human(e)}`).join("\n")}`;
+  }
+  if (action === "clear") return `UNDO: ${journal.clear(owner)} kay\u0131t temizlendi.`;
+  if (action !== "undo") throw new PolicyError("bad_input", "action: undo|list|clear");
+  if (!policy.fs.writeEnabled) throw new PolicyError("write_disabled", "geri alma yazma izni ister (politika kapal\u0131)");
+  const entry = journal.pop(owner);
+  if (!entry) return "UNDO: geri al\u0131nacak i\u015Flem yok.";
+  if (!entry.complete) return `UNDO: son i\u015Flem geri al\u0131namaz (${entry.reason}): ${entry.paths.join(", ")}`;
+  const done = [], failed = [];
+  for (const s of [...entry.snaps].reverse()) {
+    let target;
+    try {
+      target = resolveSafe(policy, s.path, "write");
+    } catch (e) {
+      failed.push(`${rel(policy, s.path)} (${e.code ?? "error"})`);
+      continue;
+    }
+    try {
+      if (s.kind === "dir") {
+        fs13.mkdirSync(target.abs, { recursive: true, mode: s.mode ?? 493 });
+        continue;
+      }
+      if (!s.data) {
+        if (fs13.existsSync(target.abs)) {
+          const st = fs13.lstatSync(target.abs);
+          if (st.isDirectory()) fs13.rmdirSync(target.abs);
+          else fs13.unlinkSync(target.abs);
+          done.push(`- ${rel(policy, target.abs)}`);
+        }
+        continue;
+      }
+      fs13.mkdirSync(path14.dirname(target.abs), { recursive: true });
+      const tmp = `${target.abs}.undo-${process.pid}`;
+      fs13.writeFileSync(tmp, s.data, { mode: s.mode ?? 420 });
+      fs13.renameSync(tmp, target.abs);
+      done.push(`~ ${rel(policy, target.abs)}`);
+    } catch (e) {
+      failed.push(`${rel(policy, s.path)} (${e.message.slice(0, 60)})`);
+    }
+  }
+  return `UNDO ${entry.tool}: ${done.length} yol geri al\u0131nd\u0131${failed.length ? `, ${failed.length} ba\u015Far\u0131s\u0131z: ${failed.join(", ")}` : ""}
+${done.join("\n")}`;
+}
+
+// src/schedule.ts
+var MAX_ITEMS2 = 20;
+var MAX_DELAY_S = 3600;
+var MAX_RESULT = 8 << 10;
+var FORBIDDEN = /* @__PURE__ */ new Set(["ht_schedule", "ht_user_input", "ht_ask", "ht_stop_new"]);
+var textOf = (r) => {
+  if (typeof r === "string") return r;
+  const t = (r.content ?? []).map((c) => c.text ?? "").join("\n");
+  return t.length > MAX_RESULT ? t.slice(0, MAX_RESULT) + `
+\u2026 (${t.length - MAX_RESULT} bytes truncated)` : t;
+};
+var Scheduler = class {
+  constructor(run) {
+    this.run = run;
+  }
+  run;
+  items = [];
+  seq = 0;
+  add(available, tool, args, afterS, maxDelayS = MAX_DELAY_S) {
+    if (!available.has(tool)) throw new PolicyError("bad_input", `bilinmeyen ya da kapal\u0131 ara\xE7: ${tool}`);
+    if (FORBIDDEN.has(tool)) throw new PolicyError("bad_input", `${tool} zamanlanamaz`);
+    if (!Number.isFinite(afterS) || afterS < 0) throw new PolicyError("bad_input", "after_s 0 ile " + maxDelayS + " aras\u0131nda olmal\u0131");
+    const delay = Math.min(Math.round(afterS), Math.min(maxDelayS, MAX_DELAY_S));
+    const live = this.items.filter((i) => i.status === "pending" || i.status === "running");
+    if (live.length >= MAX_ITEMS2) throw new PolicyError("busy", `bekleyen i\u015F s\u0131n\u0131r\u0131 (${MAX_ITEMS2})`);
+    const item = { id: `s${++this.seq}`, tool, args, created: Date.now(), run_at: Date.now() + delay * 1e3, status: "pending" };
+    this.items.push(item);
+    const timer = setTimeout(() => {
+      void this.fire(item);
+    }, delay * 1e3);
+    timer.unref?.();
+    return item;
+  }
+  async fire(item) {
+    if (item.status !== "pending") return;
+    item.status = "running";
+    const t0 = Date.now();
+    try {
+      item.result = textOf(await this.run(item.tool, item.args));
+      item.status = "done";
+    } catch (e) {
+      item.error = e.message.slice(0, 400);
+      item.status = "error";
+    }
+    item.ms = Date.now() - t0;
+  }
+  list() {
+    return this.items.slice(-MAX_ITEMS2);
+  }
+  collect(ids) {
+    const done = this.items.filter((i) => i.status === "done" || i.status === "error");
+    const picked = ids?.length ? done.filter((i) => ids.includes(i.id)) : done;
+    this.items = this.items.filter((i) => !picked.includes(i));
+    return picked;
+  }
+  cancel(id) {
+    const it = this.items.find((i) => i.id === id);
+    if (!it || it.status !== "pending") return false;
+    it.status = "cancelled";
+    return true;
+  }
+  get pending() {
+    return this.items.filter((i) => i.status === "pending" || i.status === "running").length;
+  }
+};
+function htSchedule(s, available, a, maxDelayS) {
+  const action = a.action ?? "list";
+  if (action === "add") {
+    if (typeof a.tool !== "string" || !a.tool) throw new PolicyError("bad_input", "tool gerekli");
+    const it = s.add(available, a.tool, a.arguments ?? {}, a.after_s ?? 0, maxDelayS);
+    return `SCHEDULED ${it.id}: ${it.tool} @ ${new Date(it.run_at).toISOString().slice(11, 19)}Z (${Math.round((it.run_at - Date.now()) / 1e3)}s)`;
+  }
+  if (action === "cancel") {
+    if (!a.id) throw new PolicyError("bad_input", "id gerekli");
+    return s.cancel(a.id) ? `CANCELLED ${a.id}` : `NOT CANCELLED ${a.id} (yok ya da \xE7al\u0131\u015Fmaya ba\u015Flad\u0131)`;
+  }
+  if (action === "collect") {
+    const got = s.collect(a.ids);
+    if (!got.length) return "COLLECT: tamamlanm\u0131\u015F i\u015F yok.";
+    return got.map((i) => `${i.id} ${i.tool} \xB7 ${i.status}${i.ms != null ? ` \xB7 ${i.ms}ms` : ""}${i.error ? ` \xB7 ${i.error}` : ""}
+${i.result ?? ""}`).join("\n---\n");
+  }
+  const items = s.list();
+  if (!items.length) return "SCHEDULE: i\u015F yok.";
+  return `SCHEDULE: ${s.pending} bekleyen
+${items.map((i) => `${i.id} ${i.status.padEnd(9)} ${i.tool} @ ${new Date(i.run_at).toISOString().slice(11, 19)}Z${i.ms != null ? ` (${i.ms}ms)` : ""}`).join("\n")}`;
+}
+
+// src/memory.ts
+import crypto10 from "node:crypto";
+import fs14 from "node:fs";
+import path15 from "node:path";
+var MAX_ENTRIES = 200;
+var MAX_VALUE = 8 * 1024;
+var MAX_TOTAL2 = 256 * 1024;
+var AccountMemory = class {
+  dir;
+  constructor(dir) {
+    this.dir = dir ?? "";
+  }
+  file(owner) {
+    if (!this.dir) return null;
+    const tag = crypto10.createHash("sha256").update(owner.toLowerCase()).digest("hex").slice(0, 16);
+    return path15.join(this.dir, `${tag}.json`);
+  }
+  read(owner) {
+    const f = this.file(owner);
+    if (!f) return { entries: [] };
+    try {
+      const d = JSON.parse(fs14.readFileSync(f, "utf8"));
+      return { entries: Array.isArray(d?.entries) ? d.entries : [] };
+    } catch {
+      return { entries: [] };
+    }
+  }
+  write(owner, s) {
+    const f = this.file(owner);
+    if (!f) throw new PolicyError("memory_unavailable", "not defteri yolu yap\u0131land\u0131r\u0131lmad\u0131");
+    fs14.mkdirSync(path15.dirname(f), { recursive: true, mode: 448 });
+    const tmp = `${f}.tmp-${process.pid}`;
+    fs14.writeFileSync(tmp, JSON.stringify(s), { mode: 384 });
+    fs14.renameSync(tmp, f);
+  }
+  set(owner, key, value) {
+    if (!/^[\w.:/-]{1,120}$/.test(key)) throw new PolicyError("bad_input", "key: 1-120 karakter (harf, rakam, _ . : / -)");
+    if (Buffer.byteLength(value) > MAX_VALUE) throw new PolicyError("too_large", `de\u011Fer ${MAX_VALUE} bayt s\u0131n\u0131r\u0131n\u0131 a\u015F\u0131yor`);
+    const s = this.read(owner);
+    const now = Date.now();
+    const i = s.entries.findIndex((e) => e.key === key);
+    if (i >= 0) s.entries[i] = { key, value, updated: now };
+    else {
+      if (s.entries.length >= MAX_ENTRIES) throw new PolicyError("too_many", `en \xE7ok ${MAX_ENTRIES} kay\u0131t`);
+      s.entries.push({ key, value, updated: now });
+    }
+    const total = s.entries.reduce((n, e) => n + Buffer.byteLength(e.value), 0);
+    if (total > MAX_TOTAL2) throw new PolicyError("too_large", `toplam ${MAX_TOTAL2} bayt s\u0131n\u0131r\u0131n\u0131 a\u015F\u0131yor`);
+    this.write(owner, s);
+    return s.entries.length;
+  }
+  get(owner, key) {
+    return this.read(owner).entries.find((e) => e.key === key);
+  }
+  list(owner) {
+    return this.read(owner).entries.map((e) => ({ key: e.key, bytes: Buffer.byteLength(e.value), updated: e.updated }));
+  }
+  del(owner, key) {
+    const s = this.read(owner), before = s.entries.length;
+    s.entries = s.entries.filter((e) => e.key !== key);
+    this.write(owner, s);
+    return s.entries.length < before;
+  }
+  clear(owner) {
+    const n = this.read(owner).entries.length;
+    this.write(owner, { entries: [] });
+    return n;
+  }
+};
+function htMemory(store, owner, a) {
+  const action = a.action ?? "list";
+  if (action === "set") {
+    if (!a.key || typeof a.value !== "string") throw new PolicyError("bad_input", "set i\xE7in key ve value gerekli");
+    const n = store.set(owner, a.key, a.value);
+    return `MEMORY set ${a.key} (${Buffer.byteLength(a.value)} bytes) \xB7 ${n} kay\u0131t`;
+  }
+  if (action === "get") {
+    if (!a.key) throw new PolicyError("bad_input", "get i\xE7in key gerekli");
+    const e = store.get(owner, a.key);
+    return e ? `MEMORY ${a.key} (${new Date(e.updated).toISOString().slice(0, 19)}Z)
+${e.value}` : `MEMORY: ${a.key} yok`;
+  }
+  if (action === "delete") {
+    if (!a.key) throw new PolicyError("bad_input", "delete i\xE7in key gerekli");
+    return store.del(owner, a.key) ? `MEMORY deleted ${a.key}` : `MEMORY: ${a.key} yok`;
+  }
+  if (action === "clear") return `MEMORY: ${store.clear(owner)} kay\u0131t silindi.`;
+  const items = store.list(owner);
+  if (!items.length) return "MEMORY: kay\u0131t yok.";
+  return `MEMORY: ${items.length} kay\u0131t
+${items.map((i) => `${i.key} \xB7 ${i.bytes} bayt \xB7 ${new Date(i.updated).toISOString().slice(0, 16).replace("T", " ")}`).join("\n")}`;
+}
 
 // src/server.ts
 var usesProject = /* @__PURE__ */ new Set(["ht_transfer_file", "ht_new_shell_env", "ht_stop", "ht_read", "ht_write", "ht_edit", "ht_glob", "ht_search", "ht_move", "ht_mkdir", "ht_trash", "ht_empty_trash", "ht_shell", "ht_share"]);
@@ -28294,7 +28731,10 @@ var createWorkspace = (inputStore, shared) => ({
   // dosya kökü ise oturum başına ayrıdır.
   shares: shared?.shares ?? new Shares(),
   inputs: shared?.inputs ?? new UserInputs(inputStore ? { store: inputStore } : {}),
-  projectReady: Promise.resolve()
+  projectReady: Promise.resolve(),
+  // HTTP'de her istek yeni bir McpServer örneği kurar; bu ikisi oturum ömrü boyunca yaşamalı.
+  undo: new UndoJournal(),
+  sched: void 0
 });
 var asText = (text) => ({ content: [{ type: "text", text }] });
 function createServer(policy, audit, workspace = createWorkspace(), owner = "stdio", origin, opts = {}) {
@@ -28302,11 +28742,29 @@ function createServer(policy, audit, workspace = createWorkspace(), owner = "std
   const allowed = opts.tools ?? null;
   const disabled = new Set(opts.settings?.store.get(opts.settings.user).disabledTools ?? []);
   const ALWAYS_ON = /* @__PURE__ */ new Set(["ht_list_all_tools", "ht_manage_tool", "ht_status"]);
+  const handlers = /* @__PURE__ */ new Map();
+  const registered = /* @__PURE__ */ new Set();
   const register = ((name, cfg, cb) => {
     if (allowed && !allowed.has(name)) return void 0;
     if (disabled.has(name) && !ALWAYS_ON.has(name)) return void 0;
+    registered.add(name);
+    handlers.set(name, cb);
     return server.registerTool(name, cfg, cb);
   });
+  const undoJournal = workspace.undo ?? new UndoJournal();
+  workspace.undo = undoJournal;
+  const UNDOABLE = /* @__PURE__ */ new Set(["ht_write", "ht_edit", "ht_move", "ht_trash", "ht_mkdir"]);
+  const userSettings = () => opts.settings?.store.get(opts.settings.user);
+  const abortSignal = () => new AbortController().signal;
+  const runTool = async (tool, args) => {
+    const h = handlers.get(tool);
+    if (!h) return { isError: true, content: [{ type: "text", text: `ERROR: ara\xE7 yok: ${tool}` }] };
+    return h(args, { signal: abortSignal() });
+  };
+  const workspaceSched = workspace.sched;
+  const scheduler = workspaceSched ?? new Scheduler(runTool);
+  workspace.sched = scheduler;
+  const memory = new AccountMemory(opts.memoryDir);
   const wrap = (tool, fn) => async (args, extra) => {
     const t0 = Date.now();
     let release;
@@ -28321,10 +28779,17 @@ function createServer(policy, audit, workspace = createWorkspace(), owner = "std
       }
       const safeArgs = tool === "ht_add_var" ? { name: args.name } : tool === "ht_share" ? { action: args.action ?? "create" } : args;
       audit.write({ ev: "call", tool, profile: policy.profile, args: summarize(safeArgs) });
+      if (UNDOABLE.has(tool) && typeof args === "object" && args) {
+        try {
+          undoJournal.record(policy, owner, tool, args);
+        } catch {
+        }
+      }
       const value = await fn(args, extra), result = typeof value === "string" ? asText(value) : value;
       audit.write({ ev: "result", tool, ok: !result.isError, ms: Date.now() - t0 });
       return result;
     } catch (e) {
+      if (UNDOABLE.has(tool)) undoJournal.dropLast(owner);
       const denied = e instanceof PolicyError;
       const msg = e.message;
       try {
@@ -28442,7 +28907,9 @@ function createServer(policy, audit, workspace = createWorkspace(), owner = "std
     },
     annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true }
   }, wrap("ht_shell", async (a) => {
-    const r = await runShell(policy, { ...a, user_env: workspace.inputs.envFor(owner), session_id: opts.sessionId }, workspace.vars, owner);
+    const us = userSettings();
+    const capped = us?.shellMaxOutputBytes ? { ...policy, shell: { ...policy.shell, maxOutputBytes: Math.min(policy.shell.maxOutputBytes, us.shellMaxOutputBytes) } } : policy;
+    const r = await runShell(capped, { ...a, user_env: workspace.inputs.envFor(owner), session_id: opts.sessionId }, workspace.vars, owner);
     return { ...asText(workspace.inputs.mask(r.text)), isError: r.isError };
   }));
   register("ht_user_input", {
@@ -28638,7 +29105,11 @@ Returned: {status, question, selected[], custom, request_id, elapsed_s}.`,
     description: `Create a temporary immutable snapshot. path is relative to ${SHARE_CWD} inside the first root, or use source_path for another allowed workspace file. HTTP returns a private, expiring download link; stdio attaches the bytes. List or revoke only your shares. Do not publish the link.`,
     inputSchema: { action: _enum(["create", "list", "revoke"]).optional(), path: string2().min(1).optional(), source_path: string2().min(1).optional(), name: string2().min(1).max(180).optional(), ttl_minutes: number2().int().min(1).max(60).optional(), id: string2().regex(/^[A-Za-z0-9_-]{43}$/).optional() },
     annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true }
-  }, wrap("ht_share", (a) => workspace.shares.tool(policy, owner, a, origin)));
+  }, wrap("ht_share", (a) => {
+    const dflt = userSettings()?.shareTtlMinutes;
+    const withTtl = a.ttl_minutes === void 0 && dflt ? { ...a, ttl_minutes: dflt } : a;
+    return workspace.shares.tool(policy, owner, withTtl, origin);
+  }));
   server.server.registerCapabilities({ resources: {} });
   server.server.setRequestHandler(ListResourcesRequestSchema, () => ({ resources: [] }));
   server.server.setRequestHandler(ListResourceTemplatesRequestSchema, () => ({ resourceTemplates: [
@@ -28751,6 +29222,31 @@ Returned: {status, question, selected[], custom, request_id, elapsed_s}.`,
     },
     annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false }
   }, wrap("ht_transfer_file", (a) => htTransferFile(policy, a)));
+  register("ht_undo", {
+    title: "Undo the file effects of a previous tool call",
+    description: "Revert the file effects of the most recent mutating tool call (ht_write, ht_edit, ht_move, ht_trash, ht_mkdir) in this session: files created by it are removed, files it changed or moved are restored from a pre-image captured before the call. This history exists only on the server \u2014 a shell cannot see what an earlier tool call changed. action=list shows the journal, clear forgets it.",
+    inputSchema: { action: _enum(["undo", "list", "clear"]).optional() },
+    annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false }
+  }, wrap("ht_undo", (a) => htUndo(policy, undoJournal, owner, a)));
+  register("ht_schedule", {
+    title: "Run a tool call later in this session",
+    description: "Schedule any registered tool to run after after_s seconds inside this session, through the same policy and audit path, and collect its result later. A shell cannot call MCP tools, so deferred tool calls are only possible here. action=add|list|collect|cancel; results are kept in memory and truncated.",
+    inputSchema: {
+      action: _enum(["add", "list", "collect", "cancel"]).optional(),
+      tool: string2().min(1).max(64).optional(),
+      arguments: record(string2(), unknown()).optional(),
+      after_s: number2().min(0).max(3600).optional(),
+      id: string2().min(1).max(16).optional(),
+      ids: array(string2().min(1).max(16)).max(20).optional()
+    },
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false }
+  }, wrap("ht_schedule", (a) => htSchedule(scheduler, registered, a, userSettings()?.scheduleMaxS)));
+  register("ht_memory", {
+    title: "Account-level notes shared across chats",
+    description: "Keep short notes that outlive a single chat: they are stored outside every session root, keyed by your account, so a new conversation can read what an earlier one wrote \u2014 and a confined shell can neither read nor write them. action=set|get|list|delete|clear.",
+    inputSchema: { action: _enum(["set", "get", "list", "delete", "clear"]).optional(), key: string2().min(1).max(120).optional(), value: string2().max(8192).optional() },
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false }
+  }, wrap("ht_memory", (a) => htMemory(memory, owner, a)));
   register("ht_list_all_tools", {
     title: "List every hardtools tool (enabled, disabled, all)",
     description: "Shows all hardtools tools with their current state for this user: enabled, disabled and the complete catalog. Use it before ht_manage_tool when you are not sure what is off.",
@@ -28821,9 +29317,9 @@ Returned: {status, question, selected[], custom, request_id, elapsed_s}.`,
 }
 
 // src/settings.ts
-import crypto10 from "node:crypto";
-import fs13 from "node:fs";
-import path14 from "node:path";
+import crypto11 from "node:crypto";
+import fs15 from "node:fs";
+import path16 from "node:path";
 var ALL_TOOLS = [
   "ht_read",
   "ht_write",
@@ -28847,13 +29343,23 @@ var ALL_TOOLS = [
   "ht_delete_var",
   "ht_user_input",
   "ht_ask",
+  "ht_undo",
+  "ht_schedule",
+  "ht_memory",
   "ht_list_all_tools",
   "ht_manage_tool"
 ];
+var clampInt = (v, lo, hi) => {
+  const n = Math.round(Number(v));
+  return Number.isFinite(n) ? Math.min(hi, Math.max(lo, n)) : lo;
+};
 var defaultSettings = () => ({
   disabledTools: [],
   networkEnabled: true,
   allowlistEnabled: false,
+  shareTtlMinutes: 0,
+  shellMaxOutputBytes: 0,
+  scheduleMaxS: 3600,
   allowedCommands: [],
   allowedUrls: [],
   updatedAt: 0
@@ -28879,8 +29385,8 @@ var UserSettingsStore = class {
   // ---- kalıcılık ---------------------------------------------------------------------------
   load() {
     try {
-      if (this.store && fs13.existsSync(this.store)) {
-        const d = JSON.parse(fs13.readFileSync(this.store, "utf8"));
+      if (this.store && fs15.existsSync(this.store)) {
+        const d = JSON.parse(fs15.readFileSync(this.store, "utf8"));
         for (const [u, s] of Object.entries(d.users ?? {})) this.users.set(u, { ...defaultSettings(), ...s });
         for (const [g, u] of Object.entries(d.grants ?? {})) this.grants.set(g, u);
         for (const g of d.revoked ?? []) this.revoked.add(g);
@@ -28891,12 +29397,12 @@ var UserSettingsStore = class {
   save() {
     if (!this.store) return;
     try {
-      fs13.mkdirSync(path14.dirname(this.store), { recursive: true, mode: 448 });
+      fs15.mkdirSync(path16.dirname(this.store), { recursive: true, mode: 448 });
       const items = Object.fromEntries(this.users);
       const grants = Object.fromEntries(this.grants);
       const tmp = this.store + ".tmp";
-      fs13.writeFileSync(tmp, JSON.stringify({ v: 1, users: items, grants, revoked: [...this.revoked] }), { mode: 384 });
-      fs13.renameSync(tmp, this.store);
+      fs15.writeFileSync(tmp, JSON.stringify({ v: 1, users: items, grants, revoked: [...this.revoked] }), { mode: 384 });
+      fs15.renameSync(tmp, this.store);
     } catch {
     }
   }
@@ -28905,14 +29411,14 @@ var UserSettingsStore = class {
   refreshIfChanged() {
     if (!this.store) return;
     try {
-      const m = fs13.statSync(this.store).mtimeMs;
+      const m = fs15.statSync(this.store).mtimeMs;
       if (m !== this.mtime) {
         this.mtime = m;
         this.users.clear();
         this.grants.clear();
         this.revoked.clear();
         this.load();
-        this.mtime = fs13.statSync(this.store).mtimeMs;
+        this.mtime = fs15.statSync(this.store).mtimeMs;
       }
     } catch {
     }
@@ -28930,6 +29436,9 @@ var UserSettingsStore = class {
       disabledTools: p.disabledTools ? uniq(p.disabledTools.filter((n) => ALL_TOOLS.includes(n))) : cur.disabledTools,
       allowedCommands: p.allowedCommands ? uniq(p.allowedCommands) : cur.allowedCommands,
       allowedUrls: p.allowedUrls ? uniq(p.allowedUrls) : cur.allowedUrls,
+      shareTtlMinutes: clampInt(p.shareTtlMinutes ?? cur.shareTtlMinutes, 0, 60),
+      shellMaxOutputBytes: clampInt(p.shellMaxOutputBytes ?? cur.shellMaxOutputBytes, 0, 1 << 20),
+      scheduleMaxS: clampInt(p.scheduleMaxS ?? cur.scheduleMaxS, 0, 3600),
       updatedAt: Date.now(),
       ...by ? { updatedBy: by } : {}
     };
@@ -28975,15 +29484,15 @@ var UserSettingsStore = class {
   signingKey() {
     if (this.key) return this.key;
     try {
-      if (this.keyPath && fs13.existsSync(this.keyPath)) this.key = fs13.readFileSync(this.keyPath);
+      if (this.keyPath && fs15.existsSync(this.keyPath)) this.key = fs15.readFileSync(this.keyPath);
     } catch {
     }
     if (!this.key || this.key.length < 32) {
-      this.key = crypto10.randomBytes(32);
+      this.key = crypto11.randomBytes(32);
       try {
         if (this.keyPath) {
-          fs13.mkdirSync(path14.dirname(this.keyPath), { recursive: true, mode: 448 });
-          fs13.writeFileSync(this.keyPath, this.key, { mode: 384 });
+          fs15.mkdirSync(path16.dirname(this.keyPath), { recursive: true, mode: 448 });
+          fs15.writeFileSync(this.keyPath, this.key, { mode: 384 });
         }
       } catch {
       }
@@ -28993,7 +29502,7 @@ var UserSettingsStore = class {
   cookieFor(user, ttlS = 12 * 3600) {
     const exp = Math.floor(Date.now() / 1e3) + ttlS;
     const body = `${Buffer.from(user).toString("base64url")}.${exp}`;
-    const sig = crypto10.createHmac("sha256", this.signingKey()).update(body).digest("base64url");
+    const sig = crypto11.createHmac("sha256", this.signingKey()).update(body).digest("base64url");
     return `${body}.${sig}`;
   }
   userFromCookie(value) {
@@ -29002,8 +29511,8 @@ var UserSettingsStore = class {
     if (parts.length !== 3) return null;
     const [b64, exp, sig] = parts;
     const body = `${b64}.${exp}`;
-    const want = crypto10.createHmac("sha256", this.signingKey()).update(body).digest("base64url");
-    if (sig.length !== want.length || !crypto10.timingSafeEqual(Buffer.from(sig), Buffer.from(want))) return null;
+    const want = crypto11.createHmac("sha256", this.signingKey()).update(body).digest("base64url");
+    if (sig.length !== want.length || !crypto11.timingSafeEqual(Buffer.from(sig), Buffer.from(want))) return null;
     if (Number(exp) * 1e3 < Date.now()) return null;
     try {
       return Buffer.from(b64, "base64url").toString("utf8") || null;
@@ -29126,6 +29635,17 @@ ${gh ? `<p class="muted">Claude'da ba\u011Flan\u0131rken kulland\u0131\u011F\u01
 </div>
 
 <div class="card">
+<h2 style="margin-top:0">Ara\xE7 b\xFCt\xE7eleri</h2>
+<p class="muted">Bu de\u011Ferler yaln\u0131zca profilin izin verdi\u011Fi s\u0131n\u0131r\u0131 <strong>a\u015Fa\u011F\u0131 \xE7eker</strong>; politika hi\xE7bir zaman gev\u015Fetilmez.</p>
+<label for="shareTtlMinutes">Payla\u015F\u0131m ba\u011Flant\u0131s\u0131 s\xFCresi (dakika; 0 = ara\xE7 varsay\u0131lan\u0131)</label>
+<input id="shareTtlMinutes" name="shareTtlMinutes" type="number" min="0" max="60" step="1" value="${s.shareTtlMinutes || 0}">
+<label for="shellMaxOutputBytes">Kabuk \xE7\u0131kt\u0131 b\xFCt\xE7esi (bayt; 0 = profil varsay\u0131lan\u0131)</label>
+<input id="shellMaxOutputBytes" name="shellMaxOutputBytes" type="number" min="0" max="1048576" step="1024" value="${s.shellMaxOutputBytes || 0}">
+<label for="scheduleMaxS">Zamanlanm\u0131\u015F \xE7a\u011Fr\u0131 i\xE7in en uzun gecikme (saniye, 0\u20133600)</label>
+<input id="scheduleMaxS" name="scheduleMaxS" type="number" min="0" max="3600" step="60" value="${s.scheduleMaxS ?? 3600}">
+</div>
+
+<div class="card">
 <h2 style="margin-top:0">\u0130zinli URL / alan adlar\u0131</h2>
 <p class="muted">A\u011F allowlist'i yaln\u0131zca "Allowlist zorunlu olsun" a\xE7\u0131kken uygulan\u0131r; liste bo\u015Fsa k\u0131s\u0131t uygulanmaz. Joker desteklenir: <code>*</code>, <code>*.github.com</code>, <code>api*.example.com</code>.</p>
 <ul class="clean">${urlRows || `<li class="muted">Hen\xFCz kay\u0131t yok.</li>`}</ul>
@@ -29177,7 +29697,10 @@ ${gh ? `<p class="muted">Claude'da ba\u011Flan\u0131rken kulland\u0131\u011F\u01
     const allowedCommands = addCommand ? uniq([...cur.allowedCommands, addCommand]) : cur.allowedCommands;
     const allowedUrls = addUrl ? uniq([...cur.allowedUrls, addUrl]) : cur.allowedUrls;
     const networkEnabled = p.get("networkEnabled") === "1", allowlistEnabled = p.get("allowlistEnabled") === "1";
-    this.o.store.patch(user, { disabledTools, networkEnabled, allowlistEnabled, allowedCommands, allowedUrls }, user);
+    const shareTtlMinutes = clampInt(p.get("shareTtlMinutes") ?? 0, 0, 60);
+    const shellMaxOutputBytes = clampInt(p.get("shellMaxOutputBytes") ?? 0, 0, 1 << 20);
+    const scheduleMaxS = clampInt(p.get("scheduleMaxS") ?? 3600, 0, 3600);
+    this.o.store.patch(user, { disabledTools, networkEnabled, allowlistEnabled, allowedCommands, allowedUrls, shareTtlMinutes, shellMaxOutputBytes, scheduleMaxS }, user);
     this.o.audit?.({ ev: "settings_save", user, tools: ALL_TOOLS.length - disabledTools.length, network: networkEnabled, allowlist: allowlistEnabled });
     return this.redirect(res, origin);
   }
@@ -29205,7 +29728,7 @@ ${gh ? `<p class="muted">Claude'da ba\u011Flan\u0131rken kulland\u0131\u011F\u01
     const p = await this.body(req);
     const given = String(p?.get("token") ?? "").trim();
     const want = this.o.operatorToken ?? "";
-    if (!want || given.length !== want.length || !crypto10.timingSafeEqual(Buffer.from(given), Buffer.from(want)))
+    if (!want || given.length !== want.length || !crypto11.timingSafeEqual(Buffer.from(given), Buffer.from(want)))
       return this.loginPage(res, "Token yanl\u0131\u015F.");
     const user = "operator";
     this.setCookie(res, this.o.store.cookieFor(user), origin.startsWith("https://"), 12 * 3600);
@@ -29228,7 +29751,7 @@ ${gh ? `<p class="muted">Claude'da ba\u011Flan\u0131rken kulland\u0131\u011F\u01
       body: new URLSearchParams({ client_id: gh.clientId, scope: "read:user user:email" }).toString()
     });
     if (!dc || typeof dc.device_code !== "string") return this.loginPage(res, "GitHub'dan kod al\u0131namad\u0131, tekrar dene.");
-    const t = crypto10.randomBytes(18).toString("base64url");
+    const t = crypto11.randomBytes(18).toString("base64url");
     this.pending.set(t, {
       deviceCode: dc.device_code,
       userCode: String(dc.user_code),
@@ -29359,7 +29882,7 @@ async function main() {
   const loginFree = isPublic && (publicMode === "key" || publicTools !== null || anonAll);
   const loginRequired = isPublic && !loginFree;
   if (isPublic) console.error(`[hardtools] public connector mode=${publicMode}; tools=${publicTools ? [...publicTools].join(",") : "all"}; ${loginFree ? "no OAuth challenge" : "login required (bearer or OAuth)"}${anonAll && !publicTools ? " (HARDTOOLS_PUBLIC_ANON: tam set giri\u015Fsiz)" : ""}`);
-  const keyId = publicKey ? crypto11.createHash("sha256").update(publicKey).digest("hex").slice(0, 12) : "open";
+  const keyId = publicKey ? crypto12.createHash("sha256").update(publicKey).digest("hex").slice(0, 12) : "open";
   const publicOwner = (viaKey) => viaKey ? `public:${keyId}` : "public";
   const token = process.env.HARDTOOLS_HTTP_TOKEN ?? "";
   const hasToken = token.length >= 32;
@@ -29377,8 +29900,9 @@ async function main() {
   const ghLogins = (process.env.HARDTOOLS_OAUTH_ALLOWED_LOGINS ?? "").split(",").map((s) => s.trim()).filter(Boolean);
   const ghEmails = (process.env.HARDTOOLS_OAUTH_ALLOWED_EMAILS ?? "").split(",").map((s) => s.trim()).filter(Boolean);
   const ghAllowAny = ["1", "true", "yes", "*"].includes((process.env.HARDTOOLS_OAUTH_ALLOW_ANY ?? "").trim().toLowerCase()) || ghLogins.includes("*") || ghEmails.includes("*");
-  const stateDir = process.env.HARDTOOLS_STATE_DIR?.trim() || (policy.audit.dir ? path15.join(policy.audit.dir, "state") : void 0);
-  const stateFile = (name) => stateDir ? path15.join(stateDir, name) : void 0;
+  const stateDir = process.env.HARDTOOLS_STATE_DIR?.trim() || (policy.audit.dir ? path17.join(policy.audit.dir, "state") : void 0);
+  const stateFile = (name) => stateDir ? path17.join(stateDir, name) : void 0;
+  const memoryDir = stateDir ? path17.join(stateDir, "memory") : void 0;
   let github;
   if (ghId) {
     if (!ghLogins.length && !ghEmails.length && !ghAllowAny) {
@@ -29427,13 +29951,13 @@ async function main() {
   const sharedVars = new Variables();
   const perSession = (process.env.HARDTOOLS_PER_SESSION_WORKSPACE ?? "1").trim() !== "0";
   const baseRoot = policy.roots[0];
-  const baseIsFsRoot = Boolean(baseRoot) && baseRoot === path15.parse(baseRoot).root;
+  const baseIsFsRoot = Boolean(baseRoot) && baseRoot === path17.parse(baseRoot).root;
   const sessionBase = baseRoot && !baseIsFsRoot ? baseRoot : void 0;
   const sessionsFile = stateFile("sessions.json");
   const sessMap = /* @__PURE__ */ new Map();
   if (sessionsFile) {
     try {
-      const d = JSON.parse(fs14.readFileSync(sessionsFile, "utf8"));
+      const d = JSON.parse(fs16.readFileSync(sessionsFile, "utf8"));
       for (const r of d.items ?? []) if (r?.sid && r?.dir) sessMap.set(r.sid, { owner: r.owner ?? "", dir: r.dir, last: r.last ?? 0 });
     } catch {
     }
@@ -29446,21 +29970,21 @@ async function main() {
       try {
         const now = Date.now();
         for (const [sid, r] of sessMap) if (now - r.last > 7 * 24 * 36e5) sessMap.delete(sid);
-        fs14.mkdirSync(path15.dirname(sessionsFile), { recursive: true, mode: 448 });
+        fs16.mkdirSync(path17.dirname(sessionsFile), { recursive: true, mode: 448 });
         const tmp = sessionsFile + ".tmp";
-        fs14.writeFileSync(tmp, JSON.stringify({ v: 1, items: [...sessMap].map(([sid, r]) => ({ sid, ...r })) }), { mode: 384 });
-        fs14.renameSync(tmp, sessionsFile);
+        fs16.writeFileSync(tmp, JSON.stringify({ v: 1, items: [...sessMap].map(([sid, r]) => ({ sid, ...r })) }), { mode: 384 });
+        fs16.renameSync(tmp, sessionsFile);
       } catch {
       }
     }, 250);
     sessSaveTimer.unref?.();
   };
   const mkRoot = (dir) => {
-    fs14.mkdirSync(dir, { recursive: true, mode: 448 });
+    fs16.mkdirSync(dir, { recursive: true, mode: 448 });
     return dir;
   };
-  const accountRoot = (owner) => mkRoot(path15.join(baseRoot, "a-" + crypto11.createHash("sha256").update(owner).digest("hex").slice(0, 16)));
-  const sessionRoot = (sid) => mkRoot(path15.join(sessionBase, "u-" + crypto11.createHash("sha256").update("sid\0" + sid).digest("hex").slice(0, 16)));
+  const accountRoot = (owner) => mkRoot(path17.join(baseRoot, "a-" + crypto12.createHash("sha256").update(owner).digest("hex").slice(0, 16)));
+  const sessionRoot = (sid) => mkRoot(path17.join(sessionBase, "u-" + crypto12.createHash("sha256").update("sid\0" + sid).digest("hex").slice(0, 16)));
   const grants = /* @__PURE__ */ new Map();
   const grantFor = (owner, dir) => {
     const key = owner + "\0" + dir + "\0" + String(settingsStore.get(userFor(owner)).updatedAt);
@@ -29480,8 +30004,8 @@ async function main() {
       res.end(JSON.stringify({ error: msg }));
     };
     try {
-      const path16 = (req.url ?? "").split("?")[0];
-      if (path16 === "/healthz") {
+      const path18 = (req.url ?? "").split("?")[0];
+      if (path18 === "/healthz") {
         res.writeHead(200, { "content-type": "application/json", "cache-control": "no-store" });
         res.end(JSON.stringify({
           ok: true,
@@ -29496,12 +30020,12 @@ async function main() {
       }
       const h = String(req.headers.host ?? "").toLowerCase();
       if (!allowedHosts.has(h)) return send(403, "host not allowed");
-      if (path16 === "/settings" || path16.startsWith("/settings/")) {
-        if (await settingsUI.handle(req, res, path16)) return;
+      if (path18 === "/settings" || path18.startsWith("/settings/")) {
+        if (await settingsUI.handle(req, res, path18)) return;
       }
-      if (sharedInputs.handle(req, res, path16, oauth.origin(req))) return;
+      if (sharedInputs.handle(req, res, path18, oauth.origin(req))) return;
       const sameOrigin = req.headers.origin === oauth.origin(req);
-      const tokenProtected = path16.startsWith("/settings/");
+      const tokenProtected = path18.startsWith("/settings/");
       if (req.headers.origin && !sameOrigin && !tokenProtected) return send(403, "browser origins are not allowed");
       const ip = req.socket.remoteAddress ?? "?";
       const now = Date.now();
@@ -29516,19 +30040,19 @@ async function main() {
       b.n++;
       hits.set(ip, b);
       if (b.n > 120) return send(429, "rate limited");
-      if (sharedShares.download(req, res, path16)) return;
+      if (sharedShares.download(req, res, path18)) return;
       if (loginFree) {
-        if (/^\/(?:\.well-known\/|register$|authorize$|token$|oauth\/|invite\/)/.test(path16)) return send(404, "not found");
-        if (req.method === "GET" && (path16 === "/connect" || /^\/c\/[A-Za-z0-9_-]{16,128}$/.test(path16))) return connectPage(req, res, path16, publicMode === "key" && publicKey ? publicKey : "");
+        if (/^\/(?:\.well-known\/|register$|authorize$|token$|oauth\/|invite\/)/.test(path18)) return send(404, "not found");
+        if (req.method === "GET" && (path18 === "/connect" || /^\/c\/[A-Za-z0-9_-]{16,128}$/.test(path18))) return connectPage(req, res, path18, publicMode === "key" && publicKey ? publicKey : "");
       } else if (await oauth.handle(req, res)) return;
-      const keyPath = /^\/c\/([A-Za-z0-9_-]{16,128})(?:\/mcp)?$/.exec(path16);
-      const isMcpPath = path16 === "/mcp" || keyPath !== null;
+      const keyPath = /^\/c\/([A-Za-z0-9_-]{16,128})(?:\/mcp)?$/.exec(path18);
+      const isMcpPath = path18 === "/mcp" || keyPath !== null;
       if (!isMcpPath) return send(404, "not found");
       const m = /^Bearer (.+)$/.exec(String(req.headers.authorization ?? ""));
       let owner = m ? hasToken && equalSecret(m[1], token) ? "static" : oauth.accessScope(m[1]) : null;
       if (!owner && loginFree) {
         if (keyPath && publicKey && equalSecret(keyPath[1], publicKey)) owner = publicOwner(true);
-        else if (path16 === "/mcp" && publicMode !== "key") owner = publicOwner(false);
+        else if (path18 === "/mcp" && publicMode !== "key") owner = publicOwner(false);
       }
       if (!owner) {
         return send(
@@ -29561,14 +30085,14 @@ async function main() {
       if (perSession && owner !== "static" && baseRoot && !baseIsFsRoot && sessionBase) {
         const rec = sid ? sessMap.get(sid) : void 0;
         const liveBase = policy.roots[0];
-        const recFresh = Boolean(rec && rec.owner === owner && fs14.existsSync(rec.dir) && pathDir(rec.dir) === liveBase && pathBase(rec.dir).startsWith("u-"));
+        const recFresh = Boolean(rec && rec.owner === owner && fs16.existsSync(rec.dir) && pathDir(rec.dir) === liveBase && pathBase(rec.dir).startsWith("u-"));
         if (rec && !recFresh && sid) sessMap.delete(sid);
         if (rec && recFresh && rec.dir) {
           workDir = rec.dir;
           rec.last = Date.now();
           saveSessions();
         } else if (isInit && !sid) {
-          sid = crypto11.randomBytes(18).toString("base64url");
+          sid = crypto12.randomBytes(18).toString("base64url");
           workDir = sessionRoot(sid);
           sessMap.set(sid, { owner, dir: workDir, last: Date.now() });
           saveSessions();
@@ -29587,7 +30111,8 @@ async function main() {
         {
           ...owner === "public" ? { tools: publicTools } : {},
           ...sid ? { sessionId: "s-" + sid.slice(0, 12) } : {},
-          settings: { store: settingsStore, user: userFor(owner), all: ALL_TOOLS }
+          settings: { store: settingsStore, user: userFor(owner), all: ALL_TOOLS },
+          ...memoryDir ? { memoryDir } : {}
         }
       );
       const transport = new WebStandardStreamableHTTPServerTransport({ sessionIdGenerator: sid && isInit ? () => sid : void 0 });
@@ -29652,7 +30177,7 @@ async function main() {
     p = { ...policy, shell, net: net3 };
     return p;
   };
-  const connectPage = (req, res, path16, key) => {
+  const connectPage = (req, res, path18, key) => {
     const origin = oauth.origin(req);
     const base = key ? `${origin}/c/${key}` : `${origin}/mcp`;
     const others = key ? `${origin}/mcp` : "";
@@ -29666,7 +30191,7 @@ async function main() {
 <div class="card"><textarea readonly onclick="this.select()">${esc2(base)}</textarea></div>
 <ol><li>Ad: <code>hardtools</code></li><li>Uzak MCP sunucu adresi: <code>${esc2(base)}</code></li>${others ? `<li>Anahtar gerekmez; bu adres yaln\u0131zca s\u0131n\u0131rl\u0131 ara\xE7lar\u0131 a\xE7ar. Tam yetki i\xE7in <code>/c/&lt;anahtar&gt;</code> adresini kullan.</li>` : `<li>Bu adres anahtar\u0131n kendisidir: payla\u015Fma.</li>`}</ol>
 <p class="muted">Ba\u011Fland\u0131ktan sonra ara\xE7lar sohbette g\xF6r\xFCn\xFCr. Sunucu d\xFC\u015Ferse <code>/healthz</code> izleyicisi ve konteyner g\xF6zc\xFCs\xFC yeniden ba\u015Flat\u0131r.</p>
-${path16 !== "/connect" ? `<p class="muted"><a href="${origin}/connect">ba\u011Flanma sayfas\u0131</a> \xB7 <a href="${origin}/settings">ayarlar</a></p>` : ""}`
+${path18 !== "/connect" ? `<p class="muted"><a href="${origin}/connect">ba\u011Flanma sayfas\u0131</a> \xB7 <a href="${origin}/settings">ayarlar</a></p>` : ""}`
     });
     res.writeHead(200, { "content-type": "text/html; charset=utf-8", "cache-control": "no-store", "referrer-policy": "no-referrer", "x-frame-options": "DENY", "x-content-type-options": "nosniff", "content-security-policy": PAGE_CSP });
     res.end(html);
