@@ -3367,8 +3367,8 @@ var require_utils = __commonJS({
       }
       return ind;
     }
-    function removeDotSegments(path15) {
-      let input = path15;
+    function removeDotSegments(path16) {
+      let input = path16;
       const output = [];
       let nextSlash = -1;
       let len = 0;
@@ -3442,11 +3442,11 @@ var require_utils = __commonJS({
       }
       return output.join("");
     }
-    function removeDotSegmentsRelative(path15) {
-      if (path15 === "" || path15[0] === "/") {
-        return removeDotSegments(path15);
+    function removeDotSegmentsRelative(path16) {
+      if (path16 === "" || path16[0] === "/") {
+        return removeDotSegments(path16);
       }
-      const segments = path15.split("/");
+      const segments = path16.split("/");
       const last = segments.length - 1;
       const output = [];
       let trailingDirectory = false;
@@ -3809,8 +3809,8 @@ var require_schemes = __commonJS({
       }
       if (wsComponent.resourceName) {
         const queryIndex = wsComponent.resourceName.indexOf("?");
-        const path15 = queryIndex === -1 ? wsComponent.resourceName : wsComponent.resourceName.slice(0, queryIndex);
-        wsComponent.path = path15 && path15 !== "/" ? path15 : void 0;
+        const path16 = queryIndex === -1 ? wsComponent.resourceName : wsComponent.resourceName.slice(0, queryIndex);
+        wsComponent.path = path16 && path16 !== "/" ? path16 : void 0;
         wsComponent.query = queryIndex === -1 ? void 0 : wsComponent.resourceName.slice(queryIndex + 1);
         wsComponent.resourceName = void 0;
       }
@@ -7347,12 +7347,12 @@ var require_dist = __commonJS({
         throw new Error(`Unknown format "${name}"`);
       return f;
     };
-    function addFormats(ajv, list, fs14, exportName) {
+    function addFormats(ajv, list, fs15, exportName) {
       var _a3;
       var _b;
       (_a3 = (_b = ajv.opts.code).formats) !== null && _a3 !== void 0 ? _a3 : _b.formats = (0, codegen_1._)`require("ajv-formats/dist/formats").${exportName}`;
       for (const f of list)
-        ajv.addFormat(f, fs14[f]);
+        ajv.addFormat(f, fs15[f]);
     }
     module.exports = exports = formatsPlugin;
     Object.defineProperty(exports, "__esModule", { value: true });
@@ -7597,10 +7597,10 @@ function mergeDefs(...defs) {
 function cloneDef(schema) {
   return mergeDefs(schema._zod.def);
 }
-function getElementAtPath(obj, path15) {
-  if (!path15)
+function getElementAtPath(obj, path16) {
+  if (!path16)
     return obj;
-  return path15.reduce((acc, key) => acc?.[key], obj);
+  return path16.reduce((acc, key) => acc?.[key], obj);
 }
 function promiseAllObject(promisesObj) {
   const keys = Object.keys(promisesObj);
@@ -7940,11 +7940,11 @@ function explicitlyAborted(x, startIndex = 0) {
   }
   return false;
 }
-function prefixIssues(path15, issues) {
+function prefixIssues(path16, issues) {
   return issues.map((iss) => {
     var _a3;
     (_a3 = iss).path ?? (_a3.path = []);
-    iss.path.unshift(path15);
+    iss.path.unshift(path16);
     return iss;
   });
 }
@@ -8402,16 +8402,16 @@ function flattenError(error2, mapper = (issue2) => issue2.message) {
 }
 function formatError(error2, mapper = (issue2) => issue2.message) {
   const fieldErrors = { _errors: [] };
-  const processError = (error3, path15 = []) => {
+  const processError = (error3, path16 = []) => {
     for (const issue2 of error3.issues) {
       if (issue2.code === "invalid_union" && issue2.errors.length) {
-        issue2.errors.map((issues) => processError({ issues }, [...path15, ...issue2.path]));
+        issue2.errors.map((issues) => processError({ issues }, [...path16, ...issue2.path]));
       } else if (issue2.code === "invalid_key") {
-        processError({ issues: issue2.issues }, [...path15, ...issue2.path]);
+        processError({ issues: issue2.issues }, [...path16, ...issue2.path]);
       } else if (issue2.code === "invalid_element") {
-        processError({ issues: issue2.issues }, [...path15, ...issue2.path]);
+        processError({ issues: issue2.issues }, [...path16, ...issue2.path]);
       } else {
-        const fullpath = [...path15, ...issue2.path];
+        const fullpath = [...path16, ...issue2.path];
         if (fullpath.length === 0) {
           fieldErrors._errors.push(mapper(issue2));
         } else {
@@ -11449,13 +11449,13 @@ function _array(Class2, element, params) {
 }
 // @__NO_SIDE_EFFECTS__
 function _custom(Class2, fn, _params) {
-  const norm = normalizeParams(_params);
-  norm.abort ?? (norm.abort = true);
+  const norm2 = normalizeParams(_params);
+  norm2.abort ?? (norm2.abort = true);
   const schema = new Class2({
     type: "custom",
     check: "custom",
     fn,
-    ...norm
+    ...norm2
   });
   return schema;
 }
@@ -12795,9 +12795,9 @@ function equalSecret(candidate, expected) {
 }
 
 // src/index.ts
-import crypto10 from "node:crypto";
-import fs13 from "node:fs";
-import path14 from "node:path";
+import crypto11 from "node:crypto";
+import fs14 from "node:fs";
+import path15 from "node:path";
 import http3 from "node:http";
 
 // node_modules/@modelcontextprotocol/sdk/dist/esm/server/stdio.js
@@ -16605,6 +16605,8 @@ var ShellSchema = object({
   enabled: boolean2(),
   denyCommands: array(string2()),
   // regex, normalised "name args" satırına karşı (blocklist)
+  /** Dolu ise yalnızca bu komut adları çalışır (allowlist). Boş = allowlist yok. */
+  allowCommands: array(string2()),
   denyArgs: array(string2()),
   allowShellSyntax: boolean2(),
   shellDenyPatterns: array(string2()),
@@ -16710,6 +16712,7 @@ var PROFILES = {
     shell: {
       enabled: true,
       denyCommands: [...DENY_BYPASS, ...DENY_DESTRUCTIVE, ...DENY_GIT, ...DENY_NET],
+      allowCommands: [],
       denyArgs: DENY_ARGS,
       allowShellSyntax: false,
       shellDenyPatterns: [],
@@ -16753,6 +16756,7 @@ var PROFILES = {
     shell: {
       enabled: true,
       denyCommands: [...DENY_BYPASS, ...DENY_DESTRUCTIVE, ...DENY_GIT],
+      allowCommands: [],
       denyArgs: DENY_ARGS,
       allowShellSyntax: true,
       shellDenyPatterns: [],
@@ -16796,6 +16800,7 @@ var PROFILES = {
     shell: {
       enabled: true,
       denyCommands: [...DENY_DESTRUCTIVE, ...DENY_GIT],
+      allowCommands: [],
       denyArgs: [],
       allowShellSyntax: true,
       shellDenyPatterns: [],
@@ -16916,6 +16921,128 @@ function validateRoots(input, profile) {
 
 // src/oauth.ts
 import crypto3 from "node:crypto";
+
+// src/ui.ts
+var esc2 = (v) => String(v).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
+var PAGE_CSP = "default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; img-src data:; form-action 'self'; base-uri 'none'; frame-ancestors 'none'";
+var CSS = `
+:root{--w:34rem;color-scheme:dark}
+:root[data-theme="dark"]{--bg:#14171c;--panel:#1c212a;--panel2:#232936;--fg:#e7ebf2;--muted:#9aa4b6;--line:#2f3644;--accent:#7aa7ff;--accent-fg:#0e1420;--ok:#57c08a;--err:#ff8b8b;--warn:#e8c07d}
+:root[data-theme="light"]{--bg:#e7e2d6;--panel:#f2eee3;--panel2:#e9e4d7;--fg:#241f18;--muted:#5e574b;--line:#cfc7b6;--accent:#2f4f7a;--accent-fg:#f6f2e8;--ok:#1f6b45;--err:#9c2b2b;--warn:#7a5a13}
+*{box-sizing:border-box}
+html,body{margin:0;padding:0}
+body{background:var(--bg);color:var(--fg);font:16px/1.55 system-ui,-apple-system,Segoe UI,Roboto,sans-serif;min-height:100vh}
+a{color:var(--accent)}
+.top{display:flex;align-items:center;gap:.6rem;padding:.7rem 1rem;border-bottom:1px solid var(--line);background:var(--panel);position:sticky;top:0;z-index:5}
+.brand{font-weight:700;letter-spacing:.02em}
+.brand small{font-weight:400;color:var(--muted);margin-left:.4rem}
+.spacer{flex:1}
+main{max-width:var(--w);margin:2.2rem auto 4rem;padding:0 1rem}
+h1{font-size:1.45rem;margin:0 0 1rem}
+h2{font-size:1.05rem;margin:1.8rem 0 .6rem;color:var(--fg)}
+p{margin:.6rem 0}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:.8rem;padding:1rem 1.1rem;margin:1rem 0}
+label{display:block;margin:.7rem 0 .3rem;font-size:.92rem;color:var(--muted)}
+input[type=text],input[type=password],input[type=number],textarea,select{width:100%;padding:.6rem .7rem;border-radius:.5rem;border:1px solid var(--line);background:var(--panel2);color:var(--fg);font:inherit}
+textarea{min-height:6rem;resize:vertical}
+input:focus,textarea:focus,select:focus{outline:2px solid var(--accent);outline-offset:1px}
+button,.btn{font:inherit;padding:.55rem 1rem;border-radius:.5rem;border:1px solid var(--line);background:var(--panel2);color:var(--fg);cursor:pointer}
+button:hover:not(:disabled){border-color:var(--accent)}
+button.primary{background:var(--accent);color:var(--accent-fg);border-color:var(--accent);font-weight:600}
+button.ghost{background:transparent}
+button:disabled{opacity:.55;cursor:progress}
+button[aria-pressed="true"]{outline:2px solid var(--accent);outline-offset:1px}
+.row{display:flex;gap:.6rem;flex-wrap:wrap;align-items:center}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(13rem,1fr));gap:.5rem}
+.chip{display:flex;align-items:center;gap:.5rem;background:var(--panel2);border:1px solid var(--line);border-radius:.6rem;padding:.45rem .6rem;font-size:.92rem}
+.chip input{accent-color:var(--accent)}
+code,kbd{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:.95em;background:var(--panel2);border:1px solid var(--line);border-radius:.35rem;padding:.05rem .35rem}
+.code{font-size:1.35em;letter-spacing:.16em}
+.muted{color:var(--muted)}
+.e{color:var(--err)}
+.ok{color:var(--ok)}
+.warn{color:var(--warn)}
+ul.clean{list-style:none;padding:0;margin:.4rem 0}
+ul.clean li{display:flex;gap:.5rem;align-items:center;padding:.35rem 0;border-bottom:1px solid var(--line)}
+ul.clean li:last-child{border-bottom:0}
+table{width:100%;border-collapse:collapse;font-size:.93rem}
+th,td{text-align:left;padding:.45rem .3rem;border-bottom:1px solid var(--line);vertical-align:top}
+.foot{max-width:var(--w);margin:0 auto 3rem;padding:0 1rem;color:var(--muted);font-size:.85rem}
+.pill{font-size:.78rem;padding:.1rem .5rem;border-radius:1rem;border:1px solid var(--line);color:var(--muted)}
+.pill.on{color:var(--ok);border-color:var(--ok)}
+.pill.off{color:var(--err);border-color:var(--err)}
+`;
+var THEME_JS = `
+(function(){
+  var KEY='ht-theme';
+  function apply(t){document.documentElement.setAttribute('data-theme',t);
+    var d=document.getElementById('b-dark'),l=document.getElementById('b-light');
+    if(d&&l){d.setAttribute('aria-pressed',String(t==='dark'));l.setAttribute('aria-pressed',String(t==='light'));}}
+  var saved=null;try{saved=localStorage.getItem(KEY)}catch(e){}
+  var sys=(window.matchMedia&&window.matchMedia('(prefers-color-scheme: light)').matches)?'light':'dark';
+  apply(saved||sys);
+  document.addEventListener('click',function(e){
+    var b=e.target.closest('[data-theme-set]');if(!b)return;
+    var t=b.getAttribute('data-theme-set');apply(t);try{localStorage.setItem(KEY,t)}catch(err){}
+  });
+})();`;
+var GUARD_JS = `
+(function(){
+  function busy(btn){
+    if(!btn||btn.disabled)return false;
+    btn.dataset.label=btn.textContent;btn.disabled=true;btn.setAttribute('aria-busy','true');btn.textContent='\u0130\u015Fleniyor\u2026';
+    setTimeout(function(){if(!btn.isConnected)return;btn.disabled=false;btn.removeAttribute('aria-busy');
+      if(btn.dataset.label)btn.textContent=btn.dataset.label;},20000);
+    return true;
+  }
+  document.addEventListener('submit',function(e){
+    var f=e.target;if(!f||f.tagName!=='FORM')return;
+    // Zaten g\xF6nderiliyorsa ikinci g\xF6nderimi engelle.
+    if(f.dataset.sending==='1'){e.preventDefault();return;}
+    var btn=f.querySelector('button[type="submit"],button:not([type]),input[type="submit"]');
+    if(btn&&btn.disabled){e.preventDefault();return;}
+    f.dataset.sending='1';
+    busy(btn);
+  },true);
+  document.addEventListener('click',function(e){
+    var b=e.target.closest('button[data-once]');if(b)busy(b);
+  },true);
+  // Sunucu hatas\u0131 sayfay\u0131 yeniden basarsa form kilitli kalmas\u0131n.
+  window.addEventListener('pageshow',function(){document.querySelectorAll('form[data-sending="1"]').forEach(function(f){
+    delete f.dataset.sending;f.querySelectorAll('button[aria-busy]').forEach(function(b){b.disabled=false;b.removeAttribute('aria-busy');if(b.dataset.label)b.textContent=b.dataset.label;});});});
+})();`;
+function page(o) {
+  return `<!doctype html>
+<html lang="tr" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="referrer" content="no-referrer">
+<meta name="color-scheme" content="dark light">
+<title>${esc2(o.title)} \xB7 hardtools</title>
+<style>${CSS}${o.css ?? ""}</style>
+</head>
+<body>
+<div class="top">
+  <span class="brand">hardtools${o.subtitle ? `<small>${esc2(o.subtitle)}</small>` : ""}</span>
+  <span class="spacer"></span>
+  ${o.actions ?? ""}
+  <button type="button" class="ghost" id="b-dark" data-theme-set="dark" title="Koyu mod">Koyu</button>
+  <button type="button" class="ghost" id="b-light" data-theme-set="light" title="K\xF6r mod: a\u015F\u0131r\u0131 beyaz olmayan a\xE7\u0131k tema">K\xF6r mod</button>
+</div>
+<main>${o.body}</main>
+<div class="foot">hardtools \xB7 sayfa verisi \xE7erezde tutulmaz; kimlik bilgileri yaln\u0131zca sunucuda do\u011Frulan\u0131r.</div>
+<script>${THEME_JS}</script>
+<script>${GUARD_JS}</script>
+${o.script ? `<script>${o.script}</script>` : ""}
+</body>
+</html>`;
+}
+function heading(title, note) {
+  return `<h1>${esc2(title)}</h1>${note ? `<p class="muted">${esc2(note)}</p>` : ""}`;
+}
+
+// src/oauth.ts
 var B64 = (b) => Buffer.from(b).toString("base64url");
 var pkceS256 = (verifier) => crypto3.createHash("sha256").update(verifier, "ascii").digest("base64url");
 var ACCESS_TTL_S = 60 * 60;
@@ -17089,10 +17216,10 @@ var OAuth = class {
   // ---- routing --------------------------------------------------------------------------
   /** Returns true when the request was an OAuth/discovery/invite route and has been fully handled. */
   async handle(req, res) {
-    const path15 = (req.url ?? "").split("?")[0];
+    const path16 = (req.url ?? "").split("?")[0];
     const method = req.method ?? "GET";
     const origin = this.origin(req);
-    if (path15 === "/.well-known/oauth-protected-resource" || path15 === "/.well-known/oauth-protected-resource/mcp") {
+    if (path16 === "/.well-known/oauth-protected-resource" || path16 === "/.well-known/oauth-protected-resource/mcp") {
       if (method !== "GET") {
         this.oerr(res, 405, "invalid_request", "GET only");
         return true;
@@ -17100,7 +17227,7 @@ var OAuth = class {
       this.json(res, 200, { resource: `${origin}/mcp`, authorization_servers: [origin], bearer_methods_supported: ["header"] });
       return true;
     }
-    if (path15 === "/.well-known/oauth-authorization-server" || path15 === "/.well-known/oauth-authorization-server/mcp") {
+    if (path16 === "/.well-known/oauth-authorization-server" || path16 === "/.well-known/oauth-authorization-server/mcp") {
       if (method !== "GET") {
         this.oerr(res, 405, "invalid_request", "GET only");
         return true;
@@ -17117,39 +17244,43 @@ var OAuth = class {
       });
       return true;
     }
-    if (path15 === "/register") {
+    if (path16 === "/register") {
       await this.register(req, res);
       return true;
     }
-    if (path15 === "/authorize") {
+    if (path16 === "/authorize") {
       await this.authorize(req, res, origin);
       return true;
     }
-    if (path15 === "/oauth/github/callback") {
+    if (path16 === "/oauth/github/callback") {
       await this.githubCallback(req, res, origin);
       return true;
     }
-    if (path15 === "/oauth/github/poll") {
+    if (path16 === "/oauth/github/poll") {
       await this.githubPoll(req, res, origin);
       return true;
     }
-    if (path15 === "/token") {
+    if (path16 === "/oauth/human") {
+      await this.humanEndpoint(req, res);
+      return true;
+    }
+    if (path16 === "/token") {
       await this.tokenEndpoint(req, res);
       return true;
     }
-    if (path15.startsWith("/invite/")) {
-      await this.handleInvite(req, res, path15, origin);
+    if (path16.startsWith("/invite/")) {
+      await this.handleInvite(req, res, path16, origin);
       return true;
     }
     return false;
   }
   // ---- /invite/<code> -------------------------------------------------------------------
-  async handleInvite(req, res, path15, origin) {
+  async handleInvite(req, res, path16, origin) {
     if (req.method !== "GET") {
       this.oerr(res, 405, "invalid_request", "GET only");
       return;
     }
-    const code = decodeURIComponent(path15.slice("/invite/".length));
+    const code = decodeURIComponent(path16.slice("/invite/".length));
     const sessionId = this.redeemInvite(code);
     if (!sessionId) {
       this.page(res, 410, "Bu davet kullan\u0131lm\u0131\u015F veya s\xFCresi dolmu\u015F. Daveti az \xF6nce a\xE7t\u0131ysan ayn\u0131 taray\u0131c\u0131 profilinde Claude\u2019dan devam et. Aksi halde yay\u0131n sahibiyle ileti\u015Fime ge\xE7.", null);
@@ -17323,41 +17454,102 @@ var OAuth = class {
       this.o.audit?.({ ev: "oauth_authorize", ok: false, via: "github_device", login: who.login.slice(0, 64), reason: "not_allowed" });
       return this.infoPage(res, 403, `Bu GitHub hesab\u0131na izin verilmiyor${who.login ? ` (${who.login.replace(/[<>"']/g, "")})` : ""}.`, null);
     }
-    const code = this.sign({ t: "code", jti: crypto3.randomBytes(12).toString("base64url"), cid: p.cid, ru: p.ru, cc: p.cc, exp: this.now() + CODE_TTL_S });
     this.ghPending.delete(ticket);
-    this.o.audit?.({ ev: "oauth_authorize", ok: true, via: "github_device", login: who.login.slice(0, 64) });
-    const back = new URL(p.ru);
-    back.searchParams.set("code", code);
-    if (p.st) back.searchParams.set("state", p.st);
-    res.writeHead(302, { location: back.toString(), "cache-control": "no-store", "referrer-policy": "no-referrer" });
-    res.end();
+    return this.humanPage(res, { cid: p.cid, ru: p.ru, cc: p.cc, st: p.st, login: who.login }, "GitHub giri\u015Fi tamam. Son ad\u0131m: insan do\u011Frulamas\u0131.");
   }
-  html(res, code, body, extra = {}) {
-    res.writeHead(code, {
+  html(resOut, code, body, extra = {}) {
+    resOut.writeHead(code, {
       "content-type": "text/html; charset=utf-8",
       "cache-control": "no-store",
       "x-frame-options": "DENY",
       "referrer-policy": "no-referrer",
-      "content-security-policy": "default-src 'none'; style-src 'unsafe-inline'; frame-ancestors 'none'; base-uri 'none'",
+      "content-security-policy": PAGE_CSP,
       ...extra
     });
-    res.end(`<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>hardtools</title>
-<style>body{font:16px system-ui,sans-serif;max-width:32rem;margin:4rem auto;padding:0 1rem;line-height:1.5}code{font-size:1.4em;letter-spacing:.12em;background:#f2f2f2;padding:.2rem .5rem;border-radius:.3rem}.e{color:#b00020}.m{color:#555}</style>
-<h1>hardtools</h1>${body}`);
+    resOut.end(page({ title: "hardtools", body }));
   }
   infoPage(res, code, message, _q) {
-    const esc3 = (v) => v.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
-    return this.html(res, code, `<p class="e">${esc3(message)}</p>`);
+    const esc4 = (v) => v.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
+    return this.html(res, code, `<p class="e">${esc4(message)}</p>`);
   }
-  waitPage(res, code, ticket, p, note) {
-    const esc3 = (v) => v.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
+  waitPage(resOut, code, ticket, p, note) {
+    const esc4 = esc2;
     const next = `/oauth/github/poll?t=${encodeURIComponent(ticket)}`;
-    return this.html(res, code, `<p>GitHub hesab\u0131nla giri\u015F yap:</p>
-<p>1. <a href="${esc3(p.verifyUri)}" target="_blank" rel="noreferrer">${esc3(p.verifyUri)}</a> adresini a\xE7.</p>
-<p>2. \u015Eu kodu gir: <code>${esc3(p.userCode)}</code></p>
-<p>3. Bu sayfa kendili\u011Finden devam eder; kapatma.</p>
-${note ? `<p class="m">${esc3(note)}</p>` : ""}
-<meta http-equiv="refresh" content="5;url=${esc3(next)}">`, {});
+    const body = `${heading("GitHub ile giri\u015F")}
+<div class="card">
+<p><strong>1.</strong> \u015Eu adresi a\xE7: <a href="${esc4(p.verifyUri)}" target="_blank" rel="noreferrer">${esc4(p.verifyUri)}</a></p>
+<p><strong>2.</strong> Kodu gir: <code class="code">${esc4(p.userCode)}</code></p>
+<p><strong>3.</strong> Bu sayfa kendili\u011Finden devam eder; kapatma.</p>
+${note ? `<p class="muted">${esc4(note)}</p>` : ""}
+</div>
+<p class="muted">Devam etmiyorsa <a href="${esc4(next)}">buraya dokun</a>.</p>
+<meta http-equiv="refresh" content="5;url=${esc4(next)}">`;
+    return this.html(resOut, code, body, {});
+  }
+  // ---- insan doğrulaması (bot kapısı) -----------------------------------------------------
+  // GitHub girişi tamamlandıktan sonra, yetki kodu üretilmeden önce basit bir insan kontrolü.
+  // Durum imzalı token içinde taşınır: sunucu belleğine bağlı değildir, yeniden başlatma bozmaz.
+  humanPage(resOut, pending, note) {
+    const esc4 = esc2;
+    const a = 2 + crypto3.randomInt(8), b = 2 + crypto3.randomInt(8);
+    const token = this.sign({
+      t: "hv",
+      cid: pending.cid,
+      ru: pending.ru,
+      cc: pending.cc,
+      st: pending.st,
+      login: pending.login.slice(0, 64),
+      ans: String(a * b),
+      born: Date.now(),
+      exp: this.now() + 300
+    });
+    const body = `${heading("\u0130nsan do\u011Frulamas\u0131", note)}
+<div class="card">
+<form method="post" action="/oauth/human" autocomplete="off">
+  <input type="hidden" name="h" value="${esc4(token)}">
+  <label for="answer">${a} \xD7 ${b} ka\xE7 eder? (botlar bu ad\u0131m\u0131 ge\xE7emez)</label>
+  <input id="answer" name="answer" type="text" inputmode="numeric" pattern="[0-9]{1,6}" required autofocus placeholder="say\u0131">
+  <div style="position:absolute;left:-9999px" aria-hidden="true">
+    <label for="website">Bu alan\u0131 bo\u015F b\u0131rak</label>
+    <input id="website" name="website" type="text" tabindex="-1" autocomplete="off">
+  </div>
+  <p class="row" style="margin-top:1rem">
+    <button class="primary" type="submit">Do\u011Frula ve devam et</button>
+    <span class="muted">Sorunun yan\u0131t\u0131 ${esc4(pending.login || "hesab\u0131n")} i\xE7in bir kez ge\xE7erli.</span>
+  </p>
+</form>
+</div>
+<p class="muted">Do\u011Frulama yaln\u0131zca senin taray\u0131c\u0131nda \xE7\xF6z\xFCl\xFCr; hi\xE7bir \xFC\xE7\xFCnc\xFC tarafa veri gitmez.</p>`;
+    return this.html(resOut, 200, body, {});
+  }
+  async humanEndpoint(req, resOut) {
+    if (req.method !== "POST") return this.infoPage(resOut, 405, "Yaln\u0131z POST.", null);
+    const p = await this.readParams(req);
+    if (!p) return this.infoPage(resOut, 400, "\u0130stek okunamad\u0131.", null);
+    const t = this.verify(p.h, "hv");
+    if (!t) return this.infoPage(resOut, 400, "Do\u011Frulama s\xFCresi doldu. Claude'dan ba\u011Flant\u0131y\u0131 yeniden ba\u015Flat.", null);
+    if (String(p.website ?? "").trim()) {
+      this.o.audit?.({ ev: "oauth_human", ok: false, reason: "honeypot" });
+      return this.infoPage(resOut, 400, "Do\u011Frulama ba\u015Far\u0131s\u0131z.", null);
+    }
+    const took = Date.now() - Number(t.born ?? 0);
+    if (!Number.isFinite(took) || took < 900) {
+      this.o.audit?.({ ev: "oauth_human", ok: false, reason: "too_fast" });
+      return this.infoPage(resOut, 400, "Do\u011Frulama \xE7ok h\u0131zl\u0131 tamamland\u0131; tekrar dene.", null);
+    }
+    if (String(p.answer ?? "").trim() !== String(t.ans)) {
+      this.o.audit?.({ ev: "oauth_human", ok: false, reason: "wrong" });
+      return this.infoPage(resOut, 400, "Yan\u0131t yanl\u0131\u015F. Claude'dan ba\u011Flant\u0131y\u0131 yeniden ba\u015Flat.", null);
+    }
+    const jti = crypto3.randomBytes(12).toString("base64url");
+    if (t.login) this.o.onGrant?.(jti, String(t.login));
+    const code = this.sign({ t: "code", jti, cid: t.cid, ru: t.ru, cc: t.cc, exp: this.now() + CODE_TTL_S });
+    this.o.audit?.({ ev: "oauth_authorize", ok: true, via: "github+human", login: String(t.login ?? "").slice(0, 64) });
+    const back = new URL(String(t.ru));
+    back.searchParams.set("code", code);
+    if (t.st) back.searchParams.set("state", String(t.st));
+    resOut.writeHead(302, { location: back.toString(), "cache-control": "no-store", "referrer-policy": "no-referrer" });
+    resOut.end();
   }
   /** GitHub dönüşü: kodu değiştir, hesabı allowlist ile karşılaştır, kendi kodumuzu üret. */
   async githubCallback(req, res, origin) {
@@ -17388,13 +17580,7 @@ ${note ? `<p class="m">${esc3(note)}</p>` : ""}
       return this.infoPage(res, 403, `Bu GitHub hesab\u0131na izin verilmiyor${who.login ? ` (${who.login.replace(/[<>"']/g, "")})` : ""}.`, null);
     }
     const login = who.login;
-    const code = this.sign({ t: "code", jti: crypto3.randomBytes(12).toString("base64url"), cid: state.cid, ru: state.ru, cc: state.cc, exp: this.now() + CODE_TTL_S });
-    this.o.audit?.({ ev: "oauth_authorize", ok: true, via: "github", login: login.slice(0, 64) });
-    const backUrl = new URL(state.ru);
-    backUrl.searchParams.set("code", code);
-    if (state.st) backUrl.searchParams.set("state", String(state.st));
-    res.writeHead(302, { location: backUrl.toString(), "cache-control": "no-store", "referrer-policy": "no-referrer" });
-    res.end();
+    return this.humanPage(res, { cid: String(state.cid), ru: String(state.ru), cc: String(state.cc), st: String(state.st ?? ""), login }, "GitHub giri\u015Fi tamam. Son ad\u0131m: insan do\u011Frulamas\u0131.");
   }
   // ---- authorization endpoint -----------------------------------------------------------
   async authorize(req, res, origin) {
@@ -17448,9 +17634,9 @@ ${note ? `<p class="m">${esc3(note)}</p>` : ""}
     back({ code });
   }
   page(res, code, error2, q) {
-    const esc3 = (s) => s.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
+    const esc4 = (s) => s.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
     const keep = ["response_type", "client_id", "redirect_uri", "state", "code_challenge", "code_challenge_method", "scope", "resource"];
-    const hidden = q ? keep.filter((k) => typeof q[k] === "string").map((k) => `<input type="hidden" name="${k}" value="${esc3(q[k])}">`).join("") : "";
+    const hidden = q ? keep.filter((k) => typeof q[k] === "string").map((k) => `<input type="hidden" name="${k}" value="${esc4(q[k])}">`).join("") : "";
     const form = q ? `<p>Enter the access token only, without the <code>Bearer</code> prefix. Do not paste a connection password, encrypted text, invite URL or private key.</p>
 <p>Where the token comes from: a <code>fly secrets</code> deployment stores it in the server\u2019s <code>HARDTOOLS_HTTP_TOKEN</code> secret (for example <code>deploy/fly/.env.local</code> on the machine that deployed it). A GitHub Actions publish shows it in <strong>BAGLAN.html</strong> from that run\u2019s hardtools-connect ZIP.</p>
 <form method="post" action="/authorize" autocomplete="off">${hidden}<input type="password" name="access_token" autocomplete="off" autofocus required placeholder="access token"><button type="submit">Authorize</button></form>` : "";
@@ -17459,11 +17645,9 @@ ${note ? `<p class="m">${esc3(note)}</p>` : ""}
       "cache-control": "no-store",
       "x-frame-options": "DENY",
       "referrer-policy": "same-origin",
-      "content-security-policy": "default-src 'none'; style-src 'unsafe-inline'; frame-ancestors 'none'; base-uri 'none'"
+      "content-security-policy": PAGE_CSP
     });
-    res.end(`<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>hardtools</title>
-<style>body{font:16px system-ui,sans-serif;max-width:30rem;margin:4rem auto;padding:0 1rem}input{display:block;width:100%;padding:.6rem;margin:.8rem 0;box-sizing:border-box}button{padding:.6rem 1.2rem}.e{color:#b00020}</style>
-<h1>hardtools</h1>${error2 ? `<p class="e">${esc3(error2)}</p>` : ""}${form}`);
+    res.end(page({ title: "hardtools \xB7 giri\u015F", subtitle: "OAuth", body: `${heading("Ba\u011Flant\u0131 izni")}${error2 ? `<p class="e">${esc4(error2)}</p>` : ""}${form}` }));
   }
   // ---- token endpoint ---------------------------------------------------------------------
   async tokenEndpoint(req, res) {
@@ -17482,6 +17666,7 @@ ${note ? `<p class="m">${esc3(note)}</p>` : ""}
     if (p.grant_type === "authorization_code") {
       const c = this.verify(p.code, "code");
       if (!c) return this.oerr(res, 400, "invalid_grant", "invalid or expired code");
+      if (this.o.grantRevoked?.(String(c.jti))) return this.oerr(res, 400, "invalid_grant", "grant was revoked (signed out)");
       if (c.cid !== p.client_id || c.ru !== p.redirect_uri) return this.oerr(res, 400, "invalid_grant", "client_id or redirect_uri mismatch");
       const v = p.code_verifier ?? "";
       if (!/^[A-Za-z0-9._~-]{43,128}$/.test(v) || !equalSecret(pkceS256(v), String(c.cc))) return this.oerr(res, 400, "invalid_grant", "PKCE verification failed");
@@ -17495,6 +17680,7 @@ ${note ? `<p class="m">${esc3(note)}</p>` : ""}
     if (p.grant_type === "refresh_token") {
       const r = this.verify(p.refresh_token, "rt");
       if (!r || p.client_id && p.client_id !== r.cid) return this.oerr(res, 400, "invalid_grant", "invalid or expired refresh token");
+      if (this.o.grantRevoked?.(String(r.grant))) return this.oerr(res, 400, "invalid_grant", "grant was revoked (signed out)");
       this.o.audit?.({ ev: "oauth_token", grant: "refresh_token" });
       return this.json(res, 200, mint(r.cid, r.grant ?? crypto3.randomUUID()));
     }
@@ -17876,8 +18062,8 @@ function getErrorMap() {
 
 // node_modules/zod/v3/helpers/parseUtil.js
 var makeIssue = (params) => {
-  const { data, path: path15, errorMaps, issueData } = params;
-  const fullPath = [...path15, ...issueData.path || []];
+  const { data, path: path16, errorMaps, issueData } = params;
+  const fullPath = [...path16, ...issueData.path || []];
   const fullIssue = {
     ...issueData,
     path: fullPath
@@ -17992,11 +18178,11 @@ var errorUtil;
 
 // node_modules/zod/v3/types.js
 var ParseInputLazyPath = class {
-  constructor(parent, value, path15, key) {
+  constructor(parent, value, path16, key) {
     this._cachedPath = [];
     this.parent = parent;
     this.data = value;
-    this._path = path15;
+    this._path = path16;
     this._key = key;
   }
   get path() {
@@ -21547,11 +21733,11 @@ function normalizeObjectSchema(schema) {
   }
   return void 0;
 }
-function getDotPath(path15) {
-  if (path15.length === 0) {
+function getDotPath(path16) {
+  if (path16.length === 0) {
     return "object root";
   }
-  return path15.reduce((acc, seg, index) => {
+  return path16.reduce((acc, seg, index) => {
     if (index === 0) {
       return String(seg);
     }
@@ -26121,7 +26307,7 @@ import net from "node:net";
 import zlib from "node:zlib";
 
 // src/version.ts
-var VERSION = "0.5.10";
+var VERSION = "0.5.11";
 
 // src/net.ts
 var blocked = new net.BlockList();
@@ -27041,6 +27227,7 @@ function buildEnv(policy, rootsReal) {
   delete env.ENV;
   return env;
 }
+var bgSeq = 0;
 async function runShell(policy, a, vars = new Variables(), owner = "stdio") {
   const sh = policy.shell;
   if (!sh.enabled) throw new PolicyError("shell_disabled", "shell execution is disabled by policy");
@@ -27095,6 +27282,12 @@ async function runShell(policy, a, vars = new Variables(), owner = "stdio") {
     [file, args] = process.platform === "win32" ? ["cmd.exe", ["/d", "/s", "/c", cmd]] : ["/bin/sh", ["-c", cmd]];
     shown = cmd;
   }
+  const allow = sh.allowCommands ?? [];
+  if (allow.length) {
+    const name = a.argv ? path9.basename(String(a.argv[0])) : String(file).endsWith("/sh") ? String(a.command ?? "").trim().split(/\s+/)[0] : path9.basename(String(file));
+    const base = path9.basename(name);
+    if (!allow.includes(name) && !allow.includes(base)) throw new PolicyError("command_not_allowed", `komut izin listesinde de\u011Fil: ${base}`);
+  }
   const selected = { ...vars.select(policy, owner, a.inherit_vars), ...a.user_env ?? {} };
   const started = Date.now();
   let lease;
@@ -27105,6 +27298,46 @@ async function runShell(policy, a, vars = new Variables(), owner = "stdio") {
     } finally {
       opening--;
     }
+  }
+  if (a.is_bg) return runBackground();
+  function runBackground() {
+    const dir = path9.join(cwdR.root, "home", "tmp");
+    fs9.mkdirSync(dir, { recursive: true, mode: 448 });
+    bgSeq += 1;
+    const label = String(a.session_id ?? owner).replace(/[^A-Za-z0-9_-]/g, "").slice(0, 24) || "session";
+    const name = `hardtools-bg-out-${label}-${bgSeq}.txt`;
+    const abs = path9.join(dir, name);
+    const fd = fs9.openSync(abs, "a", 384);
+    let child;
+    try {
+      child = policy.shellWorker ? spawnWorkspaceShell(policy, cwdR.abs, file, args, selected, void 0) : spawn2(file, args, { cwd: cwdR.abs, env: Object.assign(buildEnv(policy, policy.roots), selected), shell: false, detached: true, stdio: ["ignore", "pipe", "pipe"], windowsHide: true });
+    } catch (e) {
+      fs9.closeSync(fd);
+      return Promise.reject(e instanceof PolicyError ? e : new Error(`spawn failed: ${e.message}`));
+    }
+    const write = fs9.createWriteStream(abs, { fd, flags: "a" });
+    write.write(`# ${(/* @__PURE__ */ new Date()).toISOString()} ${shown}
+`);
+    child.stdout?.pipe(write, { end: false });
+    child.stderr?.pipe(write, { end: false });
+    child.on("close", (code, signal) => {
+      write.write(`
+# bitti: exit=${code ?? "null"}${signal ? ` signal=${signal}` : ""} ${(/* @__PURE__ */ new Date()).toISOString()}
+`);
+      write.end();
+      active.delete(child);
+    });
+    child.unref();
+    return Promise.resolve({
+      text: JSON.stringify({
+        status: "started",
+        background: true,
+        pid: child.pid,
+        output_file: `/work/home/tmp/${name}`,
+        note: "Komut arka planda \xE7al\u0131\u015F\u0131yor. \xC7\u0131kt\u0131y\u0131 ht_read ile oku; bitip bitmedi\u011Fini dosyan\u0131n sonundaki '# bitti:' sat\u0131r\u0131ndan anlars\u0131n."
+      }),
+      isError: false
+    });
   }
   return new Promise((resolve, reject) => {
     let child;
@@ -27573,7 +27806,7 @@ var MAX_FIELDS = 8;
 var MAX_CHOICES = 50;
 var NAME_RE = /^[A-Za-z][A-Za-z0-9_]{0,31}$/;
 var KINDS = ["string", "boolean", "number", "array", "null"];
-var esc2 = (v) => v.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
+var esc3 = (v) => v.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
 function parseValue(kind, raw) {
   if (typeof raw !== "string") throw new PolicyError("bad_input", "value must be a string");
   if (raw.length > MAX_TEXT) throw new PolicyError("bad_input", `value is longer than ${MAX_TEXT} characters`);
@@ -27645,6 +27878,15 @@ function normalizeField(raw, index) {
   const help = f.help === void 0 ? void 0 : String(f.help).slice(0, 400);
   return { name, title, kind, secret: Boolean(f.secret), required: f.required === void 0 ? true : Boolean(f.required), ...choices ? { choices } : {}, ...multiple ? { multiple: true } : {}, ...def !== void 0 ? { default: def } : {}, ...placeholder ? { placeholder } : {}, ...help ? { help } : {} };
 }
+var FORM_CSS = `
+label{font-weight:600;color:var(--fg)}
+.h{color:var(--muted);font-size:13px;font-weight:400;margin-top:.2rem}
+fieldset{border:0;padding:0;margin:0}
+.q{font-size:1.15rem;font-weight:600}
+.sec{background:color-mix(in srgb, var(--err) 12%, var(--panel));border:1px solid var(--err);border-radius:.6rem;padding:.6rem;margin-top:1rem}
+.chips{display:flex;flex-wrap:wrap;gap:.4rem;margin:.3rem 0}
+.chips label{display:flex;gap:.45rem;align-items:center;background:var(--panel2);border:1px solid var(--line);border-radius:.6rem;padding:.45rem .65rem;font-weight:400;margin:0}
+`;
 var UserInputs = class {
   byId = /* @__PURE__ */ new Map();
   active = /* @__PURE__ */ new Map();
@@ -27965,8 +28207,8 @@ var UserInputs = class {
   }
   // ---- browser UI -------------------------------------------------------------------
   /** Serve /ui/input/<id>. Returns false when the path is not ours. */
-  handle(req, res, path15, origin) {
-    const m = /^\/ui\/input\/([A-Za-z0-9_-]{20,64})$/.exec(path15);
+  handle(req, res, path16, origin) {
+    const m = /^\/ui\/input\/([A-Za-z0-9_-]{20,64})$/.exec(path16);
     if (!m) return false;
     const id = m[1];
     const req_ = this.byId.get(id);
@@ -27975,19 +28217,17 @@ var UserInputs = class {
       "referrer-policy": "no-referrer",
       "x-frame-options": "DENY",
       "x-content-type-options": "nosniff",
-      "content-security-policy": "default-src 'none'; style-src 'unsafe-inline'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'"
+      "content-security-policy": PAGE_CSP
     };
-    const page = (code, body2) => {
+    const page2 = (code, body2) => {
       res.writeHead(code, { "content-type": "text/html; charset=utf-8", ...headers });
       res.end(body2);
     };
-    const shell = (body2) => `<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>hardtools</title>
-<style>body{font:16px system-ui,sans-serif;max-width:34rem;margin:3rem auto;padding:0 1rem;line-height:1.5}input[type=text],input[type=password],input[type=number],select,textarea{width:100%;padding:.6rem;box-sizing:border-box;font:14px ui-monospace,monospace;margin-top:.25rem}button{padding:.6rem 1.2rem;margin:.8rem .4rem 0 0;cursor:pointer}.m{color:#555;font-size:14px}.e{color:#b00020}label{display:block;margin:1rem 0 .3rem;font-weight:600}.h{color:#555;font-size:13px;font-weight:400;margin-top:.2rem}fieldset{border:0;padding:0;margin:0}.q{font-size:18px}.sec{background:#fff6f6;border:1px solid #f0c0c0;border-radius:6px;padding:.6rem;margin-top:1rem}</style>
-<h1>hardtools</h1>${body2}`;
-    if (!req_) return page(410, shell(`<p class="e">Bu istek bulunamad\u0131 ya da s\xFCresi doldu. Sohbetten yeniden iste.</p>`)), true;
-    if (this.status(req_) === "cancelled") return page(410, shell(`<p class="e">Bu istek iptal edildi.</p>`)), true;
-    if (req_.expiresAt < Date.now()) return page(410, shell(`<p class="e">Bu istek bulunamad\u0131 ya da s\xFCresi doldu. Sohbetten yeniden iste.</p>`)), true;
-    if (req_.submittedAt !== void 0) return page(409, shell(`<p class="e">Bu istek zaten yan\u0131tland\u0131. Yeni bir istek i\xE7in sohbetten tekrar iste.</p>`)), true;
+    const shell = (body2) => page({ title: "hardtools \xB7 form", subtitle: req_?.title ?? "", body: body2, css: FORM_CSS });
+    if (!req_) return page2(410, shell(`<p class="e">Bu istek bulunamad\u0131 ya da s\xFCresi doldu. Sohbetten yeniden iste.</p>`)), true;
+    if (this.status(req_) === "cancelled") return page2(410, shell(`<p class="e">Bu istek iptal edildi.</p>`)), true;
+    if (req_.expiresAt < Date.now()) return page2(410, shell(`<p class="e">Bu istek bulunamad\u0131 ya da s\xFCresi doldu. Sohbetten yeniden iste.</p>`)), true;
+    if (req_.submittedAt !== void 0) return page2(409, shell(`<p class="e">Bu istek zaten yan\u0131tland\u0131. Yeni bir istek i\xE7in sohbetten tekrar iste.</p>`)), true;
     if (req.method === "POST") {
       let size = 0;
       const chunks = [];
@@ -27996,11 +28236,11 @@ var UserInputs = class {
         if (size <= 65536) chunks.push(c);
       });
       req.on("end", () => {
-        if (size > 65536) return page(413, shell(`<p class="e">Yan\u0131t \xE7ok b\xFCy\xFCk.</p>`));
+        if (size > 65536) return page2(413, shell(`<p class="e">Yan\u0131t \xE7ok b\xFCy\xFCk.</p>`));
         const params = new URLSearchParams(Buffer.concat(chunks).toString("utf8"));
         if (params.get("action") === "cancel") {
           this.cancel(id);
-          return page(200, shell(`<p>Vazge\xE7ildi. Sohbete d\xF6n\xFCp modeli bilgilendir.</p>`));
+          return page2(200, shell(`<p>Vazge\xE7ildi. Sohbete d\xF6n\xFCp modeli bilgilendir.</p>`));
         }
         try {
           const value = req_.fields ? this.submit(id, Object.fromEntries(req_.fields.map((f) => [
@@ -28011,42 +28251,42 @@ var UserInputs = class {
           const secrets = req_.fields ? req_.fields.some((f) => f.secret) : value.secret;
           const summary2 = req_.fields ? Object.entries(value.values ?? {}).map(([k, v]) => {
             const f = req_.fields.find((x) => x.name === k);
-            return `<li>${esc2(f.title)}: ${f.secret ? "<em>(gizli)</em>" : `<code>${esc2(renderEnv(v).slice(0, 200))}</code>`}</li>`;
+            return `<li>${esc3(f.title)}: ${f.secret ? "<em>(gizli)</em>" : `<code>${esc3(renderEnv(v).slice(0, 200))}</code>`}</li>`;
           }).join("") : "";
-          page(200, shell(`<p>Kaydedildi. Sohbete d\xF6n${secrets ? "" : `; de\u011Fer <code>$HT_USER_INPUT</code> olarak kullan\u0131labilir`}.</p>${summary2 ? `<ul class="m">${summary2}</ul>` : ""}${secrets ? `<p class="m">Gizli de\u011Ferler bu sayfada tekrar g\xF6sterilmez; modelin g\xF6rece\u011Fi \xE7\u0131kt\u0131da maskelenir.</p>` : ""}`));
+          page2(200, shell(`<p>Kaydedildi. Sohbete d\xF6n${secrets ? "" : `; de\u011Fer <code>$HT_USER_INPUT</code> olarak kullan\u0131labilir`}.</p>${summary2 ? `<ul class="m">${summary2}</ul>` : ""}${secrets ? `<p class="m">Gizli de\u011Ferler bu sayfada tekrar g\xF6sterilmez; modelin g\xF6rece\u011Fi \xE7\u0131kt\u0131da maskelenir.</p>` : ""}`));
         } catch (e) {
-          return page(400, shell(`<p class="e">${esc2(e.message)}</p><p class="m"><a href="${esc2(path15)}">Geri d\xF6n</a></p>`));
+          return page2(400, shell(`<p class="e">${esc3(e.message)}</p><p class="m"><a href="${esc3(path16)}">Geri d\xF6n</a></p>`));
         }
       });
       req.on("error", () => {
-        if (!res.headersSent) page(400, shell(`<p class="e">Okunamad\u0131.</p>`));
+        if (!res.headersSent) page2(400, shell(`<p class="e">Okunamad\u0131.</p>`));
       });
       return true;
     }
-    if (req.method !== "GET") return page(405, shell(`<p class="e">Yaln\u0131z GET/POST.</p>`)), true;
+    if (req.method !== "GET") return page2(405, shell(`<p class="e">Yaln\u0131z GET/POST.</p>`)), true;
     const field = (f) => {
-      const label = `<label for="f_${esc2(f.name)}">${esc2(f.title)}${f.required ? "" : ' <span class="m">(iste\u011Fe ba\u011Fl\u0131)</span>'}</label>`;
-      const help = f.help ? `<div class="h">${esc2(f.help)}</div>` : "";
-      const common = `id="f_${esc2(f.name)}" name="${esc2(f.name)}" autocomplete="off" ${f.required ? "required" : ""}`;
+      const label = `<label for="f_${esc3(f.name)}">${esc3(f.title)}${f.required ? "" : ' <span class="m">(iste\u011Fe ba\u011Fl\u0131)</span>'}</label>`;
+      const help = f.help ? `<div class="h">${esc3(f.help)}</div>` : "";
+      const common = `id="f_${esc3(f.name)}" name="${esc3(f.name)}" autocomplete="off" ${f.required ? "required" : ""}`;
       let control;
-      if (f.secret) control = `<input type="password" ${common} ${f.placeholder ? `placeholder="${esc2(f.placeholder)}"` : ""}>`;
-      else if (f.choices && f.multiple) control = `<div class="cb">${f.choices.map((c) => `<label><input type="checkbox" name="${esc2(f.name)}" value="${esc2(c)}"${c === f.default ? " checked" : ""}> ${esc2(c)}</label>`).join("")}</div>`;
-      else if (f.choices) control = `<select ${common}>${f.choices.map((c) => `<option${c === f.default ? " selected" : ""}>${esc2(c)}</option>`).join("")}</select>`;
+      if (f.secret) control = `<input type="password" ${common} ${f.placeholder ? `placeholder="${esc3(f.placeholder)}"` : ""}>`;
+      else if (f.choices && f.multiple) control = `<div class="cb">${f.choices.map((c) => `<label><input type="checkbox" name="${esc3(f.name)}" value="${esc3(c)}"${c === f.default ? " checked" : ""}> ${esc3(c)}</label>`).join("")}</div>`;
+      else if (f.choices) control = `<select ${common}>${f.choices.map((c) => `<option${c === f.default ? " selected" : ""}>${esc3(c)}</option>`).join("")}</select>`;
       else if (f.kind === "boolean") control = `<select ${common}><option value="true"${f.default === "true" ? " selected" : ""}>true</option><option value="false"${f.default === "false" || f.default === void 0 ? " selected" : ""}>false</option></select>`;
-      else if (f.kind === "array") control = `<textarea ${common} rows="4" placeholder='["a","b"]'>${esc2(f.default ?? "")}</textarea>`;
-      else if (f.kind === "number") control = `<input type="number" step="any" ${common} value="${esc2(f.default ?? "")}" ${f.placeholder ? `placeholder="${esc2(f.placeholder)}"` : ""}>`;
-      else control = `<input type="text" ${common} value="${esc2(f.default ?? "")}" ${f.placeholder ? `placeholder="${esc2(f.placeholder)}"` : ""}>`;
+      else if (f.kind === "array") control = `<textarea ${common} rows="4" placeholder='["a","b"]'>${esc3(f.default ?? "")}</textarea>`;
+      else if (f.kind === "number") control = `<input type="number" step="any" ${common} value="${esc3(f.default ?? "")}" ${f.placeholder ? `placeholder="${esc3(f.placeholder)}"` : ""}>`;
+      else control = `<input type="text" ${common} value="${esc3(f.default ?? "")}" ${f.placeholder ? `placeholder="${esc3(f.placeholder)}"` : ""}>`;
       return `<div${f.secret ? ' class="sec"' : ""}>${label}${control}${help}${f.secret ? '<div class="h">Gizli: sohbete geri d\xF6nmez, denetim kayd\u0131na yaz\u0131lmaz, komut \xE7\u0131kt\u0131s\u0131nda maskelenir.</div>' : ""}</div>`;
     };
     const mins = Math.max(1, Math.round((req_.expiresAt - Date.now()) / 6e4));
-    const body = req_.fields ? `<p class="q">${esc2(req_.title)}</p>${req_.help ? `<p class="m">${esc2(req_.help)}</p>` : ""}
-<form method="post" action="${esc2(path15)}" autocomplete="off"><fieldset>${req_.fields.map(field).join("")}</fieldset>
+    const body = req_.fields ? `<p class="q">${esc3(req_.title)}</p>${req_.help ? `<p class="m">${esc3(req_.help)}</p>` : ""}
+<form method="post" action="${esc3(path16)}" autocomplete="off"><fieldset>${req_.fields.map(field).join("")}</fieldset>
 <button type="submit">G\xF6nder</button><button type="submit" name="action" value="cancel" formnovalidate>Vazge\xE7</button></form>
-<p class="m">Yan\u0131tlar <code>$HT_USER_INPUT</code> (JSON) ve her alan i\xE7in <code>$HT_USER_INPUT_ADI</code> olarak komutlara ge\xE7er. Bu ba\u011Flant\u0131 tek kullan\u0131ml\u0131kt\u0131r, ~${mins} dk ge\xE7erlidir.</p>` : `<p class="q">${esc2(req_.title)}</p>
-<form method="post" action="${esc2(path15)}" autocomplete="off">${field({ name: req_.secret ? "secret" : "value", title: "Yan\u0131t", kind: req_.kind, secret: req_.secret, required: true, ...req_.choices ? { choices: req_.choices } : {}, ...req_.default !== void 0 ? { default: req_.default } : {}, ...req_.placeholder ? { placeholder: req_.placeholder } : {} })}
+<p class="m">Yan\u0131tlar <code>$HT_USER_INPUT</code> (JSON) ve her alan i\xE7in <code>$HT_USER_INPUT_ADI</code> olarak komutlara ge\xE7er. Bu ba\u011Flant\u0131 tek kullan\u0131ml\u0131kt\u0131r, ~${mins} dk ge\xE7erlidir.</p>` : `<p class="q">${esc3(req_.title)}</p>
+<form method="post" action="${esc3(path16)}" autocomplete="off">${field({ name: req_.secret ? "secret" : "value", title: "Yan\u0131t", kind: req_.kind, secret: req_.secret, required: true, ...req_.choices ? { choices: req_.choices } : {}, ...req_.default !== void 0 ? { default: req_.default } : {}, ...req_.placeholder ? { placeholder: req_.placeholder } : {} })}
 <button type="submit">G\xF6nder</button><button type="submit" name="action" value="cancel" formnovalidate>Vazge\xE7</button></form>
-<p class="m">${req_.secret ? "Bu de\u011Fer gizli kabul edilir: sohbete geri d\xF6nmez, denetim kayd\u0131na yaz\u0131lmaz, komut \xE7\u0131kt\u0131s\u0131nda maskelenir." : `T\xFCr: ${esc2(req_.kind)}. De\u011Fer <code>$HT_USER_INPUT</code> olarak komutlara ge\xE7er.`} ~${mins} dk ge\xE7erlidir.</p>`;
-    page(200, shell(body));
+<p class="m">${req_.secret ? "Bu de\u011Fer gizli kabul edilir: sohbete geri d\xF6nmez, denetim kayd\u0131na yaz\u0131lmaz, komut \xE7\u0131kt\u0131s\u0131nda maskelenir." : `T\xFCr: ${esc3(req_.kind)}. De\u011Fer <code>$HT_USER_INPUT</code> olarak komutlara ge\xE7er.`} ~${mins} dk ge\xE7erlidir.</p>`;
+    page2(200, shell(body));
     return true;
   }
 };
@@ -28066,8 +28306,11 @@ var asText = (text) => ({ content: [{ type: "text", text }] });
 function createServer(policy, audit, workspace = createWorkspace(), owner = "stdio", origin, opts = {}) {
   const server = new McpServer({ name: "hardtools", version: VERSION });
   const allowed = opts.tools ?? null;
+  const disabled = new Set(opts.settings?.store.get(opts.settings.user).disabledTools ?? []);
+  const ALWAYS_ON = /* @__PURE__ */ new Set(["ht_list_all_tools", "ht_manage_tool", "ht_status"]);
   const register = ((name, cfg, cb) => {
     if (allowed && !allowed.has(name)) return void 0;
+    if (disabled.has(name) && !ALWAYS_ON.has(name)) return void 0;
     return server.registerTool(name, cfg, cb);
   });
   const wrap = (tool, fn) => async (args, extra) => {
@@ -28200,11 +28443,12 @@ function createServer(policy, audit, workspace = createWorkspace(), owner = "std
       output_format: _enum(["text", "json"]).optional(),
       expected_exit_codes: array(number2().int().min(0).max(255)).min(1).max(32).optional().describe("If provided, unexpected exits, signals or timeouts set the MCP error flag"),
       inherit_vars: array(key).max(32).optional().describe("Names from ht_add_var; none by default"),
-      max_output_bytes: number2().int().positive().optional().describe("May only lower the profile's captured-output budget (bytes, before formatting)")
+      max_output_bytes: number2().int().positive().optional().describe("May only lower the profile's captured-output budget (bytes, before formatting)"),
+      is_bg: boolean2().optional().describe("true: arka planda \xE7al\u0131\u015Ft\u0131r, hemen d\xF6n. \xC7\u0131kt\u0131 /work/home/tmp/hardtools-bg-out-<oturum>-<s\u0131ra>.txt dosyas\u0131na yaz\u0131l\u0131r; ht_read ile oku.")
     },
     annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true }
   }, wrap("ht_shell", async (a) => {
-    const r = await runShell(policy, { ...a, user_env: workspace.inputs.envFor(owner) }, workspace.vars, owner);
+    const r = await runShell(policy, { ...a, user_env: workspace.inputs.envFor(owner), session_id: opts.sessionId }, workspace.vars, owner);
     return { ...asText(workspace.inputs.mask(r.text)), isError: r.isError };
   }));
   register("ht_user_input", {
@@ -28513,6 +28757,45 @@ Returned: {status, question, selected[], custom, request_id, elapsed_s}.`,
     },
     annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false }
   }, wrap("ht_transfer_file", (a) => htTransferFile(policy, a)));
+  register("ht_list_all_tools", {
+    title: "List every hardtools tool (enabled, disabled, all)",
+    description: "Shows all hardtools tools with their current state for this user: enabled, disabled and the complete catalog. Use it before ht_manage_tool when you are not sure what is off.",
+    inputSchema: { filter: _enum(["all", "enabled", "disabled"]).optional().describe("Default: all") },
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false }
+  }, wrap("ht_list_all_tools", (a) => {
+    const all = opts.settings?.all ?? [];
+    const off = new Set(opts.settings?.store.get(opts.settings.user).disabledTools ?? []);
+    const rows = all.map((n) => ({ name: n, enabled: !off.has(n), alwaysOn: ALWAYS_ON.has(n) }));
+    const pick2 = (a.filter ?? "all") === "enabled" ? rows.filter((r) => r.enabled) : a.filter === "disabled" ? rows.filter((r) => !r.enabled) : rows;
+    return JSON.stringify({
+      filter: a.filter ?? "all",
+      total: rows.length,
+      enabled: rows.filter((r) => r.enabled).length,
+      disabled: rows.filter((r) => !r.enabled).length,
+      tools: pick2,
+      note: "ht_manage_tool ile a\xE7/kapat; de\u011Fi\u015Fiklik bir sonraki MCP \xE7a\u011Fr\u0131s\u0131nda ge\xE7erli olur."
+    }, null, 2);
+  }));
+  register("ht_manage_tool", {
+    title: "Enable or disable a hardtools tool for this user",
+    description: "Turns a single hardtools tool on or off for the current user without the settings page. Disabled tools are not advertised and cannot be called. ht_list_all_tools and ht_manage_tool can never be disabled.",
+    inputSchema: {
+      tool: string2().min(3).max(64).describe("Tool name, e.g. ht_shell"),
+      enabled: boolean2().describe("true = a\xE7, false = kapat")
+    },
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false }
+  }, wrap("ht_manage_tool", (a) => {
+    if (!opts.settings) throw new PolicyError("settings_unavailable", "bu ba\u011Flant\u0131da kullan\u0131c\u0131 ayarlar\u0131 yok");
+    if (ALWAYS_ON.has(a.tool)) throw new PolicyError("tool_protected", `${a.tool} kapat\u0131lamaz (y\xF6netim arac\u0131)`);
+    const { settings, changed } = opts.settings.store.setTool(opts.settings.user, a.tool, a.enabled, opts.settings.user);
+    return JSON.stringify({
+      tool: a.tool,
+      enabled: a.enabled,
+      changed,
+      disabled: settings.disabledTools,
+      note: changed ? "Kaydedildi; bir sonraki MCP \xE7a\u011Fr\u0131s\u0131nda ge\xE7erli." : "Zaten bu durumdayd\u0131."
+    });
+  }));
   register("ht_status", {
     title: "Show active policy and audit-chain status",
     description: "Show policy and verify the current audit segment. With audit_export=true return a fixed-prefix JSONL attachment for offline verification (HTTP: this authorization only). For larger files continue with audit_snapshot and audit_offset=next_offset. No public link.",
@@ -28520,8 +28803,8 @@ Returned: {status, question, selected[], custom, request_id, elapsed_s}.`,
     annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false }
   }, wrap("ht_status", (a) => {
     if (a.audit_export) {
-      const page = audit.exportPage(a.audit_snapshot, a.audit_offset);
-      return { content: [{ type: "text", text: JSON.stringify(page.info) }, { type: "resource", resource: page.resource }] };
+      const page2 = audit.exportPage(a.audit_snapshot, a.audit_offset);
+      return { content: [{ type: "text", text: JSON.stringify(page2.info) }, { type: "resource", resource: page2.resource }] };
     }
     if (a.audit_snapshot !== void 0 || a.audit_offset !== void 0) throw new PolicyError("bad_input", "audit cursors require audit_export=true");
     return workspace.inputs.mask(JSON.stringify({
@@ -28542,6 +28825,450 @@ Returned: {status, question, selected[], custom, request_id, elapsed_s}.`,
   }));
   return server;
 }
+
+// src/settings.ts
+import crypto10 from "node:crypto";
+import fs13 from "node:fs";
+import path14 from "node:path";
+var ALL_TOOLS = [
+  "ht_read",
+  "ht_write",
+  "ht_edit",
+  "ht_glob",
+  "ht_search",
+  "ht_mkdir",
+  "ht_move",
+  "ht_trash",
+  "ht_empty_trash",
+  "ht_shell",
+  "ht_fetch",
+  "ht_image_search",
+  "ht_share",
+  "ht_transfer_file",
+  "ht_status",
+  "ht_stop",
+  "ht_new_shell_env",
+  "ht_add_var",
+  "ht_list_vars",
+  "ht_delete_var",
+  "ht_user_input",
+  "ht_ask",
+  "ht_list_all_tools",
+  "ht_manage_tool"
+];
+var defaultSettings = () => ({
+  disabledTools: [],
+  networkEnabled: true,
+  allowlistEnabled: false,
+  allowedCommands: [],
+  allowedUrls: [],
+  updatedAt: 0
+});
+var MAX_LIST = 200;
+var norm = (v) => v.trim().slice(0, 512);
+var uniq = (a) => [...new Set(a.map(norm).filter(Boolean))].slice(0, MAX_LIST);
+var UserSettingsStore = class {
+  users = /* @__PURE__ */ new Map();
+  grants = /* @__PURE__ */ new Map();
+  // grant id -> login
+  revoked = /* @__PURE__ */ new Set();
+  // çıkış yapılan grant'lar
+  store;
+  keyPath;
+  key;
+  constructor(opts = {}) {
+    this.store = opts.store;
+    this.keyPath = opts.keyPath;
+    this.load();
+  }
+  // ---- kalıcılık ---------------------------------------------------------------------------
+  load() {
+    try {
+      if (this.store && fs13.existsSync(this.store)) {
+        const d = JSON.parse(fs13.readFileSync(this.store, "utf8"));
+        for (const [u, s] of Object.entries(d.users ?? {})) this.users.set(u, { ...defaultSettings(), ...s });
+        for (const [g, u] of Object.entries(d.grants ?? {})) this.grants.set(g, u);
+        for (const g of d.revoked ?? []) this.revoked.add(g);
+      }
+    } catch {
+    }
+  }
+  save() {
+    if (!this.store) return;
+    try {
+      fs13.mkdirSync(path14.dirname(this.store), { recursive: true, mode: 448 });
+      const items = Object.fromEntries(this.users);
+      const grants = Object.fromEntries(this.grants);
+      const tmp = this.store + ".tmp";
+      fs13.writeFileSync(tmp, JSON.stringify({ v: 1, users: items, grants, revoked: [...this.revoked] }), { mode: 384 });
+      fs13.renameSync(tmp, this.store);
+    } catch {
+    }
+  }
+  // ---- kullanıcılar ------------------------------------------------------------------------
+  get(user) {
+    const s = this.users.get(user);
+    return s ? { ...s, disabledTools: [...s.disabledTools], allowedCommands: [...s.allowedCommands], allowedUrls: [...s.allowedUrls] } : defaultSettings();
+  }
+  patch(user, p, by) {
+    const cur = this.get(user);
+    const next = {
+      ...cur,
+      ...p,
+      disabledTools: p.disabledTools ? uniq(p.disabledTools.filter((n) => ALL_TOOLS.includes(n))) : cur.disabledTools,
+      allowedCommands: p.allowedCommands ? uniq(p.allowedCommands) : cur.allowedCommands,
+      allowedUrls: p.allowedUrls ? uniq(p.allowedUrls) : cur.allowedUrls,
+      updatedAt: Date.now(),
+      ...by ? { updatedBy: by } : {}
+    };
+    this.users.set(user, next);
+    this.save();
+    return next;
+  }
+  /** Aracı aç/kapat; değişen durumu döndürür. */
+  setTool(user, name, enabled, by) {
+    if (!ALL_TOOLS.includes(name)) throw new Error(`unknown tool: ${name}`);
+    const cur = this.get(user);
+    const has = cur.disabledTools.includes(name);
+    if (enabled && !has) return { settings: cur, changed: false };
+    if (!enabled && has) return { settings: cur, changed: false };
+    const disabledTools = enabled ? cur.disabledTools.filter((n) => n !== name) : [...cur.disabledTools, name];
+    return { settings: this.patch(user, { disabledTools }, by), changed: true };
+  }
+  // ---- grant <-> kullanıcı -----------------------------------------------------------------
+  bindGrant(grant, login) {
+    if (!grant || !login) return;
+    this.grants.set(grant, login.toLowerCase());
+    this.revoked.delete(grant);
+    this.save();
+  }
+  loginForGrant(grant) {
+    return this.grants.get(grant);
+  }
+  isRevoked(grant) {
+    return this.revoked.has(grant);
+  }
+  /** Çıkış: bu kullanıcının tüm grant'larını iptal et (MCP bağlantısı düşer). */
+  revokeUser(user) {
+    let n = 0;
+    for (const [g, u] of this.grants) if (u === user) {
+      this.grants.delete(g);
+      this.revoked.add(g);
+      n++;
+    }
+    this.save();
+    return n;
+  }
+  // ---- imzalı çerez -----------------------------------------------------------------------
+  signingKey() {
+    if (this.key) return this.key;
+    try {
+      if (this.keyPath && fs13.existsSync(this.keyPath)) this.key = fs13.readFileSync(this.keyPath);
+    } catch {
+    }
+    if (!this.key || this.key.length < 32) {
+      this.key = crypto10.randomBytes(32);
+      try {
+        if (this.keyPath) {
+          fs13.mkdirSync(path14.dirname(this.keyPath), { recursive: true, mode: 448 });
+          fs13.writeFileSync(this.keyPath, this.key, { mode: 384 });
+        }
+      } catch {
+      }
+    }
+    return this.key;
+  }
+  cookieFor(user, ttlS = 12 * 3600) {
+    const exp = Math.floor(Date.now() / 1e3) + ttlS;
+    const body = `${Buffer.from(user).toString("base64url")}.${exp}`;
+    const sig = crypto10.createHmac("sha256", this.signingKey()).update(body).digest("base64url");
+    return `${body}.${sig}`;
+  }
+  userFromCookie(value) {
+    if (!value) return null;
+    const parts = value.split(".");
+    if (parts.length !== 3) return null;
+    const [b64, exp, sig] = parts;
+    const body = `${b64}.${exp}`;
+    const want = crypto10.createHmac("sha256", this.signingKey()).update(body).digest("base64url");
+    if (sig.length !== want.length || !crypto10.timingSafeEqual(Buffer.from(sig), Buffer.from(want))) return null;
+    if (Number(exp) * 1e3 < Date.now()) return null;
+    try {
+      return Buffer.from(b64, "base64url").toString("utf8") || null;
+    } catch {
+      return null;
+    }
+  }
+};
+var SettingsUI = class {
+  o;
+  pending = /* @__PURE__ */ new Map();
+  constructor(o) {
+    this.o = o;
+  }
+  get store() {
+    return this.o.store;
+  }
+  origin(req) {
+    return this.o.origin?.(req) ?? `http://${req.headers.host ?? "localhost"}`;
+  }
+  html(res, code, body, extra = {}) {
+    res.writeHead(code, {
+      "content-type": "text/html; charset=utf-8",
+      "cache-control": "no-store",
+      "x-frame-options": "DENY",
+      "referrer-policy": "no-referrer",
+      "x-content-type-options": "nosniff",
+      "content-security-policy": PAGE_CSP,
+      ...extra
+    });
+    res.end(body);
+  }
+  cookieUser(req) {
+    const raw = String(req.headers.cookie ?? "");
+    const m = /(?:^|;\s*)ht_s=([^;]+)/.exec(raw);
+    return this.o.store.userFromCookie(m?.[1]);
+  }
+  setCookie(res, value, secure, maxAgeS) {
+    res.setHeader("set-cookie", `ht_s=${value}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${maxAgeS}${secure ? "; Secure" : ""}`);
+  }
+  async handle(req, res, pathname) {
+    const origin = this.origin(req);
+    if (pathname === "/settings") return this.index(req, res, origin), true;
+    if (pathname === "/settings/login") return await this.startLogin(req, res, origin), true;
+    if (pathname === "/settings/poll") return await this.poll(req, res, origin), true;
+    if (pathname === "/settings/token") return await this.tokenLogin(req, res, origin), true;
+    if (pathname === "/settings/save") return await this.save(req, res, origin), true;
+    if (pathname === "/settings/logout") return await this.logout(req, res, origin), true;
+    return false;
+  }
+  async body(req) {
+    const chunks = [];
+    let size = 0;
+    for await (const c of req) {
+      size += c.length;
+      if (size > 64 * 1024) return null;
+      chunks.push(c);
+    }
+    return new URLSearchParams(Buffer.concat(chunks).toString("utf8"));
+  }
+  loginPage(res, error2 = "") {
+    const gh = Boolean(this.o.github?.clientId);
+    const body = `${heading("Ayarlar \xB7 giri\u015F", "Ayarlar hesab\u0131na ba\u011Fl\u0131d\u0131r: ara\xE7lar, a\u011F ve allowlist senin hesab\u0131nda saklan\u0131r.")}
+${error2 ? `<p class="e">${esc2(error2)}</p>` : ""}
+<div class="card">
+<h2 style="margin-top:0">GitHub ile giri\u015F</h2>
+${gh ? `<p class="muted">Claude'da ba\u011Flan\u0131rken kulland\u0131\u011F\u0131n GitHub hesab\u0131yla gir; ayarlar\u0131n o hesaba ba\u011Flan\u0131r.</p>
+<p><a class="btn" href="/settings/login" data-once>GitHub ile giri\u015F yap</a></p>` : `<p class="muted">Bu sunucuda GitHub giri\u015Fi yap\u0131land\u0131r\u0131lmam\u0131\u015F. Operat\xF6r token'\u0131 ile gir.</p>`}
+</div>
+<div class="card">
+<h2 style="margin-top:0">Operat\xF6r giri\u015Fi</h2>
+<form method="post" action="/settings/token" autocomplete="off">
+  <label for="t">Eri\u015Fim token'\u0131 (<code>HARDTOOLS_HTTP_TOKEN</code> \u2014 <code>Bearer</code> \xF6neki olmadan)</label>
+  <input id="t" name="token" type="password" autocomplete="off" required>
+  <p><button class="primary" type="submit">Giri\u015F</button></p>
+</form>
+</div>`;
+    this.html(res, 200, page({ title: "Ayarlar \xB7 giri\u015F", subtitle: "settings", body }));
+  }
+  index(req, res, origin) {
+    if (req.method !== "GET") return this.html(res, 405, page({ title: "Ayarlar", body: `<p class="e">Yaln\u0131z GET.</p>` }));
+    const user = this.cookieUser(req);
+    if (!user) return this.loginPage(res);
+    const s = this.o.store.get(user);
+    const toolRows = ALL_TOOLS.map((name) => {
+      const enabled = !s.disabledTools.includes(name);
+      return `<label class="chip"><input type="checkbox" name="tool" value="${esc2(name)}"${enabled ? " checked" : ""}> <code>${esc2(name)}</code></label>`;
+    }).join("");
+    const cmdRows = s.allowedCommands.map((c, i) => `<li><code>${esc2(c)}</code><form method="post" action="/settings/save" style="margin:0"><input type="hidden" name="removeCommand" value="${esc2(c)}"><button class="ghost" type="submit" data-once>Kald\u0131r</button></form></li>`).join("");
+    const urlRows = s.allowedUrls.map((u) => `<li><code>${esc2(u)}</code><form method="post" action="/settings/save" style="margin:0"><input type="hidden" name="removeUrl" value="${esc2(u)}"><button class="ghost" type="submit" data-once>Kald\u0131r</button></form></li>`).join("");
+    const body = `${heading("Ayarlar", `Kullan\u0131c\u0131: ${user}`)}
+<form method="post" action="/settings/save" autocomplete="off">
+
+<div class="card">
+<h2 style="margin-top:0">Ara\xE7lar</h2>
+<p class="muted">Kapatt\u0131\u011F\u0131n ara\xE7lar MCP listesinde g\xF6r\xFCnmez ve \xE7a\u011Fr\u0131lamaz. <code>ht_list_all_tools</code> ve <code>ht_manage_tool</code> her zaman a\xE7\u0131kt\u0131r.</p>
+<div class="grid">${toolRows}</div>
+</div>
+
+<div class="card">
+<h2 style="margin-top:0">A\u011F istekleri</h2>
+<label class="chip"><input type="checkbox" name="networkEnabled" value="1"${s.networkEnabled ? " checked" : ""}> <span>\u0130nternet istekleri a\xE7\u0131k (<code>ht_fetch</code>, <code>ht_image_search</code>)</span></label>
+<label class="chip" style="margin-top:.5rem"><input type="checkbox" name="allowlistEnabled" value="1"${s.allowlistEnabled ? " checked" : ""}> <span>Allowlist zorunlu olsun (a\u015Fa\u011F\u0131dakiler d\u0131\u015F\u0131na \xE7\u0131kma)</span></label>
+<p class="muted" style="margin-top:.6rem">Allowlist a\xE7\u0131kken yaln\u0131zca listelenen alan adlar\u0131na ve yaln\u0131zca listelenen komutlara izin verilir.</p>
+</div>
+
+<div class="card">
+<h2 style="margin-top:0">\u0130zinli komutlar</h2>
+<ul class="clean">${cmdRows || `<li class="muted">Hen\xFCz kay\u0131t yok.</li>`}</ul>
+<label for="newCommand">Komut ekle</label>
+<input id="newCommand" name="addCommand" type="text" placeholder="\xF6r. git, node, python3">
+</div>
+
+<div class="card">
+<h2 style="margin-top:0">\u0130zinli URL / alan adlar\u0131</h2>
+<ul class="clean">${urlRows || `<li class="muted">Hen\xFCz kay\u0131t yok.</li>`}</ul>
+<label for="newUrl">URL veya alan ad\u0131 ekle</label>
+<input id="newUrl" name="addUrl" type="text" placeholder="\xF6r. api.github.com veya https://example.com/path">
+</div>
+
+<p class="row"><button class="primary" type="submit">Kaydet</button><span class="muted">Son g\xFCncelleme: ${s.updatedAt ? esc2(new Date(s.updatedAt).toISOString().replace("T", " ").slice(0, 19)) : "\u2014"}</span></p>
+</form>
+
+<div class="card">
+<h2 style="margin-top:0">\xC7\u0131k\u0131\u015F</h2>
+<p class="muted">\xC7\u0131k\u0131\u015F yap\u0131nca bu hesab\u0131n MCP eri\u015Fim anahtarlar\u0131 sunucuda iptal edilir: ba\u011Flant\u0131 hemen d\xFC\u015Fer. Ard\u0131ndan Claude'da <strong>Ayarlar \u2192 Ba\u011Flay\u0131c\u0131lar \u2192 hardtools \u2192 Kald\u0131r</strong> ile listeden sil.</p>
+<form method="post" action="/settings/logout" autocomplete="off">
+  <button class="primary" type="submit" data-once>\xC7\u0131k\u0131\u015F yap ve ba\u011Flant\u0131y\u0131 kes</button>
+</form>
+</div>
+<p class="muted"><a href="${esc2(origin)}/connect">ba\u011Flanma sayfas\u0131</a></p>`;
+    this.html(res, 200, page({ title: "Ayarlar", subtitle: "settings", body, actions: `<form method="post" action="/settings/logout" style="margin:0"><button class="ghost" type="submit" data-once>\xC7\u0131k\u0131\u015F</button></form>` }));
+  }
+  async save(req, res, origin) {
+    if (req.method !== "POST") return this.html(res, 405, page({ title: "Ayarlar", body: `<p class="e">Yaln\u0131z POST.</p>` }));
+    const user = this.cookieUser(req);
+    if (!user) return this.loginPage(res, "Oturum sona erdi, tekrar giri\u015F yap.");
+    const p = await this.body(req);
+    if (!p) return this.html(res, 413, page({ title: "Ayarlar", body: `<p class="e">\u0130stek \xE7ok b\xFCy\xFCk.</p>` }));
+    const cur = this.o.store.get(user);
+    const removeCommand = p.get("removeCommand"), removeUrl = p.get("removeUrl");
+    if (removeCommand) {
+      this.o.store.patch(user, { allowedCommands: cur.allowedCommands.filter((c) => c !== removeCommand) }, user);
+      return this.redirect(res, origin);
+    }
+    if (removeUrl) {
+      this.o.store.patch(user, { allowedUrls: cur.allowedUrls.filter((u) => u !== removeUrl) }, user);
+      return this.redirect(res, origin);
+    }
+    const tools = p.getAll("tool");
+    const disabledTools = ALL_TOOLS.filter((n) => !tools.includes(n));
+    const addCommand = p.get("addCommand"), addUrl = p.get("addUrl");
+    const allowedCommands = addCommand ? uniq([...cur.allowedCommands, addCommand]) : cur.allowedCommands;
+    const allowedUrls = addUrl ? uniq([...cur.allowedUrls, addUrl]) : cur.allowedUrls;
+    const networkEnabled = p.get("networkEnabled") === "1", allowlistEnabled = p.get("allowlistEnabled") === "1";
+    this.o.store.patch(user, { disabledTools, networkEnabled, allowlistEnabled, allowedCommands, allowedUrls }, user);
+    this.o.audit?.({ ev: "settings_save", user, tools: ALL_TOOLS.length - disabledTools.length, network: networkEnabled, allowlist: allowlistEnabled });
+    return this.redirect(res, origin);
+  }
+  redirect(res, origin) {
+    res.writeHead(303, { location: `${origin}/settings`, "cache-control": "no-store" });
+    res.end();
+  }
+  async logout(req, res, origin) {
+    if (req.method !== "POST") return this.html(res, 405, page({ title: "Ayarlar", body: `<p class="e">Yaln\u0131z POST.</p>` }));
+    const user = this.cookieUser(req);
+    let revoked = 0;
+    if (user) revoked = this.o.store.revokeUser(user);
+    this.o.audit?.({ ev: "settings_logout", user: user ?? "-", revoked });
+    res.setHeader("set-cookie", "ht_s=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0");
+    const body = `${heading("\xC7\u0131k\u0131\u015F yap\u0131ld\u0131")}
+<div class="card">
+<p>${revoked} MCP oturumu sunucuda iptal edildi; ba\u011Flant\u0131 d\xFC\u015Ft\xFC.</p>
+<p><strong>Son ad\u0131m (Claude taraf\u0131):</strong> Claude \u2192 <strong>Ayarlar \u2192 Ba\u011Flay\u0131c\u0131lar</strong> \u2192 <code>hardtools</code> \u2192 <strong>Kald\u0131r</strong>. Sunucu, Claude'un listesindeki kayd\u0131 silemez; kald\u0131rma i\u015Flemi istemcide yap\u0131l\u0131r.</p>
+<p><a class="btn" href="${esc2(origin)}/settings">Tekrar giri\u015F</a></p>
+</div>`;
+    this.html(res, 200, page({ title: "\xC7\u0131k\u0131\u015F", subtitle: "settings", body }));
+  }
+  async tokenLogin(req, res, origin) {
+    if (req.method !== "POST") return this.loginPage(res);
+    const p = await this.body(req);
+    const given = String(p?.get("token") ?? "").trim();
+    const want = this.o.operatorToken ?? "";
+    if (!want || given.length !== want.length || !crypto10.timingSafeEqual(Buffer.from(given), Buffer.from(want)))
+      return this.loginPage(res, "Token yanl\u0131\u015F.");
+    const user = "operator";
+    this.setCookie(res, this.o.store.cookieFor(user), origin.startsWith("https://"), 12 * 3600);
+    this.o.audit?.({ ev: "settings_login", user, via: "token" });
+    return this.redirect(res, origin);
+  }
+  // ---- GitHub device flow (ayarlar için) ----------------------------------------------------
+  gh() {
+    return (this.o.github?.webBase ?? "https://github.com").replace(/\/+$/, "");
+  }
+  ghApi() {
+    return (this.o.github?.apiBase ?? "https://api.github.com").replace(/\/+$/, "");
+  }
+  async startLogin(req, res, origin) {
+    const gh = this.o.github;
+    if (!gh?.clientId) return this.loginPage(res, "GitHub giri\u015Fi yap\u0131land\u0131r\u0131lmam\u0131\u015F.");
+    const dc = await this.ghJson(`${this.gh()}/login/device/code`, {
+      method: "POST",
+      headers: { accept: "application/json", "content-type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({ client_id: gh.clientId, scope: "read:user user:email" }).toString()
+    });
+    if (!dc || typeof dc.device_code !== "string") return this.loginPage(res, "GitHub'dan kod al\u0131namad\u0131, tekrar dene.");
+    const t = crypto10.randomBytes(18).toString("base64url");
+    this.pending.set(t, {
+      deviceCode: dc.device_code,
+      userCode: String(dc.user_code),
+      verifyUri: typeof dc.verification_uri === "string" ? dc.verification_uri : `${this.gh()}/login/device`,
+      intervalS: Math.max(5, Math.min(30, Number(dc.interval) || 5)),
+      exp: Date.now() + 6e5,
+      nextPoll: 0
+    });
+    for (const [k, v] of this.pending) if (v.exp < Date.now() || this.pending.size > 32) this.pending.delete(k);
+    const next = `/settings/poll?t=${encodeURIComponent(t)}`;
+    const body = `${heading("GitHub ile giri\u015F")}
+<div class="card">
+<p><strong>1.</strong> <a href="${esc2(this.pending.get(t).verifyUri)}" target="_blank" rel="noreferrer">${esc2(this.pending.get(t).verifyUri)}</a> adresini a\xE7.</p>
+<p><strong>2.</strong> Kodu gir: <code class="code">${esc2(this.pending.get(t).userCode)}</code></p>
+<p><strong>3.</strong> Bu sayfa kendili\u011Finden devam eder.</p>
+</div>
+<meta http-equiv="refresh" content="5;url=${esc2(next)}">`;
+    this.html(res, 200, page({ title: "Ayarlar \xB7 GitHub", subtitle: "settings", body }));
+  }
+  async poll(req, res, origin) {
+    const t = new URL(req.url ?? "/", origin).searchParams.get("t") ?? "";
+    const p = this.pending.get(t);
+    if (!p) return this.loginPage(res, "Giri\u015F oturumu bulunamad\u0131, tekrar dene.");
+    if (p.exp < Date.now()) {
+      this.pending.delete(t);
+      return this.loginPage(res, "Kodun s\xFCresi doldu, tekrar dene.");
+    }
+    if (Date.now() < 0) return this.loginPage(res);
+    if (Date.now() < p.nextPoll) return this.html(res, 200, page({ title: "Bekleniyor", body: `<p class="muted">GitHub onay\u0131 bekleniyor\u2026</p><meta http-equiv="refresh" content="5;url=/settings/poll?t=${encodeURIComponent(t)}">` }));
+    p.nextPoll = Date.now() + p.intervalS * 1e3;
+    const tok = await this.ghJson(`${this.gh()}/login/oauth/access_token`, {
+      method: "POST",
+      headers: { accept: "application/json", "content-type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({ client_id: this.o.github.clientId, device_code: p.deviceCode, grant_type: "urn:ietf:params:oauth:grant-type:device_code" }).toString()
+    });
+    const err = typeof tok?.error === "string" ? tok.error : "";
+    if (err === "authorization_pending" || err === "slow_down") {
+      if (err === "slow_down") p.intervalS = Math.min(30, p.intervalS + 5);
+      return this.html(res, 200, page({ title: "Bekleniyor", body: `<p class="muted">GitHub onay\u0131 bekleniyor\u2026</p><meta http-equiv="refresh" content="5;url=/settings/poll?t=${encodeURIComponent(t)}">` }));
+    }
+    if (!tok || typeof tok.access_token !== "string") {
+      this.pending.delete(t);
+      return this.loginPage(res, "GitHub giri\u015Fi reddedildi ya da s\xFCresi doldu.");
+    }
+    const headers = { authorization: `Bearer ${tok.access_token}`, accept: "application/vnd.github+json", "user-agent": "hardtools-settings" };
+    const who = await this.ghJson(`${this.ghApi()}/user`, { headers });
+    const login = String(who?.login ?? "").toLowerCase();
+    if (!login) {
+      this.pending.delete(t);
+      return this.loginPage(res, "GitHub kimli\u011Fi okunamad\u0131.");
+    }
+    const allowed = this.o.github?.allowAny ? true : (this.o.github?.allowedLogins ?? []).map((v) => v.toLowerCase()).includes(login);
+    if (!allowed) {
+      this.pending.delete(t);
+      return this.loginPage(res, `Bu GitHub hesab\u0131na izin verilmiyor (${login}).`);
+    }
+    this.pending.delete(t);
+    this.setCookie(res, this.o.store.cookieFor(login), origin.startsWith("https://"), 12 * 3600);
+    this.o.audit?.({ ev: "settings_login", user: login, via: "github" });
+    return this.redirect(res, origin);
+  }
+  async ghJson(url, init) {
+    try {
+      const r = await fetch(url, { ...init, signal: AbortSignal.timeout(1e4) });
+      return await r.json();
+    } catch {
+      return null;
+    }
+  }
+};
 
 // src/index.ts
 function arg(name) {
@@ -28602,7 +29329,7 @@ async function main() {
   const loginFree = isPublic && (publicMode === "key" || publicTools !== null || anonAll);
   const loginRequired = isPublic && !loginFree;
   if (isPublic) console.error(`[hardtools] public connector mode=${publicMode}; tools=${publicTools ? [...publicTools].join(",") : "all"}; ${loginFree ? "no OAuth challenge" : "login required (bearer or OAuth)"}${anonAll && !publicTools ? " (HARDTOOLS_PUBLIC_ANON: tam set giri\u015Fsiz)" : ""}`);
-  const keyId = publicKey ? crypto10.createHash("sha256").update(publicKey).digest("hex").slice(0, 12) : "open";
+  const keyId = publicKey ? crypto11.createHash("sha256").update(publicKey).digest("hex").slice(0, 12) : "open";
   const publicOwner = (viaKey) => viaKey ? `public:${keyId}` : "public";
   const token = process.env.HARDTOOLS_HTTP_TOKEN ?? "";
   const hasToken = token.length >= 32;
@@ -28620,6 +29347,8 @@ async function main() {
   const ghLogins = (process.env.HARDTOOLS_OAUTH_ALLOWED_LOGINS ?? "").split(",").map((s) => s.trim()).filter(Boolean);
   const ghEmails = (process.env.HARDTOOLS_OAUTH_ALLOWED_EMAILS ?? "").split(",").map((s) => s.trim()).filter(Boolean);
   const ghAllowAny = ["1", "true", "yes", "*"].includes((process.env.HARDTOOLS_OAUTH_ALLOW_ANY ?? "").trim().toLowerCase()) || ghLogins.includes("*") || ghEmails.includes("*");
+  const stateDir = process.env.HARDTOOLS_STATE_DIR?.trim() || (policy.audit.dir ? path15.join(policy.audit.dir, "state") : void 0);
+  const stateFile = (name) => stateDir ? path15.join(stateDir, name) : void 0;
   let github;
   if (ghId) {
     if (!ghLogins.length && !ghEmails.length && !ghAllowAny) {
@@ -28645,26 +29374,36 @@ async function main() {
   if (loginRequired && !hasToken && !github) {
     console.error("[hardtools] warning: HARDTOOLS_PUBLIC=open with the full tool set needs a login, but neither HARDTOOLS_HTTP_TOKEN nor GitHub OAuth is configured \u2014 every MCP request will be rejected. Set a token, configure OAuth, or use HARDTOOLS_PUBLIC_TOOLS=safe for the login-free read-only connector.");
   }
-  const oauth = new OAuth({ token, audit: (e) => audit.write(e), extraRedirectUris: (process.env.HARDTOOLS_OAUTH_REDIRECT_URIS ?? "").split(",").map((s) => s.trim()).filter(Boolean), github });
+  const settingsStore = new UserSettingsStore({
+    store: stateFile("settings.json"),
+    keyPath: stateFile("settings.key")
+  });
+  const oauth = new OAuth({
+    token,
+    audit: (e) => audit.write(e),
+    extraRedirectUris: (process.env.HARDTOOLS_OAUTH_REDIRECT_URIS ?? "").split(",").map((s) => s.trim()).filter(Boolean),
+    github,
+    onGrant: (grant, login) => settingsStore.bindGrant(grant, login),
+    grantRevoked: (grant) => settingsStore.isRevoked(grant)
+  });
   const inviteOrigin = process.env.HARDTOOLS_INVITE_ORIGIN ?? "";
   if (inviteOrigin) {
     const inviteUrl = oauth.mintInvite(inviteOrigin);
     console.error(`[hardtools] invite URL (one use; keep private): ${inviteUrl}`);
   }
-  const inputStore = policy.audit.dir ? path14.join(path14.dirname(policy.audit.dir), "state", "inputs.json") : void 0;
+  const inputStore = stateFile("inputs.json");
   const sharedInputs = new UserInputs(inputStore ? { store: inputStore } : {});
   const sharedShares = new Shares();
   const sharedVars = new Variables();
   const perSession = (process.env.HARDTOOLS_PER_SESSION_WORKSPACE ?? "1").trim() !== "0";
   const baseRoot = policy.roots[0];
-  const baseIsFsRoot = Boolean(baseRoot) && baseRoot === path14.parse(baseRoot).root;
-  const stateDir = policy.audit.dir ? path14.dirname(policy.audit.dir) : void 0;
+  const baseIsFsRoot = Boolean(baseRoot) && baseRoot === path15.parse(baseRoot).root;
   const sessionBase = baseRoot && !baseIsFsRoot ? baseRoot : void 0;
-  const sessionsFile = stateDir ? path14.join(stateDir, "state", "sessions.json") : void 0;
+  const sessionsFile = stateFile("sessions.json");
   const sessMap = /* @__PURE__ */ new Map();
   if (sessionsFile) {
     try {
-      const d = JSON.parse(fs13.readFileSync(sessionsFile, "utf8"));
+      const d = JSON.parse(fs14.readFileSync(sessionsFile, "utf8"));
       for (const r of d.items ?? []) if (r?.sid && r?.dir) sessMap.set(r.sid, { owner: r.owner ?? "", dir: r.dir, last: r.last ?? 0 });
     } catch {
     }
@@ -28677,28 +29416,29 @@ async function main() {
       try {
         const now = Date.now();
         for (const [sid, r] of sessMap) if (now - r.last > 7 * 24 * 36e5) sessMap.delete(sid);
-        fs13.mkdirSync(path14.dirname(sessionsFile), { recursive: true, mode: 448 });
+        fs14.mkdirSync(path15.dirname(sessionsFile), { recursive: true, mode: 448 });
         const tmp = sessionsFile + ".tmp";
-        fs13.writeFileSync(tmp, JSON.stringify({ v: 1, items: [...sessMap].map(([sid, r]) => ({ sid, ...r })) }), { mode: 384 });
-        fs13.renameSync(tmp, sessionsFile);
+        fs14.writeFileSync(tmp, JSON.stringify({ v: 1, items: [...sessMap].map(([sid, r]) => ({ sid, ...r })) }), { mode: 384 });
+        fs14.renameSync(tmp, sessionsFile);
       } catch {
       }
     }, 250);
     sessSaveTimer.unref?.();
   };
   const mkRoot = (dir) => {
-    fs13.mkdirSync(dir, { recursive: true, mode: 448 });
+    fs14.mkdirSync(dir, { recursive: true, mode: 448 });
     return dir;
   };
-  const accountRoot = (owner) => mkRoot(path14.join(baseRoot, "a-" + crypto10.createHash("sha256").update(owner).digest("hex").slice(0, 16)));
-  const sessionRoot = (sid) => mkRoot(path14.join(sessionBase, "u-" + crypto10.createHash("sha256").update("sid\0" + sid).digest("hex").slice(0, 16)));
+  const accountRoot = (owner) => mkRoot(path15.join(baseRoot, "a-" + crypto11.createHash("sha256").update(owner).digest("hex").slice(0, 16)));
+  const sessionRoot = (sid) => mkRoot(path15.join(sessionBase, "u-" + crypto11.createHash("sha256").update("sid\0" + sid).digest("hex").slice(0, 16)));
   const grants = /* @__PURE__ */ new Map();
   const grantFor = (owner, dir) => {
     const key = owner + "\0" + dir;
     const cached2 = grants.get(key);
     if (cached2) return cached2;
     if (grants.size > 512) grants.clear();
-    const p = dir === baseRoot ? policy : { ...policy, roots: [dir] };
+    const base = policyFor(owner);
+    const p = dir === baseRoot ? base : { ...base, roots: [dir] };
     const g = { policy: p, workspace: createWorkspace(void 0, { inputs: sharedInputs, shares: sharedShares, vars: sharedVars }) };
     grants.set(key, g);
     return g;
@@ -28710,8 +29450,8 @@ async function main() {
       res.end(JSON.stringify({ error: msg }));
     };
     try {
-      const path15 = (req.url ?? "").split("?")[0];
-      if (path15 === "/healthz") {
+      const path16 = (req.url ?? "").split("?")[0];
+      if (path16 === "/healthz") {
         res.writeHead(200, { "content-type": "application/json", "cache-control": "no-store" });
         res.end(JSON.stringify({
           ok: true,
@@ -28726,8 +29466,11 @@ async function main() {
       }
       const h = String(req.headers.host ?? "").toLowerCase();
       if (!allowedHosts.has(h)) return send(403, "host not allowed");
-      if (sharedInputs.handle(req, res, path15, oauth.origin(req))) return;
-      if (req.headers.origin && !(path15 === "/authorize" && req.headers.origin === oauth.origin(req))) return send(403, "browser origins are not allowed");
+      if (path16 === "/settings" || path16.startsWith("/settings/")) {
+        if (await settingsUI.handle(req, res, path16)) return;
+      }
+      if (sharedInputs.handle(req, res, path16, oauth.origin(req))) return;
+      if (req.headers.origin && !(path16 === "/authorize" && req.headers.origin === oauth.origin(req))) return send(403, "browser origins are not allowed");
       const ip = req.socket.remoteAddress ?? "?";
       const now = Date.now();
       if (hits.size > 4096) {
@@ -28741,19 +29484,19 @@ async function main() {
       b.n++;
       hits.set(ip, b);
       if (b.n > 120) return send(429, "rate limited");
-      if (sharedShares.download(req, res, path15)) return;
+      if (sharedShares.download(req, res, path16)) return;
       if (loginFree) {
-        if (/^\/(?:\.well-known\/|register$|authorize$|token$|oauth\/|invite\/)/.test(path15)) return send(404, "not found");
-        if (req.method === "GET" && (path15 === "/connect" || /^\/c\/[A-Za-z0-9_-]{16,128}$/.test(path15))) return connectPage(req, res, path15, publicMode === "key" && publicKey ? publicKey : "");
+        if (/^\/(?:\.well-known\/|register$|authorize$|token$|oauth\/|invite\/)/.test(path16)) return send(404, "not found");
+        if (req.method === "GET" && (path16 === "/connect" || /^\/c\/[A-Za-z0-9_-]{16,128}$/.test(path16))) return connectPage(req, res, path16, publicMode === "key" && publicKey ? publicKey : "");
       } else if (await oauth.handle(req, res)) return;
-      const keyPath = /^\/c\/([A-Za-z0-9_-]{16,128})(?:\/mcp)?$/.exec(path15);
-      const isMcpPath = path15 === "/mcp" || keyPath !== null;
+      const keyPath = /^\/c\/([A-Za-z0-9_-]{16,128})(?:\/mcp)?$/.exec(path16);
+      const isMcpPath = path16 === "/mcp" || keyPath !== null;
       if (!isMcpPath) return send(404, "not found");
       const m = /^Bearer (.+)$/.exec(String(req.headers.authorization ?? ""));
       let owner = m ? hasToken && equalSecret(m[1], token) ? "static" : oauth.accessScope(m[1]) : null;
       if (!owner && loginFree) {
         if (keyPath && publicKey && equalSecret(keyPath[1], publicKey)) owner = publicOwner(true);
-        else if (path15 === "/mcp" && publicMode !== "key") owner = publicOwner(false);
+        else if (path16 === "/mcp" && publicMode !== "key") owner = publicOwner(false);
       }
       if (!owner) {
         return send(
@@ -28762,6 +29505,8 @@ async function main() {
           publicMode === "key" ? {} : { "www-authenticate": `Bearer resource_metadata="${oauth.resourceMetadataUrl(req)}"` }
         );
       }
+      const gid = /^grant:(.+)$/.exec(owner)?.[1];
+      if (gid && settingsStore.isRevoked(gid)) return send(401, "unauthorized: signed out", { "www-authenticate": `Bearer resource_metadata="${oauth.resourceMetadataUrl(req)}"` });
       if (req.method !== "POST") return send(405, "stateless server: POST only", { allow: "POST" });
       const chunks = [];
       let size = 0;
@@ -28783,12 +29528,12 @@ async function main() {
       let workDir = baseRoot;
       if (perSession && owner !== "static" && baseRoot && !baseIsFsRoot && sessionBase) {
         const rec = sid ? sessMap.get(sid) : void 0;
-        if (rec && rec.owner === owner && fs13.existsSync(rec.dir)) {
+        if (rec && rec.owner === owner && fs14.existsSync(rec.dir)) {
           workDir = rec.dir;
           rec.last = Date.now();
           saveSessions();
         } else if (isInit && !sid) {
-          sid = crypto10.randomBytes(18).toString("base64url");
+          sid = crypto11.randomBytes(18).toString("base64url");
           workDir = sessionRoot(sid);
           sessMap.set(sid, { owner, dir: workDir, last: Date.now() });
           saveSessions();
@@ -28804,7 +29549,11 @@ async function main() {
         grant.workspace,
         owner,
         origin,
-        { ...owner === "public" ? { tools: publicTools } : {}, ...sid ? { sessionId: "s-" + sid.slice(0, 12) } : {} }
+        {
+          ...owner === "public" ? { tools: publicTools } : {},
+          ...sid ? { sessionId: "s-" + sid.slice(0, 12) } : {},
+          settings: { store: settingsStore, user: userFor(owner), all: ALL_TOOLS }
+        }
       );
       const transport = new WebStandardStreamableHTTPServerTransport({ sessionIdGenerator: sid && isInit ? () => sid : void 0 });
       if (sid && !isInit) transport.sessionId = sid;
@@ -28830,19 +29579,58 @@ async function main() {
       else res.destroy();
     }
   });
-  const connectPage = (req, res, path15, key) => {
+  const settingsUI = new SettingsUI({
+    store: settingsStore,
+    operatorToken: hasToken ? token : void 0,
+    github: github ? { clientId: github.clientId, webBase: github.webBase, apiBase: github.apiBase, allowAny: github.allowAny, allowedLogins: github.allowedLogins, allowedEmails: github.allowedEmails } : void 0,
+    audit: (e) => audit.write(e),
+    origin: (r) => oauth.origin(r)
+  });
+  const userFor = (owner) => {
+    if (owner === "static") return "operator";
+    const g = /^grant:(.+)$/.exec(owner);
+    if (g) return settingsStore.loginForGrant(g[1]) ?? "operator";
+    return "public";
+  };
+  const policyFor = (owner) => {
+    const user = userFor(owner);
+    const us = settingsStore.get(user);
+    let p = policy;
+    const shell = { ...policy.shell };
+    if (us.allowlistEnabled && us.allowedCommands.length) shell.allowCommands = us.allowedCommands;
+    const net3 = { ...policy.net };
+    if (!us.networkEnabled) {
+      net3.enabled = false;
+    } else if (us.allowlistEnabled) {
+      net3.allowDomains = us.allowedUrls.map((u) => {
+        try {
+          return new URL(u.includes("://") ? u : `https://${u}`).hostname;
+        } catch {
+          return u;
+        }
+      }).filter(Boolean);
+      net3.requireAllowDomains = true;
+    }
+    p = { ...policy, shell, net: net3 };
+    return p;
+  };
+  const connectPage = (req, res, path16, key) => {
     const origin = oauth.origin(req);
     const base = key ? `${origin}/c/${key}` : `${origin}/mcp`;
     const others = key ? `${origin}/mcp` : "";
-    const html = `<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>hardtools \u2014 ba\u011Flan</title>
-<style>body{font:16px system-ui,sans-serif;max-width:40rem;margin:3rem auto;padding:0 1rem;line-height:1.55}code{background:#f4f4f5;padding:.2rem .4rem;border-radius:4px;word-break:break-all}li{margin:.4rem 0}.m{color:#555;font-size:14px}textarea{width:100%;height:3.2rem;font:13px ui-monospace,monospace;padding:.5rem;box-sizing:border-box}</style>
-<h1>hardtools MCP</h1>
-<p>Claude \u2192 <strong>Ayarlar \u2192 Ba\u011Flay\u0131c\u0131lar \u2192 \xD6zel ba\u011Flay\u0131c\u0131 ekle</strong>. Oturum a\xE7ma istenmez; a\u015Fa\u011F\u0131daki adresi yap\u0131\u015Ft\u0131r ve <strong>Ekle</strong>'ye bas.</p>
-<p><textarea readonly onclick="this.select()">${base}</textarea></p>
-<ol><li>Ad: <code>hardtools</code></li><li>Uzak MCP sunucu adresi: <code>${base}</code></li>${others ? `<li>Anahtar gerekmez; bu adres yaln\u0131zca s\u0131n\u0131rl\u0131 ara\xE7lar\u0131 a\xE7ar. Tam yetki i\xE7in <code>/c/&lt;anahtar&gt;</code> adresini kullan.</li>` : `<li>Bu adres anahtar\u0131n kendisidir: payla\u015Fma.</li>`}</ol>
-<p class="m">Ba\u011Fland\u0131ktan sonra ara\xE7lar sohbette g\xF6r\xFCn\xFCr. Sunucu d\xFC\u015Ferse <code>/healthz</code> izleyicisi ve konteyner g\xF6zc\xFCs\xFC yeniden ba\u015Flat\u0131r.</p>
-${path15 !== "/connect" ? `<p class="m"><a href="${origin}/connect">ba\u011Flanma sayfas\u0131</a></p>` : ""}`;
-    res.writeHead(200, { "content-type": "text/html; charset=utf-8", "cache-control": "no-store", "referrer-policy": "no-referrer", "x-frame-options": "DENY", "x-content-type-options": "nosniff", "content-security-policy": "default-src 'none'; style-src 'unsafe-inline'; frame-ancestors 'none'" });
+    const html = page({
+      title: "hardtools \u2014 ba\u011Flan",
+      subtitle: "MCP",
+      css: "textarea{height:3.4rem;font:13px ui-monospace,monospace}code{word-break:break-all}li{margin:.4rem 0}",
+      actions: `<a class="btn ghost" href="${origin}/settings">Ayarlar</a>`,
+      body: `<h1>hardtools MCP</h1>
+<p>Claude \u2192 <strong>Ayarlar \u2192 Ba\u011Flay\u0131c\u0131lar \u2192 \xD6zel ba\u011Flay\u0131c\u0131 ekle</strong>. A\u015Fa\u011F\u0131daki adresi yap\u0131\u015Ft\u0131r ve <strong>Ekle</strong>'ye bas.</p>
+<div class="card"><textarea readonly onclick="this.select()">${esc2(base)}</textarea></div>
+<ol><li>Ad: <code>hardtools</code></li><li>Uzak MCP sunucu adresi: <code>${esc2(base)}</code></li>${others ? `<li>Anahtar gerekmez; bu adres yaln\u0131zca s\u0131n\u0131rl\u0131 ara\xE7lar\u0131 a\xE7ar. Tam yetki i\xE7in <code>/c/&lt;anahtar&gt;</code> adresini kullan.</li>` : `<li>Bu adres anahtar\u0131n kendisidir: payla\u015Fma.</li>`}</ol>
+<p class="muted">Ba\u011Fland\u0131ktan sonra ara\xE7lar sohbette g\xF6r\xFCn\xFCr. Sunucu d\xFC\u015Ferse <code>/healthz</code> izleyicisi ve konteyner g\xF6zc\xFCs\xFC yeniden ba\u015Flat\u0131r.</p>
+${path16 !== "/connect" ? `<p class="muted"><a href="${origin}/connect">ba\u011Flanma sayfas\u0131</a> \xB7 <a href="${origin}/settings">ayarlar</a></p>` : ""}`
+    });
+    res.writeHead(200, { "content-type": "text/html; charset=utf-8", "cache-control": "no-store", "referrer-policy": "no-referrer", "x-frame-options": "DENY", "x-content-type-options": "nosniff", "content-security-policy": PAGE_CSP });
     res.end(html);
   };
   let last = Date.now();

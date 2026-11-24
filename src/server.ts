@@ -37,14 +37,23 @@ export interface ServerOptions {
   tools?: Set<string> | null;
   /** MCP oturum etiketi; ht_status içinde gösterilir (hangi sohbetin hangi kökte olduğu). */
   sessionId?: string;
+  /** Kullanıcı ayarları: kapalı araçlar kaydedilmez, ht_manage_tool bunları değiştirir. */
+  settings?: {
+    store: { get(u: string): { disabledTools: string[] }; setTool(u: string, n: string, e: boolean, by?: string): { settings: { disabledTools: string[] }; changed: boolean } };
+    user: string;
+    all: readonly string[];
+  };
 }
 
 export function createServer(policy: Policy, audit: Audit, workspace = createWorkspace(), owner = "stdio", origin?: string, opts: ServerOptions = {}): McpServer {
   const server = new McpServer({ name: "hardtools", version: VERSION });
   // A restricted connection (public/anonymous) must not even advertise tools it may not call.
   const allowed = opts.tools ?? null;
+  const disabled = new Set(opts.settings?.store.get(opts.settings.user).disabledTools ?? []);
+  const ALWAYS_ON = new Set(["ht_list_all_tools", "ht_manage_tool", "ht_status"]);
   const register: typeof server.registerTool = ((name: string, cfg: unknown, cb: unknown) => {
     if (allowed && !allowed.has(name)) return undefined;
+    if (disabled.has(name) && !ALWAYS_ON.has(name)) return undefined;   // kullanıcı kapattı: listelenmez, çağrılamaz
     return (server.registerTool as unknown as (n: string, c: unknown, h: unknown) => unknown)(name, cfg, cb);
   }) as typeof server.registerTool;
 
@@ -167,11 +176,12 @@ export function createServer(policy: Policy, audit: Audit, workspace = createWor
       expected_exit_codes: z.array(z.number().int().min(0).max(255)).min(1).max(32).optional().describe("If provided, unexpected exits, signals or timeouts set the MCP error flag"),
       inherit_vars: z.array(key).max(32).optional().describe("Names from ht_add_var; none by default"),
       max_output_bytes: z.number().int().positive().optional().describe("May only lower the profile's captured-output budget (bytes, before formatting)"),
+      is_bg: z.boolean().optional().describe("true: arka planda çalıştır, hemen dön. Çıktı /work/home/tmp/hardtools-bg-out-<oturum>-<sıra>.txt dosyasına yazılır; ht_read ile oku."),
     },
     annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true },
   }, wrap("ht_shell", async (a: ShellArgs) => {
     // HT_USER_INPUT comes from ht_user_input and is never an MCP argument.
-    const r = await runShell(policy, { ...a, user_env: workspace.inputs.envFor(owner) }, workspace.vars, owner);
+    const r = await runShell(policy, { ...a, user_env: workspace.inputs.envFor(owner), session_id: opts.sessionId }, workspace.vars, owner);
     return { ...asText(workspace.inputs.mask(r.text)), isError: r.isError };
   }));
 
@@ -466,6 +476,42 @@ Returned: {status, question, selected[], custom, request_id, elapsed_s}.`,
   }, wrap("ht_transfer_file", (a: { action?: "copy" | "sources"; source_path?: string; dest_path?: string; overwrite?: boolean; max_bytes?: number }) => htTransferFile(policy, a)));
 
   type StatusArgs = { audit_export?: boolean; audit_snapshot?: string; audit_offset?: number };
+  // ---- araç yönetimi ---------------------------------------------------------------------
+  register("ht_list_all_tools", {
+    title: "List every hardtools tool (enabled, disabled, all)",
+    description: "Shows all hardtools tools with their current state for this user: enabled, disabled and the complete catalog. Use it before ht_manage_tool when you are not sure what is off.",
+    inputSchema: { filter: z.enum(["all", "enabled", "disabled"]).optional().describe("Default: all") },
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+  }, wrap("ht_list_all_tools", (a: { filter?: "all" | "enabled" | "disabled" }) => {
+    const all = opts.settings?.all ?? [];
+    const off = new Set(opts.settings?.store.get(opts.settings.user).disabledTools ?? []);
+    const rows = all.map(n => ({ name: n, enabled: !off.has(n), alwaysOn: ALWAYS_ON.has(n) }));
+    const pick = (a.filter ?? "all") === "enabled" ? rows.filter(r => r.enabled) : a.filter === "disabled" ? rows.filter(r => !r.enabled) : rows;
+    return JSON.stringify({
+      filter: a.filter ?? "all", total: rows.length, enabled: rows.filter(r => r.enabled).length, disabled: rows.filter(r => !r.enabled).length,
+      tools: pick, note: "ht_manage_tool ile aç/kapat; değişiklik bir sonraki MCP çağrısında geçerli olur.",
+    }, null, 2);
+  }));
+
+  register("ht_manage_tool", {
+    title: "Enable or disable a hardtools tool for this user",
+    description: "Turns a single hardtools tool on or off for the current user without the settings page. Disabled tools are not advertised and cannot be called. ht_list_all_tools and ht_manage_tool can never be disabled.",
+    inputSchema: {
+      tool: z.string().min(3).max(64).describe("Tool name, e.g. ht_shell"),
+      enabled: z.boolean().describe("true = aç, false = kapat"),
+    },
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+  }, wrap("ht_manage_tool", (a: { tool: string; enabled: boolean }) => {
+    if (!opts.settings) throw new PolicyError("settings_unavailable", "bu bağlantıda kullanıcı ayarları yok");
+    if (ALWAYS_ON.has(a.tool)) throw new PolicyError("tool_protected", `${a.tool} kapatılamaz (yönetim aracı)`);
+    const { settings, changed } = opts.settings.store.setTool(opts.settings.user, a.tool, a.enabled, opts.settings.user);
+    return JSON.stringify({
+      tool: a.tool, enabled: a.enabled, changed,
+      disabled: settings.disabledTools,
+      note: changed ? "Kaydedildi; bir sonraki MCP çağrısında geçerli." : "Zaten bu durumdaydı.",
+    });
+  }));
+
   register("ht_status", {
     title: "Show active policy and audit-chain status",
     description: "Show policy and verify the current audit segment. With audit_export=true return a fixed-prefix JSONL attachment for offline verification (HTTP: this authorization only). For larger files continue with audit_snapshot and audit_offset=next_offset. No public link.",

@@ -11,6 +11,7 @@
 //   * dedupe keys, listing, cancelling, and a browser "Vazgeç" button,
 //   * per-request status transitions (pending → ready/cancelled/expired).
 import crypto from "node:crypto";
+import { page as uiPage, PAGE_CSP } from "./ui.js";
 import fs from "node:fs";
 import path from "node:path";
 import type { IncomingMessage, ServerResponse } from "node:http";
@@ -149,6 +150,16 @@ function normalizeField(raw: unknown, index: number): InputField {
   const help = f.help === undefined ? undefined : String(f.help).slice(0, 400);
   return { name, title, kind, secret: Boolean(f.secret), required: f.required === undefined ? true : Boolean(f.required), ...(choices ? { choices } : {}), ...(multiple ? { multiple: true } : {}), ...(def !== undefined ? { default: def } : {}), ...(placeholder ? { placeholder } : {}), ...(help ? { help } : {}) };
 }
+
+const FORM_CSS = `
+label{font-weight:600;color:var(--fg)}
+.h{color:var(--muted);font-size:13px;font-weight:400;margin-top:.2rem}
+fieldset{border:0;padding:0;margin:0}
+.q{font-size:1.15rem;font-weight:600}
+.sec{background:color-mix(in srgb, var(--err) 12%, var(--panel));border:1px solid var(--err);border-radius:.6rem;padding:.6rem;margin-top:1rem}
+.chips{display:flex;flex-wrap:wrap;gap:.4rem;margin:.3rem 0}
+.chips label{display:flex;gap:.45rem;align-items:center;background:var(--panel2);border:1px solid var(--line);border-radius:.6rem;padding:.45rem .65rem;font-weight:400;margin:0}
+`;
 
 export class UserInputs {
   private byId = new Map<string, InputRequest>();
@@ -474,12 +485,10 @@ export class UserInputs {
     const headers = {
       "cache-control": "no-store", "referrer-policy": "no-referrer", "x-frame-options": "DENY",
       "x-content-type-options": "nosniff",
-      "content-security-policy": "default-src 'none'; style-src 'unsafe-inline'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'",
+      "content-security-policy": PAGE_CSP,
     };
     const page = (code: number, body: string) => { res.writeHead(code, { "content-type": "text/html; charset=utf-8", ...headers }); res.end(body); };
-    const shell = (body: string) => `<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>hardtools</title>
-<style>body{font:16px system-ui,sans-serif;max-width:34rem;margin:3rem auto;padding:0 1rem;line-height:1.5}input[type=text],input[type=password],input[type=number],select,textarea{width:100%;padding:.6rem;box-sizing:border-box;font:14px ui-monospace,monospace;margin-top:.25rem}button{padding:.6rem 1.2rem;margin:.8rem .4rem 0 0;cursor:pointer}.m{color:#555;font-size:14px}.e{color:#b00020}label{display:block;margin:1rem 0 .3rem;font-weight:600}.h{color:#555;font-size:13px;font-weight:400;margin-top:.2rem}fieldset{border:0;padding:0;margin:0}.q{font-size:18px}.sec{background:#fff6f6;border:1px solid #f0c0c0;border-radius:6px;padding:.6rem;margin-top:1rem}</style>
-<h1>hardtools</h1>${body}`;
+    const shell = (body: string) => uiPage({ title: "hardtools · form", subtitle: req_?.title ?? "", body, css: FORM_CSS });
 
     if (!req_) return page(410, shell(`<p class="e">Bu istek bulunamadı ya da süresi doldu. Sohbetten yeniden iste.</p>`)), true;
     if (this.status(req_) === "cancelled") return page(410, shell(`<p class="e">Bu istek iptal edildi.</p>`)), true;
