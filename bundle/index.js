@@ -17084,6 +17084,8 @@ var OAuth = class {
   failures = [];
   extra;
   github;
+  usedHuman = /* @__PURE__ */ new Map();
+  // jti -> exp (insan doğrulaması tek kullanım)
   ghPending = /* @__PURE__ */ new Map();
   // ---- signed blobs ---------------------------------------------------------------------
   sign(p) {
@@ -17494,6 +17496,7 @@ ${note ? `<p class="muted">${esc4(note)}</p>` : ""}
     const a = 2 + crypto3.randomInt(8), b = 2 + crypto3.randomInt(8);
     const token = this.sign({
       t: "hv",
+      jti: crypto3.randomBytes(9).toString("base64url"),
       cid: pending.cid,
       ru: pending.ru,
       cc: pending.cc,
@@ -17531,6 +17534,13 @@ ${note ? `<p class="muted">${esc4(note)}</p>` : ""}
     if (String(p.website ?? "").trim()) {
       this.o.audit?.({ ev: "oauth_human", ok: false, reason: "honeypot" });
       return this.infoPage(resOut, 400, "Do\u011Frulama ba\u015Far\u0131s\u0131z.", null);
+    }
+    const humanId = String(t.jti ?? "");
+    if (humanId) {
+      const nowS = this.now();
+      for (const [k, e] of this.usedHuman) if (e < nowS) this.usedHuman.delete(k);
+      if (this.usedHuman.has(humanId)) return this.infoPage(resOut, 400, "Bu do\u011Frulama zaten kullan\u0131ld\u0131. Claude'dan ba\u011Flant\u0131y\u0131 yeniden ba\u015Flat.", null);
+      this.usedHuman.set(humanId, Number(t.exp ?? nowS + 300));
     }
     const took = Date.now() - Number(t.born ?? 0);
     if (!Number.isFinite(took) || took < 900) {
@@ -26307,7 +26317,7 @@ import net from "node:net";
 import zlib from "node:zlib";
 
 // src/version.ts
-var VERSION = "0.5.12";
+var VERSION = "0.5.13";
 
 // src/net.ts
 var blocked = new net.BlockList();
@@ -29471,8 +29481,8 @@ async function main() {
       }
       if (sharedInputs.handle(req, res, path16, oauth.origin(req))) return;
       const sameOrigin = req.headers.origin === oauth.origin(req);
-      const browserForm = path16 === "/authorize" || path16 === "/oauth/human" || path16.startsWith("/settings/");
-      if (req.headers.origin && !(sameOrigin && browserForm)) return send(403, "browser origins are not allowed");
+      const tokenProtected = path16 === "/oauth/human" || path16.startsWith("/settings/");
+      if (req.headers.origin && !sameOrigin && !tokenProtected) return send(403, "browser origins are not allowed");
       const ip = req.socket.remoteAddress ?? "?";
       const now = Date.now();
       if (hits.size > 4096) {

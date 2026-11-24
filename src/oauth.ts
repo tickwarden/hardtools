@@ -95,6 +95,7 @@ export class OAuth {
   private failures: number[] = [];
   private extra: Set<string>;
   private github?: GithubIdp;
+  private usedHuman = new Map<string, number>();   // jti -> exp (insan doğrulaması tek kullanım)
   private ghPending = new Map<string, GhPending>(); // device-flow ticket -> bekleyen giriş
 
   constructor(private o: OAuthOptions) {
@@ -464,7 +465,8 @@ ${note ? `<p class="muted">${esc(note)}</p>` : ""}
     const esc = uiEsc;
     const a = 2 + crypto.randomInt(8), b = 2 + crypto.randomInt(8);
     const token = this.sign({
-      t: "hv", cid: pending.cid, ru: pending.ru, cc: pending.cc, st: pending.st,
+      t: "hv", jti: crypto.randomBytes(9).toString("base64url"),
+      cid: pending.cid, ru: pending.ru, cc: pending.cc, st: pending.st,
       login: pending.login.slice(0, 64), ans: String(a * b), born: Date.now(), exp: this.now() + 300,
     });
     const body = `${heading("İnsan doğrulaması", note)}
@@ -494,6 +496,13 @@ ${note ? `<p class="muted">${esc(note)}</p>` : ""}
     const t = this.verify(p.h, "hv");
     if (!t) return this.infoPage(resOut, 400, "Doğrulama süresi doldu. Claude'dan bağlantıyı yeniden başlat.", null);
     if (String(p.website ?? "").trim()) { this.o.audit?.({ ev: "oauth_human", ok: false, reason: "honeypot" }); return this.infoPage(resOut, 400, "Doğrulama başarısız.", null); }
+    const humanId = String(t.jti ?? "");
+    if (humanId) {
+      const nowS = this.now();
+      for (const [k, e] of this.usedHuman) if (e < nowS) this.usedHuman.delete(k);
+      if (this.usedHuman.has(humanId)) return this.infoPage(resOut, 400, "Bu doğrulama zaten kullanıldı. Claude'dan bağlantıyı yeniden başlat.", null);
+      this.usedHuman.set(humanId, Number(t.exp ?? nowS + 300));
+    }
     const took = Date.now() - Number(t.born ?? 0);
     if (!Number.isFinite(took) || took < 900) { this.o.audit?.({ ev: "oauth_human", ok: false, reason: "too_fast" }); return this.infoPage(resOut, 400, "Doğrulama çok hızlı tamamlandı; tekrar dene.", null); }
     if (String(p.answer ?? "").trim() !== String(t.ans)) { this.o.audit?.({ ev: "oauth_human", ok: false, reason: "wrong" }); return this.infoPage(resOut, 400, "Yanıt yanlış. Claude'dan bağlantıyı yeniden başlat.", null); }

@@ -241,9 +241,11 @@ async function main() {
       if (sharedInputs.handle(req, res, path, oauth.origin(req))) return;
       // Machine-to-machine endpoint: tarayıcı origin'leri reddedilir. Tarayıcıdan gelen kendi form
       // gönderimleri (izin formu, insan doğrulaması, ayarlar) yalnızca aynı origin ise kabul edilir.
+      // /oauth/human ve /settings/* imzalı token/çerezle korunur; tarayıcı origin'i (null, webview, farklı
+      // host) burada engellenmez, yoksa gömülü tarayıcılarda giriş tamamen kırılır.
       const sameOrigin = req.headers.origin === oauth.origin(req);
-      const browserForm = path === "/authorize" || path === "/oauth/human" || path.startsWith("/settings/");
-      if (req.headers.origin && !(sameOrigin && browserForm)) return send(403, "browser origins are not allowed");
+      const tokenProtected = path === "/oauth/human" || path.startsWith("/settings/");
+      if (req.headers.origin && !sameOrigin && !tokenProtected) return send(403, "browser origins are not allowed");
       const ip = req.socket.remoteAddress ?? "?"; const now = Date.now();
       if (hits.size > 4096) for (const [k, v] of hits) if (v.reset < now) hits.delete(k); // the window map must not grow forever
       const b = hits.get(ip) ?? { n: 0, reset: now + 60_000 };
