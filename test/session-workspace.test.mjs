@@ -80,10 +80,10 @@ test("iki ayrı sohbet (initialize) ayrı kök alır; aynı sohbet aynı kökte 
   fs.writeFileSync(path.join(stA.roots[0], "sohbet-a.txt"), "A");
 
   const seenByB = JSON.stringify(await tool(port, target, "ht_glob", { pattern: "sohbet-a.txt" }, sidB));
-  assert.doesNotMatch(seenByB, /sohbet-a\.txt/, "B sohbeti A'nın dosyasını görmemeli: " + seenByB.slice(0, 160));
+  assert.match(seenByB, /0 match\(es\)/, "B sohbeti A'nın dosyasını görmemeli: " + seenByB.slice(0, 160));
 
   const stillA = JSON.stringify(await tool(port, target, "ht_glob", { pattern: "sohbet-a.txt" }, sidA));
-  assert.match(stillA, /sohbet-a\.txt/, "A kendi dosyasını görmeli: " + stillA.slice(0, 160));
+  assert.match(stillA, /1 match\(es\)/, "A kendi dosyasını görmeli: " + stillA.slice(0, 160));
 });
 
 test("oturum kimliği yoksa hesap köküne düşer (geriye dönük uyum)", async (t) => {
