@@ -1,6 +1,6 @@
 {
   "name": "hardtools",
-  "version": "1.5.24",
+  "version": "1.5.25",
   "description": "MCP workspace tools for files, shell, variables, sharing and sourced images, with configurable policies and verifiable audit exports.",
   "type": "module",
   "license": "MIT",
