@@ -34,6 +34,8 @@ const asText = (text: string): CallToolResult => ({ content: [{ type: "text", te
 export interface ServerOptions {
   /** When set, only these tool names are registered (used by the no-login public connector). */
   tools?: Set<string> | null;
+  /** MCP oturum etiketi; ht_status içinde gösterilir (hangi sohbetin hangi kökte olduğu). */
+  sessionId?: string;
 }
 
 export function createServer(policy: Policy, audit: Audit, workspace = createWorkspace(), owner = "stdio", origin?: string, opts: ServerOptions = {}): McpServer {
@@ -476,6 +478,7 @@ Returned: {status, question, selected[], custom, request_id, elapsed_s}.`,
     return workspace.inputs.mask(JSON.stringify({
       version: VERSION, profile: policy.profile, roots: policy.roots,
       fs: { writeEnabled: policy.fs.writeEnabled, secretScan: policy.fs.secretScan, requireHashForOverwrite: policy.fs.requireHashForOverwrite, denyWrite: policy.fs.denyWrite },
+      ...(opts.sessionId ? { session: opts.sessionId } : {}),
       shell: { enabled: policy.shell.enabled, shellSyntax: policy.shell.enabled && policy.shell.allowShellSyntax, execution: policy.shell.enabled ? (policy.shellWorker ?? "host") : "disabled", ...(policy.shellWorker && { workspaceRoot: "/work", network: policy.workspaceHttps ? "public-https-proxy" : "isolated" }), denyCommands: policy.shell.denyCommands.length },
       net: { enabled: policy.net.enabled, schemes: policy.net.schemes, allowDomains: policy.net.allowDomains, needsAllowlist: policy.net.requireAllowDomains && policy.net.allowDomains.length === 0 },
       share: { cwd: SHARE_CWD, createEnabled: policy.fs.writeEnabled },

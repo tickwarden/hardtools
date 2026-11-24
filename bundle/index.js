@@ -26121,7 +26121,7 @@ import net from "node:net";
 import zlib from "node:zlib";
 
 // src/version.ts
-var VERSION = "0.5.8";
+var VERSION = "0.5.9";
 
 // src/net.ts
 var blocked = new net.BlockList();
@@ -28528,6 +28528,7 @@ Returned: {status, question, selected[], custom, request_id, elapsed_s}.`,
       profile: policy.profile,
       roots: policy.roots,
       fs: { writeEnabled: policy.fs.writeEnabled, secretScan: policy.fs.secretScan, requireHashForOverwrite: policy.fs.requireHashForOverwrite, denyWrite: policy.fs.denyWrite },
+      ...opts.sessionId ? { session: opts.sessionId } : {},
       shell: { enabled: policy.shell.enabled, shellSyntax: policy.shell.enabled && policy.shell.allowShellSyntax, execution: policy.shell.enabled ? policy.shellWorker ?? "host" : "disabled", ...policy.shellWorker && { workspaceRoot: "/work", network: policy.workspaceHttps ? "public-https-proxy" : "isolated" }, denyCommands: policy.shell.denyCommands.length },
       net: { enabled: policy.net.enabled, schemes: policy.net.schemes, allowDomains: policy.net.allowDomains, needsAllowlist: policy.net.requireAllowDomains && policy.net.allowDomains.length === 0 },
       share: { cwd: SHARE_CWD, createEnabled: policy.fs.writeEnabled },
@@ -28654,18 +28655,50 @@ async function main() {
   const sharedShares = new Shares();
   const perSession = (process.env.HARDTOOLS_PER_SESSION_WORKSPACE ?? "1").trim() !== "0";
   const baseRoot = policy.roots[0];
-  const grants = /* @__PURE__ */ new Map();
-  const grantFor = (owner) => {
-    const cached2 = grants.get(owner);
-    if (cached2) return cached2;
-    let p = policy;
-    if (perSession && owner !== "static" && baseRoot && baseRoot !== path14.parse(baseRoot).root) {
-      const dir = path14.join(baseRoot, "u-" + crypto10.createHash("sha256").update(owner).digest("hex").slice(0, 16));
-      fs13.mkdirSync(dir, { recursive: true, mode: 448 });
-      p = { ...policy, roots: [dir] };
+  const baseIsFsRoot = Boolean(baseRoot) && baseRoot === path14.parse(baseRoot).root;
+  const stateDir = policy.audit.dir ? path14.dirname(policy.audit.dir) : void 0;
+  const sessionBase = baseRoot && !baseIsFsRoot ? baseRoot : void 0;
+  const sessionsFile = stateDir ? path14.join(stateDir, "state", "sessions.json") : void 0;
+  const sessMap = /* @__PURE__ */ new Map();
+  if (sessionsFile) {
+    try {
+      const d = JSON.parse(fs13.readFileSync(sessionsFile, "utf8"));
+      for (const r of d.items ?? []) if (r?.sid && r?.dir) sessMap.set(r.sid, { owner: r.owner ?? "", dir: r.dir, last: r.last ?? 0 });
+    } catch {
     }
+  }
+  let sessSaveTimer;
+  const saveSessions = () => {
+    if (!sessionsFile || sessSaveTimer) return;
+    sessSaveTimer = setTimeout(() => {
+      sessSaveTimer = void 0;
+      try {
+        const now = Date.now();
+        for (const [sid, r] of sessMap) if (now - r.last > 7 * 24 * 36e5) sessMap.delete(sid);
+        fs13.mkdirSync(path14.dirname(sessionsFile), { recursive: true, mode: 448 });
+        const tmp = sessionsFile + ".tmp";
+        fs13.writeFileSync(tmp, JSON.stringify({ v: 1, items: [...sessMap].map(([sid, r]) => ({ sid, ...r })) }), { mode: 384 });
+        fs13.renameSync(tmp, sessionsFile);
+      } catch {
+      }
+    }, 250);
+    sessSaveTimer.unref?.();
+  };
+  const mkRoot = (dir) => {
+    fs13.mkdirSync(dir, { recursive: true, mode: 448 });
+    return dir;
+  };
+  const accountRoot = (owner) => mkRoot(path14.join(baseRoot, "a-" + crypto10.createHash("sha256").update(owner).digest("hex").slice(0, 16)));
+  const sessionRoot = (sid) => mkRoot(path14.join(sessionBase, "u-" + crypto10.createHash("sha256").update("sid\0" + sid).digest("hex").slice(0, 16)));
+  const grants = /* @__PURE__ */ new Map();
+  const grantFor = (owner, dir) => {
+    const key = owner + "\0" + dir;
+    const cached2 = grants.get(key);
+    if (cached2) return cached2;
+    if (grants.size > 512) grants.clear();
+    const p = dir === baseRoot ? policy : { ...policy, roots: [dir] };
     const g = { policy: p, workspace: createWorkspace(void 0, { inputs: sharedInputs, shares: sharedShares }) };
-    grants.set(owner, g);
+    grants.set(key, g);
     return g;
   };
   const workspace = createWorkspace(inputStore, { inputs: sharedInputs, shares: sharedShares });
@@ -28742,13 +28775,40 @@ async function main() {
         return send(400, "invalid JSON");
       }
       const origin = oauth.origin(req);
-      const grant = grantFor(owner);
-      const server = createServer(grant.policy, audit.forGrant(owner), grant.workspace, owner, origin, owner === "public" ? { tools: publicTools } : {});
-      const transport = new WebStandardStreamableHTTPServerTransport({ sessionIdGenerator: void 0 });
+      const sidHeader = /^[A-Za-z0-9_-]{8,128}$/.exec(String(req.headers["mcp-session-id"] ?? ""));
+      const isInit = body?.method === "initialize";
+      let sid = sidHeader?.[0];
+      let workDir = baseRoot;
+      if (perSession && owner !== "static" && baseRoot && !baseIsFsRoot && sessionBase) {
+        const rec = sid ? sessMap.get(sid) : void 0;
+        if (rec && rec.owner === owner && fs13.existsSync(rec.dir)) {
+          workDir = rec.dir;
+          rec.last = Date.now();
+          saveSessions();
+        } else if (isInit && !sid) {
+          sid = crypto10.randomBytes(18).toString("base64url");
+          workDir = sessionRoot(sid);
+          sessMap.set(sid, { owner, dir: workDir, last: Date.now() });
+          saveSessions();
+        } else {
+          sid = void 0;
+          workDir = accountRoot(owner);
+        }
+      }
+      const grant = grantFor(owner, workDir);
+      const server = createServer(
+        grant.policy,
+        audit.forGrant(owner),
+        grant.workspace,
+        owner,
+        origin,
+        { ...owner === "public" ? { tools: publicTools } : {}, ...sid ? { sessionId: "s-" + sid.slice(0, 12) } : {} }
+      );
+      const transport = new WebStandardStreamableHTTPServerTransport({ sessionIdGenerator: sid && isInit ? () => sid : void 0 });
+      if (sid && !isInit) transport.sessionId = sid;
       const abort = new AbortController();
       res.once("close", () => {
         if (!res.writableFinished) abort.abort();
-        void server.close();
       });
       const headers = new Headers();
       for (const key of ["accept", "content-type", "mcp-protocol-version", "mcp-session-id", "last-event-id"]) {

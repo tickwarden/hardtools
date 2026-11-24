@@ -275,6 +275,16 @@ Her kimlik **kendi `/work` kökünü** alır; bir oturumda klonlanan depo başka
 - `HARDTOOLS_PER_SESSION_WORKSPACE=0` eski tek-paylaşılan-kök davranışına döner.
 - Oturum kökleri hacimde birikir; `ht_status` hangi kökte olduğunuzu gösterir.
 
+### Sohbet bazlı çalışma alanı (0.5.9)
+
+0.5.8'de kök **hesap** başına ayrıldı; aynı hesabın iki sohbeti hâlâ aynı `/work`'ü görüyordu. 0.5.9 kökü **MCP oturumu** (sohbet) başına ayırır:
+
+- `initialize` isteğinde sunucu bir `Mcp-Session-Id` üretir; sonraki istekler aynı kimlikle aynı köke düşer: `<HARDTOOLS_ROOTS[0]>/u-<hash(oturum)>`.
+- İstemci oturum kimliği göndermezse (eski davranış) hesap köküne düşer: `<HARDTOOLS_ROOTS[0]>/a-<hash(hesap)>`.
+- Eşleme `/data/state/sessions.json` içinde: yeniden başlatmadan sonra aynı kimlik yine aynı dizini bulur.
+- `static` (operatör bearer) taban kökte kalır. `HARDTOOLS_PER_SESSION_WORKSPACE=0` her şeyi kapatır.
+- `ht_status` artık `session` alanını gösterir: iki sohbette farklı `s-…` görüyorsan kökler ayrı.
+
 ### 0.5.2 değişiklikleri
 
 - **`HARDTOOLS_PUBLIC=open` artık tüm araçları açar ama girişi zorunlu tutar**: kimliksiz istek 401 + `www-authenticate`, OAuth keşfi yayınlanır, `/healthz` içinde `"login":"required"`. Girişsiz okuma modu `HARDTOOLS_PUBLIC_TOOLS=safe` (ya da kendi listeniz) ile korunur.

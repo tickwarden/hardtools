@@ -144,18 +144,51 @@ async function main() {
   const sharedShares = new Shares();
   const perSession = (process.env.HARDTOOLS_PER_SESSION_WORKSPACE ?? "1").trim() !== "0";
   const baseRoot = policy.roots[0];
+  const baseIsFsRoot = Boolean(baseRoot) && baseRoot === path.parse(baseRoot).root; // "/" gibi köklerde izolasyon yapılmaz
+  const stateDir = policy.audit.dir ? path.dirname(policy.audit.dir) : undefined;
+  // Oturum kökleri taban kökün içinde tutulur (guard'ın izin verdiği tek ağaç): <kök>/u-<hash>.
+  const sessionBase = baseRoot && !baseIsFsRoot ? baseRoot : undefined;
+  const sessionsFile = stateDir ? path.join(stateDir, "state", "sessions.json") : undefined;
+
+  // MCP oturumu (sohbet) -> çalışma kökü eşlemesi. Diske yazılır: yeniden başlatmadan sonra aynı
+  // oturum kimliği yine aynı dizine düşer, ama farklı sohbetler asla aynı dizini görmez.
+  type SessRec = { owner: string; dir: string; last: number };
+  const sessMap = new Map<string, SessRec>();
+  if (sessionsFile) {
+    try {
+      const d = JSON.parse(fs.readFileSync(sessionsFile, "utf8")) as { items?: Array<SessRec & { sid?: string }> };
+      for (const r of d.items ?? []) if (r?.sid && r?.dir) sessMap.set(r.sid, { owner: r.owner ?? "", dir: r.dir, last: r.last ?? 0 });
+    } catch { /* yoksa boş başla */ }
+  }
+  let sessSaveTimer: ReturnType<typeof setTimeout> | undefined;
+  const saveSessions = () => {
+    if (!sessionsFile || sessSaveTimer) return;
+    sessSaveTimer = setTimeout(() => {
+      sessSaveTimer = undefined;
+      try {
+        const now = Date.now();
+        for (const [sid, r] of sessMap) if (now - r.last > 7 * 24 * 3600_000) sessMap.delete(sid); // eski kayıtlar (dizinler kalır)
+        fs.mkdirSync(path.dirname(sessionsFile), { recursive: true, mode: 0o700 });
+        const tmp = sessionsFile + ".tmp";
+        fs.writeFileSync(tmp, JSON.stringify({ v: 1, items: [...sessMap].map(([sid, r]) => ({ sid, ...r })) }), { mode: 0o600 });
+        fs.renameSync(tmp, sessionsFile);
+      } catch { /* disk hatası aracı düşürmesin */ }
+    }, 250);
+    sessSaveTimer.unref?.();
+  };
+  const mkRoot = (dir: string) => { fs.mkdirSync(dir, { recursive: true, mode: 0o700 }); return dir; };
+  const accountRoot = (owner: string) => mkRoot(path.join(baseRoot, "a-" + crypto.createHash("sha256").update(owner).digest("hex").slice(0, 16)));
+  const sessionRoot = (sid: string) => mkRoot(path.join(sessionBase!, "u-" + crypto.createHash("sha256").update("sid\0" + sid).digest("hex").slice(0, 16)));
+
   const grants = new Map<string, { policy: Policy; workspace: ReturnType<typeof createWorkspace> }>();
-  const grantFor = (owner: string) => {
-    const cached = grants.get(owner);
+  const grantFor = (owner: string, dir: string) => {
+    const key = owner + "\u0000" + dir;
+    const cached = grants.get(key);
     if (cached) return cached;
-    let p = policy;
-    if (perSession && owner !== "static" && baseRoot && baseRoot !== path.parse(baseRoot).root) {
-      const dir = path.join(baseRoot, "u-" + crypto.createHash("sha256").update(owner).digest("hex").slice(0, 16));
-      fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
-      p = { ...policy, roots: [dir] };
-    }
+    if (grants.size > 512) grants.clear();
+    const p = dir === baseRoot ? policy : { ...policy, roots: [dir] };
     const g = { policy: p, workspace: createWorkspace(undefined, { inputs: sharedInputs, shares: sharedShares }) };
-    grants.set(owner, g);
+    grants.set(key, g);
     return g;
   };
   const workspace = createWorkspace(inputStore, { inputs: sharedInputs, shares: sharedShares }); // ortak form/paylaşım kayıtları
@@ -225,11 +258,31 @@ async function main() {
       // directly instead of reparsing an arbitrary incoming URL with a second HTTP framework.
       const origin = oauth.origin(req);
       // Araç kısıtı yalnızca adsız public kimliğe uygulanır; /c/<anahtar> kimliği her zaman tam settir.
-      const grant = grantFor(owner);
-      const server = createServer(grant.policy, audit.forGrant(owner), grant.workspace, owner, origin, owner === "public" ? { tools: publicTools } : {});
-      const transport = new WebStandardStreamableHTTPServerTransport({ sessionIdGenerator: undefined });
+      // Oturum (sohbet) kimliği: initialize isteğinde üretilir, sonraki isteklerde başlıkta geri gelir.
+      const sidHeader = /^[A-Za-z0-9_-]{8,128}$/.exec(String(req.headers["mcp-session-id"] ?? ""));
+      const isInit = (body as { method?: unknown })?.method === "initialize";
+      let sid: string | undefined = sidHeader?.[0];
+      let workDir = baseRoot;
+      if (perSession && owner !== "static" && baseRoot && !baseIsFsRoot && sessionBase) {
+        const rec = sid ? sessMap.get(sid) : undefined;
+        if (rec && rec.owner === owner && fs.existsSync(rec.dir)) {
+          workDir = rec.dir; rec.last = Date.now(); saveSessions();           // aynı sohbet: aynı kök
+        } else if (isInit && !sid) {
+          sid = crypto.randomBytes(18).toString("base64url");                  // yeni sohbet: yeni kök
+          workDir = sessionRoot(sid);
+          sessMap.set(sid, { owner, dir: workDir, last: Date.now() }); saveSessions();
+        } else {
+          sid = undefined;                                                      // kimlik yok/bilinmiyor: hesap kökü
+          workDir = accountRoot(owner);
+        }
+      }
+      const grant = grantFor(owner, workDir);
+      const server = createServer(grant.policy, audit.forGrant(owner), grant.workspace, owner, origin,
+        { ...(owner === "public" ? { tools: publicTools } : {}), ...(sid ? { sessionId: "s-" + sid.slice(0, 12) } : {}) });
+      const transport = new WebStandardStreamableHTTPServerTransport({ sessionIdGenerator: sid && isInit ? () => sid! : undefined });
+      if (sid && !isInit) transport.sessionId = sid; // SDK oturum kontrolünü geçmek için kimliği benimse
       const abort = new AbortController();
-      res.once("close", () => { if (!res.writableFinished) abort.abort(); void server.close(); });
+      res.once("close", () => { if (!res.writableFinished) abort.abort(); });
       const headers = new Headers();
       for (const key of ["accept", "content-type", "mcp-protocol-version", "mcp-session-id", "last-event-id"]) {
         const v = req.headers[key]; if (typeof v === "string") headers.set(key, v);
