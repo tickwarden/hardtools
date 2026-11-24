@@ -17028,8 +17028,8 @@ function page(o) {
   <span class="brand">hardtools${o.subtitle ? `<small>${esc2(o.subtitle)}</small>` : ""}</span>
   <span class="spacer"></span>
   ${o.actions ?? ""}
-  <button type="button" class="ghost" id="b-dark" data-theme-set="dark" title="Koyu mod">Koyu</button>
-  <button type="button" class="ghost" id="b-light" data-theme-set="light" title="K\xF6r mod: a\u015F\u0131r\u0131 beyaz olmayan a\xE7\u0131k tema">K\xF6r mod</button>
+  <button type="button" class="ghost" id="b-dark" data-theme-set="dark" title="Koyu tema">Koyu tema</button>
+  <button type="button" class="ghost" id="b-light" data-theme-set="light" title="A\xE7\u0131k tema: s\u0131cak, a\u015F\u0131r\u0131 beyaz olmayan k\u0131r\u0131k beyaz">A\xE7\u0131k tema</button>
 </div>
 <main>${o.body}</main>
 <div class="foot">hardtools \xB7 sayfa verisi \xE7erezde tutulmaz; kimlik bilgileri yaln\u0131zca sunucuda do\u011Frulan\u0131r.</div>
@@ -26254,7 +26254,7 @@ import net from "node:net";
 import zlib from "node:zlib";
 
 // src/version.ts
-var VERSION = "0.5.18";
+var VERSION = "0.5.19";
 
 // src/net.ts
 var blocked = new net.BlockList();
@@ -28827,6 +28827,7 @@ var UserSettingsStore = class {
   store;
   keyPath;
   key;
+  mtime = 0;
   constructor(opts = {}) {
     this.store = opts.store;
     this.keyPath = opts.keyPath;
@@ -28857,7 +28858,24 @@ var UserSettingsStore = class {
     }
   }
   // ---- kullanıcılar ------------------------------------------------------------------------
+  /** Dosya dışarıdan değiştiyse (elle düzenleme) bellekteki kopyayı tazele. */
+  refreshIfChanged() {
+    if (!this.store) return;
+    try {
+      const m = fs13.statSync(this.store).mtimeMs;
+      if (m !== this.mtime) {
+        this.mtime = m;
+        this.users.clear();
+        this.grants.clear();
+        this.revoked.clear();
+        this.load();
+        this.mtime = fs13.statSync(this.store).mtimeMs;
+      }
+    } catch {
+    }
+  }
   get(user) {
+    this.refreshIfChanged();
     const s = this.users.get(user);
     return s ? { ...s, disabledTools: [...s.disabledTools], allowedCommands: [...s.allowedCommands], allowedUrls: [...s.allowedUrls] } : defaultSettings();
   }
@@ -29049,22 +29067,30 @@ ${gh ? `<p class="muted">Claude'da ba\u011Flan\u0131rken kulland\u0131\u011F\u01
 <p class="muted" style="margin-top:.6rem">Allowlist a\xE7\u0131kken yaln\u0131zca listelenen alan adlar\u0131na ve yaln\u0131zca listelenen komutlara izin verilir.</p>
 </div>
 
+<p class="row"><button class="primary" type="submit">Kaydet</button><span class="muted">Son g\xFCncelleme: ${s.updatedAt ? esc2(new Date(s.updatedAt).toISOString().replace("T", " ").slice(0, 19)) : "\u2014"}</span></p>
+</form>
+
 <div class="card">
 <h2 style="margin-top:0">\u0130zinli komutlar</h2>
+<p class="muted">Liste yaln\u0131zca "Allowlist zorunlu olsun" a\xE7\u0131kken uygulan\u0131r. <code>*</code> yazarsan b\xFCt\xFCn komutlar serbest kal\u0131r.</p>
 <ul class="clean">${cmdRows || `<li class="muted">Hen\xFCz kay\u0131t yok.</li>`}</ul>
-<label for="newCommand">Komut ekle</label>
-<input id="newCommand" name="addCommand" type="text" placeholder="\xF6r. git, node, python3">
+<form method="post" action="/settings/save" autocomplete="off" style="margin:0">
+  <label for="newCommand">Komut ekle</label>
+  <input id="newCommand" name="addCommand" type="text" placeholder="\xF6r. git, node, python3">
+  <p class="row" style="margin-top:.6rem"><button class="primary" type="submit" data-once>Komut ekle</button></p>
+</form>
 </div>
 
 <div class="card">
 <h2 style="margin-top:0">\u0130zinli URL / alan adlar\u0131</h2>
+<p class="muted">A\u011F allowlist'i yaln\u0131zca "Allowlist zorunlu olsun" a\xE7\u0131kken uygulan\u0131r; liste bo\u015Fsa a\u011F istekleri kapal\u0131 kal\u0131r.</p>
 <ul class="clean">${urlRows || `<li class="muted">Hen\xFCz kay\u0131t yok.</li>`}</ul>
-<label for="newUrl">URL veya alan ad\u0131 ekle</label>
-<input id="newUrl" name="addUrl" type="text" placeholder="\xF6r. api.github.com veya https://example.com/path">
-</div>
-
-<p class="row"><button class="primary" type="submit">Kaydet</button><span class="muted">Son g\xFCncelleme: ${s.updatedAt ? esc2(new Date(s.updatedAt).toISOString().replace("T", " ").slice(0, 19)) : "\u2014"}</span></p>
+<form method="post" action="/settings/save" autocomplete="off" style="margin:0">
+  <label for="newUrl">URL veya alan ad\u0131 ekle</label>
+  <input id="newUrl" name="addUrl" type="text" placeholder="\xF6r. api.github.com veya https://example.com/path">
+  <p class="row" style="margin-top:.6rem"><button class="primary" type="submit" data-once>URL ekle</button></p>
 </form>
+</div>
 
 <div class="card">
 <h2 style="margin-top:0">\xC7\u0131k\u0131\u015F</h2>

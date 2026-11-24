@@ -42,6 +42,7 @@ export class UserSettingsStore {
   private store?: string;
   private keyPath?: string;
   private key?: Buffer;
+  private mtime = 0;
 
   constructor(opts: { store?: string; keyPath?: string } = {}) {
     this.store = opts.store;
@@ -74,7 +75,17 @@ export class UserSettingsStore {
   }
 
   // ---- kullanıcılar ------------------------------------------------------------------------
+  /** Dosya dışarıdan değiştiyse (elle düzenleme) bellekteki kopyayı tazele. */
+  private refreshIfChanged() {
+    if (!this.store) return;
+    try {
+      const m = fs.statSync(this.store).mtimeMs;
+      if (m !== this.mtime) { this.mtime = m; this.users.clear(); this.grants.clear(); this.revoked.clear(); this.load(); this.mtime = fs.statSync(this.store).mtimeMs; }
+    } catch { /* dosya yoksa bellek kalsın */ }
+  }
+
   get(user: string): UserSettings {
+    this.refreshIfChanged();
     const s = this.users.get(user);
     return s ? { ...s, disabledTools: [...s.disabledTools], allowedCommands: [...s.allowedCommands], allowedUrls: [...s.allowedUrls] } : defaultSettings();
   }
@@ -275,22 +286,30 @@ ${gh ? `<p class="muted">Claude'da bağlanırken kullandığın GitHub hesabıyl
 <p class="muted" style="margin-top:.6rem">Allowlist açıkken yalnızca listelenen alan adlarına ve yalnızca listelenen komutlara izin verilir.</p>
 </div>
 
+<p class="row"><button class="primary" type="submit">Kaydet</button><span class="muted">Son güncelleme: ${s.updatedAt ? esc(new Date(s.updatedAt).toISOString().replace("T", " ").slice(0, 19)) : "—"}</span></p>
+</form>
+
 <div class="card">
 <h2 style="margin-top:0">İzinli komutlar</h2>
+<p class="muted">Liste yalnızca "Allowlist zorunlu olsun" açıkken uygulanır. <code>*</code> yazarsan bütün komutlar serbest kalır.</p>
 <ul class="clean">${cmdRows || `<li class="muted">Henüz kayıt yok.</li>`}</ul>
-<label for="newCommand">Komut ekle</label>
-<input id="newCommand" name="addCommand" type="text" placeholder="ör. git, node, python3">
+<form method="post" action="/settings/save" autocomplete="off" style="margin:0">
+  <label for="newCommand">Komut ekle</label>
+  <input id="newCommand" name="addCommand" type="text" placeholder="ör. git, node, python3">
+  <p class="row" style="margin-top:.6rem"><button class="primary" type="submit" data-once>Komut ekle</button></p>
+</form>
 </div>
 
 <div class="card">
 <h2 style="margin-top:0">İzinli URL / alan adları</h2>
+<p class="muted">Ağ allowlist'i yalnızca "Allowlist zorunlu olsun" açıkken uygulanır; liste boşsa ağ istekleri kapalı kalır.</p>
 <ul class="clean">${urlRows || `<li class="muted">Henüz kayıt yok.</li>`}</ul>
-<label for="newUrl">URL veya alan adı ekle</label>
-<input id="newUrl" name="addUrl" type="text" placeholder="ör. api.github.com veya https://example.com/path">
-</div>
-
-<p class="row"><button class="primary" type="submit">Kaydet</button><span class="muted">Son güncelleme: ${s.updatedAt ? esc(new Date(s.updatedAt).toISOString().replace("T", " ").slice(0, 19)) : "—"}</span></p>
+<form method="post" action="/settings/save" autocomplete="off" style="margin:0">
+  <label for="newUrl">URL veya alan adı ekle</label>
+  <input id="newUrl" name="addUrl" type="text" placeholder="ör. api.github.com veya https://example.com/path">
+  <p class="row" style="margin-top:.6rem"><button class="primary" type="submit" data-once>URL ekle</button></p>
 </form>
+</div>
 
 <div class="card">
 <h2 style="margin-top:0">Çıkış</h2>
