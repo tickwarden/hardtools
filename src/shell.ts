@@ -8,6 +8,7 @@ import { openWorkspaceEgress, type EgressLease } from "./workspace-egress.js";
 import { spawnWorkspaceShell } from "./workspace-shell.js";
 import type { Policy } from "./config.js";
 import { PolicyError, isInside, resolveSafe } from "./guard.js";
+import { anyMatch } from "./match.js";
 
 const active = new Set<ChildProcess>();
 let opening = 0;
@@ -141,7 +142,8 @@ export async function runShell(policy: Policy, a: ShellArgs, vars = new Variable
   if (allow.length) {
     const name = a.argv ? path.basename(String(a.argv[0])) : String(file).endsWith("/sh") ? String(a.command ?? "").trim().split(/\s+/)[0] : path.basename(String(file));
     const base = path.basename(name);
-    if (!allow.includes(name) && !allow.includes(base)) throw new PolicyError("command_not_allowed", `komut izin listesinde değil: ${base}`);
+    // Joker destekli: "*" hepsi, "git*" ile başlayanlar, "py?hon" tek karakter.
+    if (!anyMatch(allow, name) && !anyMatch(allow, base)) throw new PolicyError("command_not_allowed", `komut izin listesinde değil: ${base}`);
   }
 
   const selected = { ...vars.select(policy, owner, a.inherit_vars), ...(a.user_env ?? {}) };

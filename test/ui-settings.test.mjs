@@ -164,6 +164,34 @@ test("allowlist: izinli komut çalışır, izinsiz komut reddedilir", async () =
   } finally { await c.close(); }
 });
 
+test("allowlist: joker desenler (ec*, *) çalışır", async () => {
+  const root = tmp("ht-alw-root-"), audit = tmp("ht-alw-audit-");
+  const mk = async (env) => {
+    const c = new Client({ name: "t", version: "0" });
+    await c.connect(new StdioClientTransport({ command: process.execPath, args: [entry, "--profile", "open"], env: { ...process.env, HARDTOOLS_ROOTS: root, HARDTOOLS_AUDIT_DIR: audit, HARDTOOLS_SHELL_ENABLED: "1", ...env }, stderr: "ignore" }));
+    return c;
+  };
+  fs.mkdirSync(audit, { recursive: true });
+  const cfgStar = path.join(audit, "allow-star.json");
+  fs.writeFileSync(cfgStar, JSON.stringify({ shell: { enabled: true, allowCommands: ["ec*", "e?ho"] } }));
+  const c = await mk({ HARDTOOLS_CONFIG: cfgStar });
+  try {
+    const ok = await c.callTool({ name: "ht_shell", arguments: { argv: ["echo", "joker"] } });
+    assert.ok(!ok.isError, ok.content[0].text);
+    const bad = await c.callTool({ name: "ht_shell", arguments: { argv: ["ls"] } });
+    assert.equal(bad.isError, true);
+    assert.match(bad.content[0].text, /command_not_allowed/);
+  } finally { await c.close(); }
+
+  const cfgAll = path.join(audit, "allow-all.json");
+  fs.writeFileSync(cfgAll, JSON.stringify({ shell: { enabled: true, allowCommands: ["*"] } }));
+  const c2 = await mk({ HARDTOOLS_CONFIG: cfgAll });
+  try {
+    const ok = await c2.callTool({ name: "ht_shell", arguments: { argv: ["sh", "-c", "echo hepsi-serbest"] } });
+    assert.ok(!ok.isError, ok.content[0].text);
+  } finally { await c2.close(); }
+});
+
 test("bot kapısı kaldırıldı: /oauth/human yok, /authorize hâlâ yalnız aynı origin", async (t) => {
   const { port } = await httpServer(t);
   const origin = `http://127.0.0.1:${port}`;
