@@ -461,19 +461,19 @@ ${note ? `<p class="muted">${esc(note)}</p>` : ""}
   // ---- insan doğrulaması (bot kapısı) -----------------------------------------------------
   // GitHub girişi tamamlandıktan sonra, yetki kodu üretilmeden önce basit bir insan kontrolü.
   // Durum imzalı token içinde taşınır: sunucu belleğine bağlı değildir, yeniden başlatma bozmaz.
-  private humanPage(resOut: http.ServerResponse, pending: { cid: string; ru: string; cc: string; st: string; login: string }, note: string) {
+  private humanPage(resOut: http.ServerResponse, pending: { cid: string; ru: string; cc: string; st: string; login: string }, note: string, ops?: { a: number; b: number }) {
     const esc = uiEsc;
-    const a = 2 + crypto.randomInt(8), b = 2 + crypto.randomInt(8);
+    const a = ops?.a ?? 2 + crypto.randomInt(8), b = ops?.b ?? 2 + crypto.randomInt(8);
     const token = this.sign({
       t: "hv", jti: crypto.randomBytes(9).toString("base64url"),
       cid: pending.cid, ru: pending.ru, cc: pending.cc, st: pending.st,
-      login: pending.login.slice(0, 64), ans: String(a * b), born: Date.now(), exp: this.now() + 300,
+      login: pending.login.slice(0, 64), a, b, ans: String(a * b), born: Date.now(), exp: this.now() + 300,
     });
     const body = `${heading("İnsan doğrulaması", note)}
 <div class="card">
 <form method="post" action="/oauth/human" autocomplete="off">
   <input type="hidden" name="h" value="${esc(token)}">
-  <label for="answer">${a} × ${b} kaç eder? <span class="muted">(çarpma işlemi)</span></label>
+  <label for="answer">${a} çarpı ${b} kaç eder? <span class="muted">(${a} × ${b}, yani ${a} kere ${b}; toplama değil)</span></label>
   <input id="answer" name="answer" type="text" inputmode="numeric" pattern="[0-9]{1,6}" required autofocus placeholder="sayı">
   <div style="position:absolute;left:-9999px" aria-hidden="true">
     <label for="website">Bu alanı boş bırak</label>
@@ -514,11 +514,15 @@ ${note ? `<p class="muted">${esc(note)}</p>` : ""}
       // Teşhis: yanıt hiçbir zaman tutmuyorsa sebebi loglardan görülsün (sayılar hassas değil).
       console.error(`[hardtools] human-check mismatch expected=${JSON.stringify(expected)} got=${JSON.stringify(given)} jti=${humanId.slice(0, 8)}`);
       this.o.audit?.({ ev: "oauth_human", ok: false, reason: "wrong", expected, got: given.slice(0, 32) });
-      // Çıkmaz sokak yok: aynı oturum için taze bir soru üret (token tek kullanımlıktı, yenisi imzalanır).
+      // Çıkmaz sokak yok. Toplama yazıldıysa aynı soru korunur ve neden yanlış olduğu açıkça söylenir.
       this.usedHuman.delete(humanId);
-      return this.humanPage(resOut, {
-        cid: String(t.cid ?? ""), ru: String(t.ru ?? ""), cc: String(t.cc ?? ""), st: String(t.st ?? ""), login: String(t.login ?? ""),
-      }, "Yanıt yanlış. Yeni soru hazır, tekrar dene.");
+      const a = Number(t.a), b = Number(t.b);
+      const env = { cid: String(t.cid ?? ""), ru: String(t.ru ?? ""), cc: String(t.cc ?? ""), st: String(t.st ?? ""), login: String(t.login ?? "") };
+      const wroteSum = Number.isFinite(a) && Number.isFinite(b) && Number.isFinite(givenNum) && givenNum === a + b;
+      if (wroteSum) {
+        return this.humanPage(resOut, env, `Yanıt yanlış: ${a} çarpı ${b} soruluyor, sen ${a} + ${b} = ${a + b} yazdın. Doğru yanıt ${a} × ${b} çarpımıdır, ${a * b}.`, { a, b });
+      }
+      return this.humanPage(resOut, env, "Yanıt yanlış. Yeni soru hazır, tekrar dene.");
     }
 
     const jti = crypto.randomBytes(12).toString("base64url");
