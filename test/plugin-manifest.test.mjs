@@ -172,3 +172,8 @@ test("plugin manifest: the profile option reaches the server as HARDTOOLS_PROFIL
     assert.equal(status.profile, "strict");
   });
 });
+
+test("plugin sürümü package.json ile aynı (Claude'un gösterdiği sürüm kaymasın)", () => {
+  const pkg = JSON.parse(fs.readFileSync(new URL("package.json", root), "utf8"));
+  assert.equal(manifest.version, pkg.version, "0.4.0'da takılı kalmıştı: .claude-plugin/plugin.json elle güncellenmeli");
+});
