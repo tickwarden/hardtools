@@ -12798,6 +12798,7 @@ function equalSecret(candidate, expected) {
 import crypto11 from "node:crypto";
 import fs14 from "node:fs";
 import path15 from "node:path";
+import { basename as pathBase, dirname as pathDir } from "node:path";
 import http3 from "node:http";
 
 // node_modules/@modelcontextprotocol/sdk/dist/esm/server/stdio.js
@@ -26253,7 +26254,7 @@ import net from "node:net";
 import zlib from "node:zlib";
 
 // src/version.ts
-var VERSION = "0.5.17";
+var VERSION = "0.5.18";
 
 // src/net.ts
 var blocked = new net.BlockList();
@@ -27585,8 +27586,12 @@ var KEEP_RECYCLED = 3;
 var LABEL = /^[a-z0-9][a-z0-9-]{0,23}$/;
 function envBase(policy) {
   const fromEnv = (process.env.HARDTOOLS_ENVS_DIR ?? "").trim();
-  if (fromEnv) return path11.resolve(fromEnv);
   const root = policy.roots[0];
+  if (fromEnv) {
+    const base = path11.resolve(fromEnv);
+    if (isInside(root, base)) return path11.join(path11.dirname(root), "envs");
+    return base;
+  }
   const parent = path11.dirname(root);
   if (path11.basename(parent) === "envs") return parent;
   return path11.join(parent, "envs");
@@ -29476,7 +29481,10 @@ async function main() {
       let workDir = baseRoot;
       if (perSession && owner !== "static" && baseRoot && !baseIsFsRoot && sessionBase) {
         const rec = sid ? sessMap.get(sid) : void 0;
-        if (rec && rec.owner === owner && fs14.existsSync(rec.dir)) {
+        const liveBase = policy.roots[0];
+        const recFresh = Boolean(rec && rec.owner === owner && fs14.existsSync(rec.dir) && pathDir(rec.dir) === liveBase && pathBase(rec.dir).startsWith("u-"));
+        if (rec && !recFresh && sid) sessMap.delete(sid);
+        if (rec && recFresh && rec.dir) {
           workDir = rec.dir;
           rec.last = Date.now();
           saveSessions();
