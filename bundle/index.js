@@ -26253,8 +26253,32 @@ import https from "node:https";
 import net from "node:net";
 import zlib from "node:zlib";
 
+// src/match.ts
+function hasWildcard(pattern) {
+  return pattern.includes("*") || pattern.includes("?");
+}
+function globMatch(pattern, value) {
+  if (pattern === "*") return true;
+  if (!hasWildcard(pattern)) return pattern === value;
+  let re = "^";
+  for (const ch of pattern) {
+    if (ch === "*") re += ".*";
+    else if (ch === "?") re += ".";
+    else re += ch.replace(/[.+^${}()|[\]\\]/g, "\\$&");
+  }
+  re += "$";
+  try {
+    return new RegExp(re, "i").test(value);
+  } catch {
+    return false;
+  }
+}
+function anyMatch(patterns, value) {
+  return patterns.some((p) => globMatch(p, value));
+}
+
 // src/version.ts
-var VERSION = "0.5.19";
+var VERSION = "0.5.22";
 
 // src/net.ts
 var blocked = new net.BlockList();
@@ -26297,16 +26321,20 @@ function isLoopback(ip) {
 }
 function hostAllowed(policy, host) {
   const h = host.toLowerCase().replace(/\.$/, "");
-  const suffix = (d) => {
-    const x = d.toLowerCase().replace(/^\*?\./, "");
+  const match = (d) => {
+    const raw = d.toLowerCase().trim();
+    if (!raw) return false;
+    if (raw === "*") return true;
+    if (hasWildcard(raw) && globMatch(raw, h)) return true;
+    const x = raw.replace(/^\*?\./, "");
     return h === x || h.endsWith("." + x);
   };
-  if (policy.net.denyDomains.some(suffix)) throw new PolicyError("domain_denied", `domain is denied by policy: ${h}`);
+  if (policy.net.denyDomains.some(match)) throw new PolicyError("domain_denied", `domain is denied by policy: ${h}`);
   if (policy.net.allowDomains.length === 0) {
     if (policy.net.requireAllowDomains) throw new PolicyError("allowlist_required", "this profile requires net.allowDomains to be configured before ht_fetch can be used");
     return;
   }
-  if (!policy.net.allowDomains.some(suffix)) throw new PolicyError("domain_not_allowed", `domain is not in net.allowDomains: ${h}`);
+  if (!policy.net.allowDomains.some(match)) throw new PolicyError("domain_not_allowed", `domain is not in net.allowDomains: ${h}`);
 }
 function addrAllowed(policy, hostname, addr, port) {
   if (!isBlockedIp(addr)) return true;
@@ -27233,7 +27261,7 @@ async function runShell(policy, a, vars = new Variables(), owner = "stdio") {
   if (allow.length) {
     const name = a.argv ? path9.basename(String(a.argv[0])) : String(file).endsWith("/sh") ? String(a.command ?? "").trim().split(/\s+/)[0] : path9.basename(String(file));
     const base = path9.basename(name);
-    if (!allow.includes(name) && !allow.includes(base)) throw new PolicyError("command_not_allowed", `komut izin listesinde de\u011Fil: ${base}`);
+    if (!anyMatch(allow, name) && !anyMatch(allow, base)) throw new PolicyError("command_not_allowed", `komut izin listesinde de\u011Fil: ${base}`);
   }
   const selected = { ...vars.select(policy, owner, a.inherit_vars), ...a.user_env ?? {} };
   const started = Date.now();
@@ -29072,22 +29100,24 @@ ${gh ? `<p class="muted">Claude'da ba\u011Flan\u0131rken kulland\u0131\u011F\u01
 
 <div class="card">
 <h2 style="margin-top:0">\u0130zinli komutlar</h2>
-<p class="muted">Liste yaln\u0131zca "Allowlist zorunlu olsun" a\xE7\u0131kken uygulan\u0131r. <code>*</code> yazarsan b\xFCt\xFCn komutlar serbest kal\u0131r.</p>
+<p class="muted">Liste yaln\u0131zca "Allowlist zorunlu olsun" a\xE7\u0131kken uygulan\u0131r. Joker desteklenir: <code>*</code> (hepsi), <code>git*</code> (git ile ba\u015Flayanlar), <code>py?hon</code>.</p>
 <ul class="clean">${cmdRows || `<li class="muted">Hen\xFCz kay\u0131t yok.</li>`}</ul>
 <form method="post" action="/settings/save" autocomplete="off" style="margin:0">
+  <input type="hidden" name="form" value="list">
   <label for="newCommand">Komut ekle</label>
-  <input id="newCommand" name="addCommand" type="text" placeholder="\xF6r. git, node, python3">
+  <input id="newCommand" name="addCommand" type="text" placeholder="\xF6r. git, node, git*, *">
   <p class="row" style="margin-top:.6rem"><button class="primary" type="submit" data-once>Komut ekle</button></p>
 </form>
 </div>
 
 <div class="card">
 <h2 style="margin-top:0">\u0130zinli URL / alan adlar\u0131</h2>
-<p class="muted">A\u011F allowlist'i yaln\u0131zca "Allowlist zorunlu olsun" a\xE7\u0131kken uygulan\u0131r; liste bo\u015Fsa a\u011F istekleri kapal\u0131 kal\u0131r.</p>
+<p class="muted">A\u011F allowlist'i yaln\u0131zca "Allowlist zorunlu olsun" a\xE7\u0131kken uygulan\u0131r; liste bo\u015Fsa k\u0131s\u0131t uygulanmaz. Joker desteklenir: <code>*</code>, <code>*.github.com</code>, <code>api*.example.com</code>.</p>
 <ul class="clean">${urlRows || `<li class="muted">Hen\xFCz kay\u0131t yok.</li>`}</ul>
 <form method="post" action="/settings/save" autocomplete="off" style="margin:0">
+  <input type="hidden" name="form" value="list">
   <label for="newUrl">URL veya alan ad\u0131 ekle</label>
-  <input id="newUrl" name="addUrl" type="text" placeholder="\xF6r. api.github.com veya https://example.com/path">
+  <input id="newUrl" name="addUrl" type="text" placeholder="\xF6r. api.github.com, *.github.com, *">
   <p class="row" style="margin-top:.6rem"><button class="primary" type="submit" data-once>URL ekle</button></p>
 </form>
 </div>
@@ -29116,6 +29146,14 @@ ${gh ? `<p class="muted">Claude'da ba\u011Flan\u0131rken kulland\u0131\u011F\u01
     }
     if (removeUrl) {
       this.o.store.patch(user, { allowedUrls: cur.allowedUrls.filter((u) => u !== removeUrl) }, user);
+      return this.redirect(res, origin);
+    }
+    if (p.get("form") === "list") {
+      const addCmd = p.get("addCommand"), addUrl2 = p.get("addUrl");
+      const allowedCommands2 = addCmd ? uniq([...cur.allowedCommands, addCmd]) : cur.allowedCommands;
+      const allowedUrls2 = addUrl2 ? uniq([...cur.allowedUrls, addUrl2]) : cur.allowedUrls;
+      this.o.store.patch(user, { allowedCommands: allowedCommands2, allowedUrls: allowedUrls2 }, user);
+      this.o.audit?.({ ev: "settings_save", user, list: true });
       return this.redirect(res, origin);
     }
     const tools = p.getAll("tool");
@@ -29410,7 +29448,7 @@ async function main() {
   const sessionRoot = (sid) => mkRoot(path15.join(sessionBase, "u-" + crypto11.createHash("sha256").update("sid\0" + sid).digest("hex").slice(0, 16)));
   const grants = /* @__PURE__ */ new Map();
   const grantFor = (owner, dir) => {
-    const key = owner + "\0" + dir;
+    const key = owner + "\0" + dir + "\0" + String(settingsStore.get(userFor(owner)).updatedAt);
     const cached2 = grants.get(key);
     if (cached2) return cached2;
     if (grants.size > 512) grants.clear();
@@ -29583,12 +29621,15 @@ async function main() {
     const net3 = { ...policy.net };
     if (!us.networkEnabled) {
       net3.enabled = false;
-    } else if (us.allowlistEnabled) {
+    } else if (us.allowlistEnabled && us.allowedUrls.length) {
       net3.allowDomains = us.allowedUrls.map((u) => {
+        const raw = String(u ?? "").trim();
+        if (!raw) return "";
+        if (raw.includes("*") || raw.includes("?")) return raw.replace(/^[a-z][a-z0-9+.-]*:\/\//i, "").replace(/\/.*$/, "").toLowerCase();
         try {
-          return new URL(u.includes("://") ? u : `https://${u}`).hostname;
+          return new URL(raw.includes("://") ? raw : `https://${raw}`).hostname;
         } catch {
-          return u;
+          return raw;
         }
       }).filter(Boolean);
       net3.requireAllowDomains = true;

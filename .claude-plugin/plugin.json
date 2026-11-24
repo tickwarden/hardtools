@@ -1,6 +1,6 @@
 {
   "name": "hardtools",
-  "version": "0.5.19",
+  "version": "0.5.22",
   "author": { "name": "hardtools contributors", "url": "https://github.com/tickwarden/hardtools/blob/main/CREDITS.md" },
   "description": "MCP workspace tools for files, shell, variables, sharing and sourced images, with configurable policies and verifiable audit exports.",
   "homepage": "https://github.com/tickwarden/hardtools",

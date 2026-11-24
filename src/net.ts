@@ -6,6 +6,7 @@ import net from "node:net";
 import zlib from "node:zlib";
 import type { Readable } from "node:stream";
 import { PolicyError } from "./guard.js";
+import { globMatch, hasWildcard } from "./match.js";
 import type { Policy } from "./config.js";
 import { VERSION } from "./version.js";
 
@@ -33,13 +34,22 @@ function isLoopback(ip: string): boolean {
 
 function hostAllowed(policy: Policy, host: string): void {
   const h = host.toLowerCase().replace(/\.$/, "");
-  const suffix = (d: string) => { const x = d.toLowerCase().replace(/^\*?\./, ""); return h === x || h.endsWith("." + x); };
-  if (policy.net.denyDomains.some(suffix)) throw new PolicyError("domain_denied", `domain is denied by policy: ${h}`);
+  // Eşleştirme: "*" hepsi; joker içeren desen glob olarak (alan adı büyük/küçük harf duyarsız);
+  // jokersiz desen eskisi gibi kök alan adı + alt alan adları.
+  const match = (d: string) => {
+    const raw = d.toLowerCase().trim();
+    if (!raw) return false;
+    if (raw === "*") return true;
+    if (hasWildcard(raw) && globMatch(raw, h)) return true;
+    const x = raw.replace(/^\*?\./, "");
+    return h === x || h.endsWith("." + x);
+  };
+  if (policy.net.denyDomains.some(match)) throw new PolicyError("domain_denied", `domain is denied by policy: ${h}`);
   if (policy.net.allowDomains.length === 0) {
     if (policy.net.requireAllowDomains) throw new PolicyError("allowlist_required", "this profile requires net.allowDomains to be configured before ht_fetch can be used");
     return;
   }
-  if (!policy.net.allowDomains.some(suffix)) throw new PolicyError("domain_not_allowed", `domain is not in net.allowDomains: ${h}`);
+  if (!policy.net.allowDomains.some(match)) throw new PolicyError("domain_not_allowed", `domain is not in net.allowDomains: ${h}`);
 }
 
 function addrAllowed(policy: Policy, hostname: string, addr: string, port: number): boolean {

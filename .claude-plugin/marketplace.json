@@ -6,7 +6,7 @@
   },
   "metadata": {
     "description": "hardtools MCP workspace tools: files, shell, web, variables, sharing and verifiable audit.",
-    "version": "0.5.19"
+    "version": "0.5.22"
   },
   "plugins": [
     {
@@ -14,7 +14,7 @@
       "source": "./",
       "displayName": "Hardtools",
       "description": "MCP workspace tools for files, shell commands, web access, variables, sharing and sourced images, with configurable policies and verifiable audit exports.",
-      "version": "0.5.19",
+      "version": "0.5.22",
       "author": {
         "name": "hardtools contributors",
         "url": "https://github.com/tickwarden"

@@ -291,22 +291,24 @@ ${gh ? `<p class="muted">Claude'da bağlanırken kullandığın GitHub hesabıyl
 
 <div class="card">
 <h2 style="margin-top:0">İzinli komutlar</h2>
-<p class="muted">Liste yalnızca "Allowlist zorunlu olsun" açıkken uygulanır. <code>*</code> yazarsan bütün komutlar serbest kalır.</p>
+<p class="muted">Liste yalnızca "Allowlist zorunlu olsun" açıkken uygulanır. Joker desteklenir: <code>*</code> (hepsi), <code>git*</code> (git ile başlayanlar), <code>py?hon</code>.</p>
 <ul class="clean">${cmdRows || `<li class="muted">Henüz kayıt yok.</li>`}</ul>
 <form method="post" action="/settings/save" autocomplete="off" style="margin:0">
+  <input type="hidden" name="form" value="list">
   <label for="newCommand">Komut ekle</label>
-  <input id="newCommand" name="addCommand" type="text" placeholder="ör. git, node, python3">
+  <input id="newCommand" name="addCommand" type="text" placeholder="ör. git, node, git*, *">
   <p class="row" style="margin-top:.6rem"><button class="primary" type="submit" data-once>Komut ekle</button></p>
 </form>
 </div>
 
 <div class="card">
 <h2 style="margin-top:0">İzinli URL / alan adları</h2>
-<p class="muted">Ağ allowlist'i yalnızca "Allowlist zorunlu olsun" açıkken uygulanır; liste boşsa ağ istekleri kapalı kalır.</p>
+<p class="muted">Ağ allowlist'i yalnızca "Allowlist zorunlu olsun" açıkken uygulanır; liste boşsa kısıt uygulanmaz. Joker desteklenir: <code>*</code>, <code>*.github.com</code>, <code>api*.example.com</code>.</p>
 <ul class="clean">${urlRows || `<li class="muted">Henüz kayıt yok.</li>`}</ul>
 <form method="post" action="/settings/save" autocomplete="off" style="margin:0">
+  <input type="hidden" name="form" value="list">
   <label for="newUrl">URL veya alan adı ekle</label>
-  <input id="newUrl" name="addUrl" type="text" placeholder="ör. api.github.com veya https://example.com/path">
+  <input id="newUrl" name="addUrl" type="text" placeholder="ör. api.github.com, *.github.com, *">
   <p class="row" style="margin-top:.6rem"><button class="primary" type="submit" data-once>URL ekle</button></p>
 </form>
 </div>
@@ -333,6 +335,17 @@ ${gh ? `<p class="muted">Claude'da bağlanırken kullandığın GitHub hesabıyl
     const removeCommand = p.get("removeCommand"), removeUrl = p.get("removeUrl");
     if (removeCommand) { this.o.store.patch(user, { allowedCommands: cur.allowedCommands.filter(c => c !== removeCommand) }, user); return this.redirect(res, origin); }
     if (removeUrl) { this.o.store.patch(user, { allowedUrls: cur.allowedUrls.filter(u => u !== removeUrl) }, user); return this.redirect(res, origin); }
+
+    // Yalnız liste formu (komut/URL ekle): araç ve ağ ayarlarına DOKUNMA. Aksi hâlde form
+    // onay kutularını taşımadığı için "komut ekle" bütün araçları kapatıyordu.
+    if (p.get("form") === "list") {
+      const addCmd = p.get("addCommand"), addUrl = p.get("addUrl");
+      const allowedCommands = addCmd ? uniq([...cur.allowedCommands, addCmd]) : cur.allowedCommands;
+      const allowedUrls = addUrl ? uniq([...cur.allowedUrls, addUrl]) : cur.allowedUrls;
+      this.o.store.patch(user, { allowedCommands, allowedUrls }, user);
+      this.o.audit?.({ ev: "settings_save", user, list: true });
+      return this.redirect(res, origin);
+    }
 
     const tools = p.getAll("tool");
     const disabledTools = ALL_TOOLS.filter(n => !tools.includes(n));

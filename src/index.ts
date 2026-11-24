@@ -201,7 +201,9 @@ async function main() {
 
   const grants = new Map<string, { policy: Policy; workspace: ReturnType<typeof createWorkspace> }>();
   const grantFor = (owner: string, dir: string) => {
-    const key = owner + "\u0000" + dir;
+    // Anahtara ayarların sürümü de girer: kullanıcı ayarları (araçlar, allowlist, ağ) değişince
+    // yeni politika üretilir. Aksi hâlde önbellekteki eski politika yeni allowlist'i yok sayıyordu.
+    const key = owner + "\u0000" + dir + "\u0000" + String(settingsStore.get(userFor(owner)).updatedAt);
     const cached = grants.get(key);
     if (cached) return cached;
     if (grants.size > 512) grants.clear();
@@ -368,8 +370,16 @@ async function main() {
     if (us.allowlistEnabled && us.allowedCommands.length) shell.allowCommands = us.allowedCommands;
     const net = { ...policy.net };
     if (!us.networkEnabled) { net.enabled = false; }
-    else if (us.allowlistEnabled) {
-      net.allowDomains = us.allowedUrls.map(u => { try { return new URL(u.includes("://") ? u : `https://${u}`).hostname; } catch { return u; } }).filter(Boolean);
+    // Liste boşsa kısıt uygulanmaz (komut allowlist'i ile simetrik): yalnız komut listesi doldurulunca
+    // ht_shell'in HTTPS egress'i kapanıp kabuk tümden kilitlenmesin.
+    else if (us.allowlistEnabled && us.allowedUrls.length) {
+      // Joker içeren girdiler olduğu gibi (şema/yol ayıklanıp) tutulur: "*", "*.github.com", "api*.example.com".
+      net.allowDomains = us.allowedUrls.map(u => {
+        const raw = String(u ?? "").trim();
+        if (!raw) return "";
+        if (raw.includes("*") || raw.includes("?")) return raw.replace(/^[a-z][a-z0-9+.-]*:\/\//i, "").replace(/\/.*$/, "").toLowerCase();
+        try { return new URL(raw.includes("://") ? raw : `https://${raw}`).hostname; } catch { return raw; }
+      }).filter(Boolean);
       net.requireAllowDomains = true;
     }
     p = { ...policy, shell, net };
