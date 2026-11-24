@@ -22,9 +22,7 @@ const EXPECTED_OPTIONS = {
   allow_local_tools: { type: "boolean", default: true },
   allow_workspace_https: { type: "boolean", default: false },
   workspace_name: { type: "string", default: "project" },
-  auto_renew: { type: "boolean", default: false },
-  mcp_url: { type: "string" },
-  mcp_token: { type: "string", sensitive: true }
+  auto_renew: { type: "boolean", default: false }
 };
 
 function walkStrings(value, visit) {
@@ -97,8 +95,10 @@ test("plugin manifest: MCP servers declare no literal credential and only declar
 
   const remote = servers["hardtools-remote"];
   assert.equal(remote.type, "http");
-  assert.equal(remote.url, "${user_config.mcp_url}");
-  assert.deepEqual(remote.headers, { Authorization: "Bearer ${user_config.mcp_token}" });
+  // Adres sabit olmalı: claude.ai özel bağdaştırıcı alanı şablon yerine gerçek adresi dolduruyor.
+  assert.equal(remote.url, "https://hardtools-mcp.fly.dev/mcp");
+  assert.equal(remote.headers, undefined, "statik kimlik bilgisi başlığı olmamalı (OAuth keşfedilir)");
+  assert.ok(!remote.url.includes("${user_config."), "uzak adres user_config şablonu içermemeli");
 
   walkStrings(manifest, value => {
     for (const match of value.matchAll(/\$\{user_config\.([A-Za-z0-9_]+)\}/g)) {

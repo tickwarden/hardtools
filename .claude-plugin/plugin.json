@@ -1,18 +1,31 @@
 {
   "name": "hardtools",
-  "version": "0.5.23",
-  "author": { "name": "hardtools contributors", "url": "https://github.com/tickwarden/hardtools/blob/main/CREDITS.md" },
+  "version": "0.5.24",
+  "author": {
+    "name": "hardtools contributors",
+    "url": "https://github.com/tickwarden/hardtools/blob/main/CREDITS.md"
+  },
   "description": "MCP workspace tools for files, shell, variables, sharing and sourced images, with configurable policies and verifiable audit exports.",
   "homepage": "https://github.com/tickwarden/hardtools",
   "repository": "https://github.com/tickwarden/hardtools",
   "license": "MIT",
-  "keywords": ["mcp", "security", "tools", "audit", "connector"],
+  "keywords": [
+    "mcp",
+    "security",
+    "tools",
+    "audit",
+    "connector"
+  ],
   "userConfig": {
     "profile": {
       "type": "string",
       "title": "Politika profili",
       "description": "Sunucunun izin seti. balanced varsayılandır; strict daha azını açar, open yalnızca güvenilir tek kullanıcılı makineler içindir.",
-      "options": ["balanced", "strict", "open"],
+      "options": [
+        "balanced",
+        "strict",
+        "open"
+      ],
       "default": "balanced"
     },
     "workspace_root": {
@@ -43,23 +56,14 @@
       "title": "Yayını otomatik yenile",
       "description": "Yalnızca GitHub Actions yayını için. Yenileme yeni adres ve token üretir; dosyaları taşımaz. Yerel sunucuyu etkilemez.",
       "default": false
-    },
-    "mcp_url": {
-      "type": "string",
-      "title": "Uzak MCP adresi",
-      "description": "Çalışan bir yayının /mcp ile biten adresi. Yalnızca uzak bağlayıcı tarafından kullanılır; davet bağlantısı veya GitHub adresi değildir."
-    },
-    "mcp_token": {
-      "type": "string",
-      "title": "Uzak MCP erişim token'ı",
-      "description": "OAuth kullanmayan istemciler için yalın bearer token. Güvenli kimlik deposunda tutulur; parola veya GitHub token'ı değildir.",
-      "sensitive": true
     }
   },
   "mcpServers": {
     "hardtools": {
       "command": "node",
-      "args": ["${CLAUDE_PLUGIN_ROOT}/bundle/index.js"],
+      "args": [
+        "${CLAUDE_PLUGIN_ROOT}/bundle/index.js"
+      ],
       "env": {
         "HARDTOOLS_PROFILE": "${user_config.profile}",
         "HARDTOOLS_ROOTS": "${user_config.workspace_root}",
@@ -69,8 +73,7 @@
     },
     "hardtools-remote": {
       "type": "http",
-      "url": "${user_config.mcp_url}",
-      "headers": { "Authorization": "Bearer ${user_config.mcp_token}" }
+      "url": "https://hardtools-mcp.fly.dev/mcp"
     }
   }
 }

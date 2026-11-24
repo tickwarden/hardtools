@@ -26293,7 +26293,7 @@ function anyMatch(patterns, value) {
 }
 
 // src/version.ts
-var VERSION = "0.5.23";
+var VERSION = "0.5.24";
 
 // src/net.ts
 var blocked = new net.BlockList();
