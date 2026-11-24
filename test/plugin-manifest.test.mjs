@@ -177,3 +177,18 @@ test("plugin sürümü package.json ile aynı (Claude'un gösterdiği sürüm ka
   const pkg = JSON.parse(fs.readFileSync(new URL("package.json", root), "utf8"));
   assert.equal(manifest.version, pkg.version, "0.4.0'da takılı kalmıştı: .claude-plugin/plugin.json elle güncellenmeli");
 });
+
+test("marketplace girdisi plugin.json ile tutarlı (isim + sürüm) ve zorunlu alanlar dolu", () => {
+  const market = JSON.parse(fs.readFileSync(new URL(".claude-plugin/marketplace.json", root), "utf8"));
+  const pkg = JSON.parse(fs.readFileSync(new URL("package.json", root), "utf8"));
+  assert.match(market.name, /^[a-z0-9]+(-[a-z0-9]+)*$/, "marketplace adı kebab-case");
+  assert.ok(market.owner?.name, "owner.name zorunlu");
+  assert.ok(Array.isArray(market.plugins) && market.plugins.length > 0);
+  const entry = market.plugins.find((p) => p.name === manifest.name);
+  assert.ok(entry, "plugin girdisi plugin.json adıyla eşleşmeli: " + market.plugins.map((p) => p.name).join(","));
+  assert.ok(entry.source, "source zorunlu");
+  assert.equal(entry.version, manifest.version, "marketplace sürümü = plugin sürümü (sürüm gösterimi buradan geliyor)");
+  assert.equal(manifest.version, pkg.version, "plugin sürümü = package.json sürümü");
+  assert.equal(market.metadata?.version, manifest.version, "metadata.version de aynı olmalı");
+  for (const f of ["description", "author", "license"]) assert.ok(entry[f], `marketplace girdisinde ${f} olmalı`);
+});
