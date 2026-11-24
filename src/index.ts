@@ -6,6 +6,7 @@ import { equalSecret } from "./credentials.js";
 import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
+import { basename as pathBase, dirname as pathDir } from "node:path";
 import http from "node:http";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js";
@@ -296,7 +297,14 @@ async function main() {
       let workDir = baseRoot;
       if (perSession && owner !== "static" && baseRoot && !baseIsFsRoot && sessionBase) {
         const rec = sid ? sessMap.get(sid) : undefined;
-        if (rec && rec.owner === owner && fs.existsSync(rec.dir)) {
+        // Kayıtlı kök yalnızca AKTİF kökün doğrudan altındaki u-<hash> dizini olabilir. Böylece
+        // ortam rotasyonundan ya da yeniden başlatmadan sonra sohbet eski/test bir env-… dizinine
+        // takılı kalmaz (kullanıcı bir kez "test dizini geldi" diye bildirdi).
+        const liveBase = policy.roots[0];
+        const recFresh = Boolean(rec && rec.owner === owner && fs.existsSync(rec.dir)
+          && pathDir(rec.dir) === liveBase && pathBase(rec.dir).startsWith("u-"));
+        if (rec && !recFresh && sid) sessMap.delete(sid);                     // bayat kayıt: yeni kök verilecek
+        if (rec && recFresh && rec.dir) {
           workDir = rec.dir; rec.last = Date.now(); saveSessions();           // aynı sohbet: aynı kök
         } else if (isInit && !sid) {
           sid = crypto.randomBytes(18).toString("base64url");                  // yeni sohbet: yeni kök

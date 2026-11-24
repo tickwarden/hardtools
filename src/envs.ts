@@ -14,8 +14,14 @@ export interface EnvInfo { name: string; root: string; createdAt: number; recycl
 
 export function envBase(policy: Policy): string {
   const fromEnv = (process.env.HARDTOOLS_ENVS_DIR ?? "").trim();
-  if (fromEnv) return path.resolve(fromEnv);
   const root = policy.roots[0];
+  if (fromEnv) {
+    const base = path.resolve(fromEnv);
+    // Taban çalışma kökünün içindeyse rotasyon kökü kökün içine gömer (…/work/envs/env-…):
+    // o zaman kökün kardeşi (…/envs) kullanılır, iç içe geçme olmaz.
+    if (isInside(root, base)) return path.join(path.dirname(root), "envs");
+    return base;
+  }
   const parent = path.dirname(root);
   // Kök zaten bir ortam diziniyse (…/envs/env-…) taban onun ebeveynidir; aksi hâlde
   // her rotasyonda …/envs/envs gibi iç içe bir taban oluşurdu.
