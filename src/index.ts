@@ -15,6 +15,7 @@ import { OAuth, type GithubIdp } from "./oauth.js";
 import { createServer, createWorkspace } from "./server.js";
 import { UserInputs } from "./user-input.js";
 import { Shares } from "./share.js";
+import { Variables } from "./variables.js";
 import { VERSION } from "./version.js";
 import { probeWorkspaceHttps, probeWorkspaceShell } from "./workspace-shell.js";
 
@@ -142,6 +143,7 @@ async function main() {
   // ile eski (tek, paylaşılan kök) davranışa dönülür.
   const sharedInputs = new UserInputs(inputStore ? { store: inputStore } : {});
   const sharedShares = new Shares();
+  const sharedVars = new Variables();
   const perSession = (process.env.HARDTOOLS_PER_SESSION_WORKSPACE ?? "1").trim() !== "0";
   const baseRoot = policy.roots[0];
   const baseIsFsRoot = Boolean(baseRoot) && baseRoot === path.parse(baseRoot).root; // "/" gibi köklerde izolasyon yapılmaz
@@ -187,11 +189,11 @@ async function main() {
     if (cached) return cached;
     if (grants.size > 512) grants.clear();
     const p = dir === baseRoot ? policy : { ...policy, roots: [dir] };
-    const g = { policy: p, workspace: createWorkspace(undefined, { inputs: sharedInputs, shares: sharedShares }) };
+    const g = { policy: p, workspace: createWorkspace(undefined, { inputs: sharedInputs, shares: sharedShares, vars: sharedVars }) };
     grants.set(key, g);
     return g;
   };
-  const workspace = createWorkspace(inputStore, { inputs: sharedInputs, shares: sharedShares }); // ortak form/paylaşım kayıtları
+  const workspace = createWorkspace(inputStore, { inputs: sharedInputs, shares: sharedShares, vars: sharedVars }); // ortak form/paylaşım kayıtları
   const srv = http.createServer(async (req, res) => {
     const send = (code: number, msg: string, headers: Record<string, string> = {}) => { res.writeHead(code, { "content-type": "application/json", ...headers }); res.end(JSON.stringify({ error: msg })); };
     try {
