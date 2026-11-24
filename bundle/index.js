@@ -26307,7 +26307,7 @@ import net from "node:net";
 import zlib from "node:zlib";
 
 // src/version.ts
-var VERSION = "0.5.11";
+var VERSION = "0.5.12";
 
 // src/net.ts
 var blocked = new net.BlockList();
@@ -29470,7 +29470,9 @@ async function main() {
         if (await settingsUI.handle(req, res, path16)) return;
       }
       if (sharedInputs.handle(req, res, path16, oauth.origin(req))) return;
-      if (req.headers.origin && !(path16 === "/authorize" && req.headers.origin === oauth.origin(req))) return send(403, "browser origins are not allowed");
+      const sameOrigin = req.headers.origin === oauth.origin(req);
+      const browserForm = path16 === "/authorize" || path16 === "/oauth/human" || path16.startsWith("/settings/");
+      if (req.headers.origin && !(sameOrigin && browserForm)) return send(403, "browser origins are not allowed");
       const ip = req.socket.remoteAddress ?? "?";
       const now = Date.now();
       if (hits.size > 4096) {
