@@ -126,15 +126,13 @@ Manifest artık yalnızca zorunlu alanları değil, **kullanıcıdan istenen aya
 | `allow_workspace_https` | `boolean`, `false` | `HARDTOOLS_WORKSPACE_HTTPS` | HTTP/izole çalışma modu; `ht_status.shell.network` |
 | `workspace_name` | `string`, `project` | – (Actions girdisi) | Yalnızca `serve` yayını |
 | `auto_renew` | `boolean`, `false` | – (Actions girdisi) | Yalnızca `serve` yayını |
-| `mcp_url` | `string` | uzak sunucunun `url` alanı | Uzak bağlayıcı |
-| `mcp_token` | `string`, `sensitive` | uzak sunucunun `Authorization: Bearer` başlığı | OAuth kullanmayan istemciler |
 
 Manifestteki sunucular:
 
 - `hardtools` — yerel `stdio`, `node ${CLAUDE_PLUGIN_ROOT}/bundle/index.js`; yukarıdaki `env` değerleri `${user_config.…}` ile doldurulur. Bu kayıt `.mcp.json`'daki eşdeğerini eklenti içinde geçersiz kılar; `.mcp.json` eklenti dışı kullanım (düz `claude mcp add`, elle çalıştırma) için aynen durur.
-- `hardtools-remote` — `http`, adresi `${user_config.mcp_url}`, başlığı `${user_config.mcp_token}`. OAuth 2.1 akışı (RFC 9728/8414/7591 + PKCE) sunucu tarafında zaten var; istemci bağlanırken keşfeder, manifestte ayrıca OAuth alanı yoktur.
+- `hardtools-remote` — `http`, adresi **sabit**: `https://hardtools-mcp.fly.dev/mcp` (şablon değil; böylece claude.ai özel bağdaştırıcı alanı gerçek adresle doluyor). Kimlik doğrulama OAuth 2.1 ile keşfedilir (RFC 9728/8414/7591 + PKCE); manifestte statik başlık yok. Kendi sunucunu kullanacaksan `claude mcp add --transport http hardtools https://<senin-adresin>/mcp`.
 
-**Önemli sınır:** claude.ai **Chat**, adresi `${user_config.…}` içeren uzak sunucuyu ve yerel `stdio` sunucusunu yüklemez (Anthropic belgeleri: *Ignored when the URL contains the reference*). Bu yüzden yukarıdaki ayarlar Claude Code, Cowork ve masaüstü istemcisinde çalışır; **web sohbeti** için hâlâ **sabit bir HTTPS `/mcp` adresi** ve **Bağdaştırıcılar → Özel bağdaştırıcı ekle** gerekir. Davranış değişikliği yalnızca açıkça kapatıldığında olur: `allow_local_tools` verilmezse sunucu eskisi gibi profil kurallarıyla yazma ve kabuk açar.
+**Not:** `hardtools-remote` adresi artık `${user_config.…}` içermediği için claude.ai **Chat** de bu kaydı okuyabilir. Web sohbetinde yine de **Bağdaştırıcılar → Özel bağdaştırıcı ekle** ile `https://hardtools-mcp.fly.dev/mcp` adresini kullanabilirsin; OAuth akışı bağlanırken kendiliğinden başlar. Davranış değişikliği yalnızca açıkça kapatıldığında olur: `allow_local_tools` verilmezse sunucu eskisi gibi profil kurallarıyla yazma ve kabuk açar.
 
 ### Claude Desktop (stdio)
 `claude_desktop_config.example.json` içeriğini Desktop'un MCP yapılandırmasına ekle. Desktop'ta çalışma dizini proje olmadığı için `HARDTOOLS_ROOTS` **zorunlu** pratikte.
