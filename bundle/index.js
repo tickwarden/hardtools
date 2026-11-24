@@ -17084,6 +17084,8 @@ var OAuth = class {
   failures = [];
   extra;
   github;
+  usedHuman = /* @__PURE__ */ new Map();
+  // jti -> exp (insan doğrulaması tek kullanım)
   ghPending = /* @__PURE__ */ new Map();
   // ---- signed blobs ---------------------------------------------------------------------
   sign(p) {
@@ -17494,6 +17496,7 @@ ${note ? `<p class="muted">${esc4(note)}</p>` : ""}
     const a = 2 + crypto3.randomInt(8), b = 2 + crypto3.randomInt(8);
     const token = this.sign({
       t: "hv",
+      jti: crypto3.randomBytes(9).toString("base64url"),
       cid: pending.cid,
       ru: pending.ru,
       cc: pending.cc,
@@ -17507,7 +17510,7 @@ ${note ? `<p class="muted">${esc4(note)}</p>` : ""}
 <div class="card">
 <form method="post" action="/oauth/human" autocomplete="off">
   <input type="hidden" name="h" value="${esc4(token)}">
-  <label for="answer">${a} \xD7 ${b} ka\xE7 eder? (botlar bu ad\u0131m\u0131 ge\xE7emez)</label>
+  <label for="answer">${a} \xD7 ${b} ka\xE7 eder? <span class="muted">(\xE7arpma i\u015Flemi)</span></label>
   <input id="answer" name="answer" type="text" inputmode="numeric" pattern="[0-9]{1,6}" required autofocus placeholder="say\u0131">
   <div style="position:absolute;left:-9999px" aria-hidden="true">
     <label for="website">Bu alan\u0131 bo\u015F b\u0131rak</label>
@@ -17532,14 +17535,33 @@ ${note ? `<p class="muted">${esc4(note)}</p>` : ""}
       this.o.audit?.({ ev: "oauth_human", ok: false, reason: "honeypot" });
       return this.infoPage(resOut, 400, "Do\u011Frulama ba\u015Far\u0131s\u0131z.", null);
     }
+    const humanId = String(t.jti ?? "");
+    if (humanId) {
+      const nowS = this.now();
+      for (const [k, e] of this.usedHuman) if (e < nowS) this.usedHuman.delete(k);
+      if (this.usedHuman.has(humanId)) return this.infoPage(resOut, 400, "Bu do\u011Frulama zaten kullan\u0131ld\u0131. Claude'dan ba\u011Flant\u0131y\u0131 yeniden ba\u015Flat.", null);
+      this.usedHuman.set(humanId, Number(t.exp ?? nowS + 300));
+    }
     const took = Date.now() - Number(t.born ?? 0);
     if (!Number.isFinite(took) || took < 900) {
       this.o.audit?.({ ev: "oauth_human", ok: false, reason: "too_fast" });
       return this.infoPage(resOut, 400, "Do\u011Frulama \xE7ok h\u0131zl\u0131 tamamland\u0131; tekrar dene.", null);
     }
-    if (String(p.answer ?? "").trim() !== String(t.ans)) {
-      this.o.audit?.({ ev: "oauth_human", ok: false, reason: "wrong" });
-      return this.infoPage(resOut, 400, "Yan\u0131t yanl\u0131\u015F. Claude'dan ba\u011Flant\u0131y\u0131 yeniden ba\u015Flat.", null);
+    const given = String(p.answer ?? "").trim();
+    const expected = String(t.ans ?? "").trim();
+    const givenNum = Number.parseInt(given, 10), expectedNum = Number.parseInt(expected, 10);
+    const answerOk = given !== "" && (given === expected || Number.isFinite(givenNum) && Number.isFinite(expectedNum) && givenNum === expectedNum);
+    if (!answerOk) {
+      console.error(`[hardtools] human-check mismatch expected=${JSON.stringify(expected)} got=${JSON.stringify(given)} jti=${humanId.slice(0, 8)}`);
+      this.o.audit?.({ ev: "oauth_human", ok: false, reason: "wrong", expected, got: given.slice(0, 32) });
+      this.usedHuman.delete(humanId);
+      return this.humanPage(resOut, {
+        cid: String(t.cid ?? ""),
+        ru: String(t.ru ?? ""),
+        cc: String(t.cc ?? ""),
+        st: String(t.st ?? ""),
+        login: String(t.login ?? "")
+      }, "Yan\u0131t yanl\u0131\u015F. Yeni soru haz\u0131r, tekrar dene.");
     }
     const jti = crypto3.randomBytes(12).toString("base64url");
     if (t.login) this.o.onGrant?.(jti, String(t.login));
@@ -26307,7 +26329,7 @@ import net from "node:net";
 import zlib from "node:zlib";
 
 // src/version.ts
-var VERSION = "0.5.12";
+var VERSION = "0.5.15";
 
 // src/net.ts
 var blocked = new net.BlockList();
@@ -29471,8 +29493,8 @@ async function main() {
       }
       if (sharedInputs.handle(req, res, path16, oauth.origin(req))) return;
       const sameOrigin = req.headers.origin === oauth.origin(req);
-      const browserForm = path16 === "/authorize" || path16 === "/oauth/human" || path16.startsWith("/settings/");
-      if (req.headers.origin && !(sameOrigin && browserForm)) return send(403, "browser origins are not allowed");
+      const tokenProtected = path16 === "/oauth/human" || path16.startsWith("/settings/");
+      if (req.headers.origin && !sameOrigin && !tokenProtected) return send(403, "browser origins are not allowed");
       const ip = req.socket.remoteAddress ?? "?";
       const now = Date.now();
       if (hits.size > 4096) {

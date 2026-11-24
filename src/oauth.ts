@@ -95,6 +95,7 @@ export class OAuth {
   private failures: number[] = [];
   private extra: Set<string>;
   private github?: GithubIdp;
+  private usedHuman = new Map<string, number>();   // jti -> exp (insan doğrulaması tek kullanım)
   private ghPending = new Map<string, GhPending>(); // device-flow ticket -> bekleyen giriş
 
   constructor(private o: OAuthOptions) {
@@ -464,14 +465,15 @@ ${note ? `<p class="muted">${esc(note)}</p>` : ""}
     const esc = uiEsc;
     const a = 2 + crypto.randomInt(8), b = 2 + crypto.randomInt(8);
     const token = this.sign({
-      t: "hv", cid: pending.cid, ru: pending.ru, cc: pending.cc, st: pending.st,
+      t: "hv", jti: crypto.randomBytes(9).toString("base64url"),
+      cid: pending.cid, ru: pending.ru, cc: pending.cc, st: pending.st,
       login: pending.login.slice(0, 64), ans: String(a * b), born: Date.now(), exp: this.now() + 300,
     });
     const body = `${heading("İnsan doğrulaması", note)}
 <div class="card">
 <form method="post" action="/oauth/human" autocomplete="off">
   <input type="hidden" name="h" value="${esc(token)}">
-  <label for="answer">${a} × ${b} kaç eder? (botlar bu adımı geçemez)</label>
+  <label for="answer">${a} × ${b} kaç eder? <span class="muted">(çarpma işlemi)</span></label>
   <input id="answer" name="answer" type="text" inputmode="numeric" pattern="[0-9]{1,6}" required autofocus placeholder="sayı">
   <div style="position:absolute;left:-9999px" aria-hidden="true">
     <label for="website">Bu alanı boş bırak</label>
@@ -494,9 +496,30 @@ ${note ? `<p class="muted">${esc(note)}</p>` : ""}
     const t = this.verify(p.h, "hv");
     if (!t) return this.infoPage(resOut, 400, "Doğrulama süresi doldu. Claude'dan bağlantıyı yeniden başlat.", null);
     if (String(p.website ?? "").trim()) { this.o.audit?.({ ev: "oauth_human", ok: false, reason: "honeypot" }); return this.infoPage(resOut, 400, "Doğrulama başarısız.", null); }
+    const humanId = String(t.jti ?? "");
+    if (humanId) {
+      const nowS = this.now();
+      for (const [k, e] of this.usedHuman) if (e < nowS) this.usedHuman.delete(k);
+      if (this.usedHuman.has(humanId)) return this.infoPage(resOut, 400, "Bu doğrulama zaten kullanıldı. Claude'dan bağlantıyı yeniden başlat.", null);
+      this.usedHuman.set(humanId, Number(t.exp ?? nowS + 300));
+    }
     const took = Date.now() - Number(t.born ?? 0);
     if (!Number.isFinite(took) || took < 900) { this.o.audit?.({ ev: "oauth_human", ok: false, reason: "too_fast" }); return this.infoPage(resOut, 400, "Doğrulama çok hızlı tamamlandı; tekrar dene.", null); }
-    if (String(p.answer ?? "").trim() !== String(t.ans)) { this.o.audit?.({ ev: "oauth_human", ok: false, reason: "wrong" }); return this.infoPage(resOut, 400, "Yanıt yanlış. Claude'dan bağlantıyı yeniden başlat.", null); }
+    // Karşılaştırma: hem metin hem sayı olarak (boşluk, görünmez karakter, tam sayı biçimi).
+    const given = String(p.answer ?? "").trim();
+    const expected = String(t.ans ?? "").trim();
+    const givenNum = Number.parseInt(given, 10), expectedNum = Number.parseInt(expected, 10);
+    const answerOk = given !== "" && (given === expected || (Number.isFinite(givenNum) && Number.isFinite(expectedNum) && givenNum === expectedNum));
+    if (!answerOk) {
+      // Teşhis: yanıt hiçbir zaman tutmuyorsa sebebi loglardan görülsün (sayılar hassas değil).
+      console.error(`[hardtools] human-check mismatch expected=${JSON.stringify(expected)} got=${JSON.stringify(given)} jti=${humanId.slice(0, 8)}`);
+      this.o.audit?.({ ev: "oauth_human", ok: false, reason: "wrong", expected, got: given.slice(0, 32) });
+      // Çıkmaz sokak yok: aynı oturum için taze bir soru üret (token tek kullanımlıktı, yenisi imzalanır).
+      this.usedHuman.delete(humanId);
+      return this.humanPage(resOut, {
+        cid: String(t.cid ?? ""), ru: String(t.ru ?? ""), cc: String(t.cc ?? ""), st: String(t.st ?? ""), login: String(t.login ?? ""),
+      }, "Yanıt yanlış. Yeni soru hazır, tekrar dene.");
+    }
 
     const jti = crypto.randomBytes(12).toString("base64url");
     if (t.login) this.o.onGrant?.(jti, String(t.login));

@@ -173,10 +173,18 @@ test("bot kapısı: tarayıcıdan aynı origin POST kabul, yabancı origin 403",
   assert.notEqual(own.status, 403, "aynı origin'den gelen form reddedilmemeli: " + own.body);
   assert.match(own.body, /İnsan doğrulaması|süresi doldu/i);
 
+  // İmzalı token olmadan hiçbir origin işe yaramaz: yabancı origin'den gelen istek de 403 değil,
+  // doğrulama hatası alır (gömülü tarayıcılar Origin: null gönderebiliyor).
   const evil = await req(port, { method: "POST", target: "/oauth/human",
     headers: { origin: "https://kotu.example", "content-type": "application/x-www-form-urlencoded" }, body: "h=x&answer=4" });
-  assert.equal(evil.status, 403);
-  assert.match(evil.body, /browser origins are not allowed/);
+  assert.notEqual(evil.status, 403, "imzalı token yoksa da akış kırılmamalı");
+  assert.match(evil.body, /İnsan doğrulaması|süresi doldu/i);
+
+  // /authorize consent formu hâlâ yalnızca aynı origin'den kabul edilir
+  const crossConsent = await req(port, { method: "POST", target: "/authorize",
+    headers: { origin: "https://kotu.example", "content-type": "application/x-www-form-urlencoded" }, body: "access_token=x" });
+  assert.equal(crossConsent.status, 403);
+  assert.match(crossConsent.body, /browser origins are not allowed/);
 });
 
 test("ayar formu da aynı origin'den gönderilebilir", async (t) => {
