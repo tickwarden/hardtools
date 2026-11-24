@@ -57,7 +57,7 @@ th,td{text-align:left;padding:.45rem .3rem;border-bottom:1px solid var(--line);v
 .pill.off{color:var(--err);border-color:var(--err)}
 `;
 
-// Tema: localStorage > sistem tercihi > koyu. "Kör mod" aşırı beyaz olmayan sıcak açık tema.
+// Tema: localStorage > sistem tercihi > koyu. Açık tema aşırı beyaz değil: sıcak, göz yormayan kırık beyaz.
 const THEME_JS = `
 (function(){
   var KEY='ht-theme';
@@ -129,8 +129,8 @@ export function page(o: PageOptions): string {
   <span class="brand">hardtools${o.subtitle ? `<small>${esc(o.subtitle)}</small>` : ""}</span>
   <span class="spacer"></span>
   ${o.actions ?? ""}
-  <button type="button" class="ghost" id="b-dark" data-theme-set="dark" title="Koyu mod">Koyu</button>
-  <button type="button" class="ghost" id="b-light" data-theme-set="light" title="Kör mod: aşırı beyaz olmayan açık tema">Kör mod</button>
+  <button type="button" class="ghost" id="b-dark" data-theme-set="dark" title="Koyu tema">Koyu tema</button>
+  <button type="button" class="ghost" id="b-light" data-theme-set="light" title="Açık tema: sıcak, aşırı beyaz olmayan kırık beyaz">Açık tema</button>
 </div>
 <main>${o.body}</main>
 <div class="foot">hardtools · sayfa verisi çerezde tutulmaz; kimlik bilgileri yalnızca sunucuda doğrulanır.</div>
