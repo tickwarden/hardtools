@@ -7347,12 +7347,12 @@ var require_dist = __commonJS({
         throw new Error(`Unknown format "${name}"`);
       return f;
     };
-    function addFormats(ajv, list, fs13, exportName) {
+    function addFormats(ajv, list, fs14, exportName) {
       var _a3;
       var _b;
       (_a3 = (_b = ajv.opts.code).formats) !== null && _a3 !== void 0 ? _a3 : _b.formats = (0, codegen_1._)`require("ajv-formats/dist/formats").${exportName}`;
       for (const f of list)
-        ajv.addFormat(f, fs13[f]);
+        ajv.addFormat(f, fs14[f]);
     }
     module.exports = exports = formatsPlugin;
     Object.defineProperty(exports, "__esModule", { value: true });
@@ -12796,6 +12796,7 @@ function equalSecret(candidate, expected) {
 
 // src/index.ts
 import crypto10 from "node:crypto";
+import fs13 from "node:fs";
 import path14 from "node:path";
 import http3 from "node:http";
 
@@ -26120,7 +26121,7 @@ import net from "node:net";
 import zlib from "node:zlib";
 
 // src/version.ts
-var VERSION = "0.5.7";
+var VERSION = "0.5.8";
 
 // src/net.ts
 var blocked = new net.BlockList();
@@ -28052,7 +28053,14 @@ var UserInputs = class {
 
 // src/server.ts
 var usesProject = /* @__PURE__ */ new Set(["ht_transfer_file", "ht_new_shell_env", "ht_stop", "ht_read", "ht_write", "ht_edit", "ht_glob", "ht_search", "ht_move", "ht_mkdir", "ht_trash", "ht_empty_trash", "ht_shell", "ht_share"]);
-var createWorkspace = (inputStore) => ({ vars: new Variables(), shares: new Shares(), inputs: new UserInputs(inputStore ? { store: inputStore } : {}), projectReady: Promise.resolve() });
+var createWorkspace = (inputStore, shared) => ({
+  vars: new Variables(),
+  // input formları ve paylaşım linkleri tüm oturumlarca görülmeli (owner ile ayrılırlar),
+  // dosya kökü ise oturum başına ayrıdır.
+  shares: shared?.shares ?? new Shares(),
+  inputs: shared?.inputs ?? new UserInputs(inputStore ? { store: inputStore } : {}),
+  projectReady: Promise.resolve()
+});
 var asText = (text) => ({ content: [{ type: "text", text }] });
 function createServer(policy, audit, workspace = createWorkspace(), owner = "stdio", origin, opts = {}) {
   const server = new McpServer({ name: "hardtools", version: VERSION });
@@ -28642,7 +28650,25 @@ async function main() {
     console.error(`[hardtools] invite URL (one use; keep private): ${inviteUrl}`);
   }
   const inputStore = policy.audit.dir ? path14.join(path14.dirname(policy.audit.dir), "state", "inputs.json") : void 0;
-  const workspace = createWorkspace(inputStore);
+  const sharedInputs = new UserInputs(inputStore ? { store: inputStore } : {});
+  const sharedShares = new Shares();
+  const perSession = (process.env.HARDTOOLS_PER_SESSION_WORKSPACE ?? "1").trim() !== "0";
+  const baseRoot = policy.roots[0];
+  const grants = /* @__PURE__ */ new Map();
+  const grantFor = (owner) => {
+    const cached2 = grants.get(owner);
+    if (cached2) return cached2;
+    let p = policy;
+    if (perSession && owner !== "static" && baseRoot && baseRoot !== path14.parse(baseRoot).root) {
+      const dir = path14.join(baseRoot, "u-" + crypto10.createHash("sha256").update(owner).digest("hex").slice(0, 16));
+      fs13.mkdirSync(dir, { recursive: true, mode: 448 });
+      p = { ...policy, roots: [dir] };
+    }
+    const g = { policy: p, workspace: createWorkspace(void 0, { inputs: sharedInputs, shares: sharedShares }) };
+    grants.set(owner, g);
+    return g;
+  };
+  const workspace = createWorkspace(inputStore, { inputs: sharedInputs, shares: sharedShares });
   const srv = http3.createServer(async (req, res) => {
     const send = (code, msg, headers = {}) => {
       res.writeHead(code, { "content-type": "application/json", ...headers });
@@ -28665,7 +28691,7 @@ async function main() {
       }
       const h = String(req.headers.host ?? "").toLowerCase();
       if (!allowedHosts.has(h)) return send(403, "host not allowed");
-      if (workspace.inputs.handle(req, res, path15, oauth.origin(req))) return;
+      if (sharedInputs.handle(req, res, path15, oauth.origin(req))) return;
       if (req.headers.origin && !(path15 === "/authorize" && req.headers.origin === oauth.origin(req))) return send(403, "browser origins are not allowed");
       const ip = req.socket.remoteAddress ?? "?";
       const now = Date.now();
@@ -28680,7 +28706,7 @@ async function main() {
       b.n++;
       hits.set(ip, b);
       if (b.n > 120) return send(429, "rate limited");
-      if (workspace.shares.download(req, res, path15)) return;
+      if (sharedShares.download(req, res, path15)) return;
       if (loginFree) {
         if (/^\/(?:\.well-known\/|register$|authorize$|token$|oauth\/|invite\/)/.test(path15)) return send(404, "not found");
         if (req.method === "GET" && (path15 === "/connect" || /^\/c\/[A-Za-z0-9_-]{16,128}$/.test(path15))) return connectPage(req, res, path15, publicMode === "key" && publicKey ? publicKey : "");
@@ -28716,7 +28742,8 @@ async function main() {
         return send(400, "invalid JSON");
       }
       const origin = oauth.origin(req);
-      const server = createServer(policy, audit.forGrant(owner), workspace, owner, origin, owner === "public" ? { tools: publicTools } : {});
+      const grant = grantFor(owner);
+      const server = createServer(grant.policy, audit.forGrant(owner), grant.workspace, owner, origin, owner === "public" ? { tools: publicTools } : {});
       const transport = new WebStandardStreamableHTTPServerTransport({ sessionIdGenerator: void 0 });
       const abort = new AbortController();
       res.once("close", () => {
