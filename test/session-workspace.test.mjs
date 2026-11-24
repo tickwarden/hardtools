@@ -40,7 +40,11 @@ async function start(t, env = {}) {
   const audit = tmp("ht-sess-audit-");
   const cfg = path.join(audit, "config.json");
   fs.writeFileSync(cfg, JSON.stringify({ audit: { dir: audit, failClosed: false }, fs: { writeEnabled: true }, shell: { enabled: false } }));
-  const port = 20000 + Math.floor(Math.random() * 20000);
+  // Boş port bul: rastgele seçim paralel testlerle çakışabiliyor (flaky).
+  const probe = http.createServer();
+  await new Promise((r) => probe.listen(0, "127.0.0.1", r));
+  const port = probe.address().port;
+  await new Promise((r) => probe.close(r));
   const child = spawn(process.execPath, [entry, "--http", "--port", String(port), "--profile", "balanced"], {
     env: { ...process.env, HARDTOOLS_ROOTS: root, HARDTOOLS_CONFIG: cfg, HARDTOOLS_ALLOWED_HOSTS: `127.0.0.1:${port}`,
       HARDTOOLS_PUBLIC: "open", HARDTOOLS_PUBLIC_KEY: KEY, HARDTOOLS_PUBLIC_TOOLS: "safe", HARDTOOLS_HTTP_ALLOW_LOCAL_TOOLS: "1", ...env },
