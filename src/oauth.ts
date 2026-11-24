@@ -96,6 +96,8 @@ export class OAuth {
   private extra: Set<string>;
   private github?: GithubIdp;
   private ghPending = new Map<string, GhPending>(); // device-flow ticket -> bekleyen giriş
+  // RFC 8628: bu sunucuya bağlanan MCP istemcileri için kendi cihaz akışımız.
+  private devices = new Map<string, { uc: string; cid: string; exp: number; interval: number; approved: boolean; grant?: string; polls: number; lastPoll: number }>();
 
   constructor(private o: OAuthOptions) {
     // Existing v1 HMAC key schedule for a random per-run master key. Keeping it preserves signed grants on restart.
@@ -239,8 +241,9 @@ export class OAuth {
         authorization_endpoint: `${origin}/authorize`,
         token_endpoint: `${origin}/token`,
         registration_endpoint: `${origin}/register`,
+        device_authorization_endpoint: `${origin}/device/authorize`,
         response_types_supported: ["code"],
-        grant_types_supported: ["authorization_code", "refresh_token"],
+        grant_types_supported: ["authorization_code", "refresh_token", "urn:ietf:params:oauth:grant-type:device_code"],
         code_challenge_methods_supported: ["S256"],
         token_endpoint_auth_methods_supported: ["none"],
       });
@@ -250,6 +253,8 @@ export class OAuth {
     if (path === "/authorize")          { await this.authorize(req, res, origin); return true; }
     if (path === "/oauth/github/callback") { await this.githubCallback(req, res, origin); return true; }
     if (path === "/oauth/github/poll")     { await this.githubPoll(req, res, origin); return true; }
+    if (path === "/device/authorize")   { await this.deviceAuthorize(req, res, origin); return true; }
+    if (path === "/device")             { await this.devicePage(req, res, origin); return true; }
     if (path === "/token")              { await this.tokenEndpoint(req, res); return true; }
     if (path.startsWith("/invite/"))    { await this.handleInvite(req, res, path, origin); return true; }
     return false;
@@ -568,6 +573,70 @@ ${note ? `<p class="muted">${esc(note)}</p>` : ""}
     res.end(uiPage({ title: "hardtools · giriş", subtitle: "OAuth", body: `${heading("Bağlantı izni")}${error ? `<p class="e">${esc(error)}</p>` : ""}${form}` }));
   }
 
+  // ---- RFC 8628 cihaz yetkilendirme -----------------------------------------------------------
+  /** POST /device/authorize — istemci (MCP) kendi cihaz kodunu alır, kullanıcı koduyla onaylatır. */
+  private async deviceAuthorize(req: http.IncomingMessage, res: http.ServerResponse, origin: string) {
+    if (req.method !== "POST") return this.oerr(res, 405, "invalid_request", "POST only");
+    const p = await this.readParams(req);
+    if (!p) return this.oerr(res, 400, "invalid_request", "malformed or oversized body");
+    const cid = String(p.client_id ?? "device-client").slice(0, 200);
+    const alphabet = "BCDFGHJKLMNPQRSTVWXZ";
+    const pick = (n: number) => Array.from(crypto.randomBytes(n)).map(b => alphabet[b % alphabet.length]).join("");
+    const userCode = `${pick(4)}-${pick(4)}`;
+    const deviceCode = crypto.randomBytes(32).toString("base64url");
+    const nowS = this.now();
+    for (const [k, d] of this.devices) if (d.exp < nowS) this.devices.delete(k);
+    if (this.devices.size >= 200) return this.oerr(res, 429, "slow_down", "too many pending device codes");
+    this.devices.set(deviceCode, { uc: userCode, cid, exp: nowS + 600, interval: 5, approved: false, polls: 0, lastPoll: 0 });
+    this.o.audit?.({ ev: "oauth_device_authorize", client: cid.slice(0, 40) });
+    return this.json(res, 200, {
+      device_code: deviceCode, user_code: userCode, verification_uri: `${origin}/device`,
+      verification_uri_complete: `${origin}/device?user_code=${encodeURIComponent(userCode)}`,
+      expires_in: 600, interval: 5,
+    });
+  }
+
+  /** GET/POST /device — kullanıcı kodu onay sayfası (webview'de de çalışır: düz form). */
+  private async devicePage(req: http.IncomingMessage, res: http.ServerResponse, origin: string) {
+    const url = new URL(req.url ?? "/device", origin);
+    const prefill = String(url.searchParams.get("user_code") ?? "");
+    const escH = (v: string) => v.replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]!));
+    let msg = "", cls = "";
+    if (req.method === "POST") {
+      const p = await this.readParams(req);
+      if (!p) return this.oerr(res, 400, "invalid_request", "malformed body");
+      const code = String(p.user_code ?? "").trim().toUpperCase();
+      const entry = [...this.devices.entries()].find(([, d]) => d.uc === code && d.exp >= this.now());
+      if (!entry) { msg = "Kod geçersiz ya da süresi doldu."; cls = "e"; }
+      else if (typeof p.access_token !== "string" || !equalSecret(p.access_token.trim(), this.o.token)) {
+        msg = "Erişim anahtarı yanlış."; cls = "e";
+        this.o.audit?.({ ev: "oauth_device_approve", ok: false });
+      } else {
+        const [dc, d] = entry;
+        if (d.approved) { msg = "Bu kod zaten onaylandı."; cls = "e"; }
+        else {
+          d.approved = true; d.grant = crypto.randomBytes(12).toString("base64url");
+          this.o.onGrant?.(d.grant, "device");
+          this.o.audit?.({ ev: "oauth_device_approve", ok: true, code: code.slice(0, 9) });
+          msg = `Onaylandı. İstemci birkaç saniye içinde bağlanacak (${d.cid.slice(0, 30)}). Bu sekmeyi kapatabilirsin.`;
+          cls = "ok";
+          void dc;
+        }
+      }
+    }
+    const body = `${heading("Cihaz onayı", "İstemcinin ekranında gördüğün kodu gir, erişim anahtarını yaz. Kod 10 dakika geçerlidir.")}
+${msg ? `<p class="${cls}">${escH(msg)}</p>` : ""}
+<div class="card"><form method="post" action="/device" autocomplete="off">
+<label for="user_code">Kullanıcı kodu</label>
+<input id="user_code" name="user_code" value="${escH(prefill)}" placeholder="XXXX-XXXX" required autocomplete="off" autocapitalize="characters">
+<label for="access_token">Erişim anahtarı</label>
+<input id="access_token" name="access_token" type="password" required autocomplete="off" placeholder="Bearer olmadan">
+<p class="row" style="margin-top:.8rem"><button class="primary" type="submit" data-once>Onayla</button></p>
+</form></div>`;
+    res.writeHead(200, { "content-type": "text/html; charset=utf-8", "cache-control": "no-store", "x-frame-options": "DENY", "referrer-policy": "same-origin", "content-security-policy": PAGE_CSP });
+    res.end(uiPage({ title: "hardtools · cihaz onayı", subtitle: "OAuth device", body }));
+  }
+
   // ---- token endpoint ---------------------------------------------------------------------
   private async tokenEndpoint(req: http.IncomingMessage, res: http.ServerResponse) {
     if (req.method !== "POST") return this.oerr(res, 405, "invalid_request", "POST only");
@@ -592,6 +661,23 @@ ${note ? `<p class="muted">${esc(note)}</p>` : ""}
       this.usedCodes.set(c.jti, c.exp);
       this.o.audit?.({ ev: "oauth_token", grant: "authorization_code" });
       return this.json(res, 200, mint(c.cid, c.jti));
+    }
+    if (p.grant_type === "urn:ietf:params:oauth:grant-type:device_code") {
+      const nowS = this.now();
+      for (const [k, d] of this.devices) if (d.exp < nowS) this.devices.delete(k);
+      const d = this.devices.get(String(p.device_code ?? ""));
+      if (!d) return this.oerr(res, 400, "expired_token", "unknown or expired device code");
+      if (p.client_id && p.client_id !== d.cid) return this.oerr(res, 400, "invalid_grant", "client_id mismatch");
+      if (!d.approved) {
+        // RFC 8628 §3.5: çok sık yoklama slow_down ile yavaşlatılır.
+        if (nowS - d.lastPoll < d.interval) { d.lastPoll = nowS; return this.oerr(res, 400, "slow_down", "polling too fast"); }
+        d.lastPoll = nowS; d.polls++;
+        return this.oerr(res, 400, "authorization_pending", "the user has not approved the device yet");
+      }
+      this.devices.delete(String(p.device_code));           // tek kullanımlık
+      const grant = d.grant ?? crypto.randomBytes(12).toString("base64url");
+      this.o.audit?.({ ev: "oauth_token", grant: "device_code", user: String(d.grant ?? "-").slice(0, 8) });
+      return this.json(res, 200, mint(d.cid, grant));
     }
     if (p.grant_type === "refresh_token") {
       const r = this.verify(p.refresh_token, "rt");

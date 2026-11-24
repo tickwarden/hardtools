@@ -110,6 +110,8 @@ async function main() {
   // Durum dizini: HARDTOOLS_STATE_DIR > <audit üst dizini>/state
   const stateDir = process.env.HARDTOOLS_STATE_DIR?.trim() || (policy.audit.dir ? path.join(policy.audit.dir, "state") : undefined);
   const stateFile = (name: string) => stateDir ? path.join(stateDir, name) : undefined;
+  /** ht_memory: oturum köklerinin dışında, hesap kapsamlı not defteri. */
+  const memoryDir = stateDir ? path.join(stateDir, "memory") : undefined;
   let github: GithubIdp | undefined;
   if (ghId) {
     if (!ghLogins.length && !ghEmails.length && !ghAllowAny) {
@@ -323,6 +325,7 @@ async function main() {
           ...(owner === "public" ? { tools: publicTools } : {}),
           ...(sid ? { sessionId: "s-" + sid.slice(0, 12) } : {}),
           settings: { store: settingsStore, user: userFor(owner), all: ALL_TOOLS },
+          ...(memoryDir ? { memoryDir } : {}),
         });
       const transport = new WebStandardStreamableHTTPServerTransport({ sessionIdGenerator: sid && isInit ? () => sid! : undefined });
       if (sid && !isInit) transport.sessionId = sid; // SDK oturum kontrolünü geçmek için kimliği benimse

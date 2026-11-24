@@ -25,7 +25,7 @@ test("e2e/stdio: 24 tools, write→read→edit round trip, denials surface as to
   await client.connect(new StdioClientTransport({ command: process.execPath, args: [entry, "--profile", "balanced"], env: envFor(root, audit), stderr: "ignore" }));
   try {
     const tools = (await client.listTools()).tools.map(t => t.name).sort();
-    assert.deepEqual(tools, ["ht_add_var", "ht_ask", "ht_delete_var", "ht_edit", "ht_empty_trash", "ht_fetch", "ht_glob", "ht_image_search", "ht_list_all_tools", "ht_list_vars", "ht_manage_tool", "ht_mkdir", "ht_move", "ht_new_shell_env", "ht_read", "ht_search", "ht_share", "ht_shell", "ht_status", "ht_stop", "ht_transfer_file", "ht_trash", "ht_user_input", "ht_write"]);
+    assert.deepEqual(tools, ["ht_add_var", "ht_ask", "ht_delete_var", "ht_edit", "ht_empty_trash", "ht_fetch", "ht_glob", "ht_image_search", "ht_list_all_tools", "ht_list_vars", "ht_manage_tool", "ht_memory", "ht_mkdir", "ht_move", "ht_new_shell_env", "ht_read", "ht_schedule", "ht_search", "ht_share", "ht_shell", "ht_status", "ht_stop", "ht_transfer_file", "ht_trash", "ht_undo", "ht_user_input", "ht_write"]);
     for (const t of (await client.listTools()).tools) assert.ok(t.annotations, `${t.name} has annotations`);
     const w = await client.callTool({ name: "ht_write", arguments: { path: "hello.txt", content: "hi there\n" } }); assert.ok(!w.isError, text(w));
     const e = await client.callTool({ name: "ht_edit", arguments: { edits: [{ path: "hello.txt", old_str: "hi", new_str: "hello" }] } }); assert.ok(!e.isError, text(e));

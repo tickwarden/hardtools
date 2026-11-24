@@ -17,6 +17,9 @@ import { htTransferFile, transferSources } from "./transfer.js";
 import { UserInputs } from "./user-input.js";
 import { Variables } from "./variables.js";
 import { VERSION } from "./version.js";
+import { htUndo, touchedPaths, UndoJournal } from "./undo.js";
+import { htSchedule, Scheduler } from "./schedule.js";
+import { AccountMemory, htMemory } from "./memory.js";
 import { ErrorCode, ListResourcesRequestSchema, ListResourceTemplatesRequestSchema, McpError, ReadResourceRequestSchema, type CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 
 // The HTTP worker can change its project tree. Do not race a running child against
@@ -30,6 +33,9 @@ export const createWorkspace = (inputStore?: string, shared?: { inputs?: import(
   shares: shared?.shares ?? new Shares(),
   inputs: shared?.inputs ?? new UserInputs(inputStore ? { store: inputStore } : {}),
   projectReady: Promise.resolve(),
+  // HTTP'de her istek yeni bir McpServer örneği kurar; bu ikisi oturum ömrü boyunca yaşamalı.
+  undo: new UndoJournal(),
+  sched: undefined as Scheduler | undefined,
 });
 const asText = (text: string): CallToolResult => ({ content: [{ type: "text", text }] });
 export interface ServerOptions {
@@ -39,10 +45,15 @@ export interface ServerOptions {
   sessionId?: string;
   /** Kullanıcı ayarları: kapalı araçlar kaydedilmez, ht_manage_tool bunları değiştirir. */
   settings?: {
-    store: { get(u: string): { disabledTools: string[] }; setTool(u: string, n: string, e: boolean, by?: string): { settings: { disabledTools: string[] }; changed: boolean } };
+    store: {
+      get(u: string): { disabledTools: string[]; shareTtlMinutes?: number; shellMaxOutputBytes?: number; scheduleMaxS?: number };
+      setTool(u: string, n: string, e: boolean, by?: string): { settings: { disabledTools: string[] }; changed: boolean };
+    };
     user: string;
     all: readonly string[];
   };
+  /** Hesap kapsamlı not defteri (ht_memory) — köklerin dışında bir dizin. */
+  memoryDir?: string;
 }
 
 export function createServer(policy: Policy, audit: Audit, workspace = createWorkspace(), owner = "stdio", origin?: string, opts: ServerOptions = {}): McpServer {
@@ -51,11 +62,31 @@ export function createServer(policy: Policy, audit: Audit, workspace = createWor
   const allowed = opts.tools ?? null;
   const disabled = new Set(opts.settings?.store.get(opts.settings.user).disabledTools ?? []);
   const ALWAYS_ON = new Set(["ht_list_all_tools", "ht_manage_tool", "ht_status"]);
+  const handlers = new Map<string, (a: unknown, extra: { signal: AbortSignal }) => Promise<CallToolResult>>();
+  const registered = new Set<string>();
   const register: typeof server.registerTool = ((name: string, cfg: unknown, cb: unknown) => {
     if (allowed && !allowed.has(name)) return undefined;
     if (disabled.has(name) && !ALWAYS_ON.has(name)) return undefined;   // kullanıcı kapattı: listelenmez, çağrılamaz
+    registered.add(name);
+    handlers.set(name, cb as (a: unknown, extra: { signal: AbortSignal }) => Promise<CallToolResult>);
     return (server.registerTool as unknown as (n: string, c: unknown, h: unknown) => unknown)(name, cfg, cb);
   }) as typeof server.registerTool;
+
+  // Geri alma günlüğü: yalnız dosya değiştiren araçlar için çağrı öncesi ön görüntü tutar.
+  const undoJournal: UndoJournal = (workspace as { undo?: UndoJournal }).undo ?? new UndoJournal();
+  (workspace as { undo?: UndoJournal }).undo = undoJournal;
+  const UNDOABLE = new Set(["ht_write", "ht_edit", "ht_move", "ht_trash", "ht_mkdir"]);
+  const userSettings = () => opts.settings?.store.get(opts.settings.user);
+  const abortSignal = () => new AbortController().signal;
+  const runTool = async (tool: string, args: Record<string, unknown>) => {
+    const h = handlers.get(tool);
+    if (!h) return { isError: true, content: [{ type: "text", text: `ERROR: araç yok: ${tool}` }] };
+    return h(args, { signal: abortSignal() });
+  };
+  const workspaceSched = (workspace as { sched?: Scheduler }).sched;
+  const scheduler: Scheduler = workspaceSched ?? new Scheduler(runTool);
+  (workspace as { sched?: Scheduler }).sched = scheduler;
+  const memory = new AccountMemory(opts.memoryDir);
 
   /** Audit the operation, never managed env values, share capabilities or resource bodies. */
   const wrap = <A>(tool: string, fn: (a: A, extra?: { signal: AbortSignal }) => string | CallToolResult | Promise<string | CallToolResult>) => async (args: A, extra: { signal: AbortSignal }): Promise<CallToolResult> => {
@@ -70,10 +101,14 @@ export function createServer(policy: Policy, audit: Audit, workspace = createWor
       }
       const safeArgs = tool === "ht_add_var" ? { name: (args as { name: string }).name } : tool === "ht_share" ? { action: (args as ShareArgs).action ?? "create" } : args;
       audit.write({ ev: "call", tool, profile: policy.profile, args: summarize(safeArgs) });
+      if (UNDOABLE.has(tool) && typeof args === "object" && args) {
+        try { undoJournal.record(policy, owner, tool, args as Record<string, unknown>); } catch { /* geri alma kaydı ana işlemi engellemez */ }
+      }
       const value = await fn(args, extra), result = typeof value === "string" ? asText(value) : value;
       audit.write({ ev: "result", tool, ok: !result.isError, ms: Date.now() - t0 });
       return result;
     } catch (e) {
+      if (UNDOABLE.has(tool)) undoJournal.dropLast(owner);          // başarısız çağrı geri alma kaydı bırakmaz
       const denied = e instanceof PolicyError; const msg = (e as Error).message;
       try { audit.write({ ev: denied ? "deny" : "error", tool, code: denied ? (e as PolicyError).code : undefined, msg: summarize(msg), ms: Date.now() - t0 }); } catch { /* fail-closed audit already surfaced */ }
       return { isError: true, ...asText(denied ? `DENIED [${(e as PolicyError).code}]: ${msg}` : `ERROR: ${msg}`) };
@@ -181,7 +216,11 @@ export function createServer(policy: Policy, audit: Audit, workspace = createWor
     annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true },
   }, wrap("ht_shell", async (a: ShellArgs) => {
     // HT_USER_INPUT comes from ht_user_input and is never an MCP argument.
-    const r = await runShell(policy, { ...a, user_env: workspace.inputs.envFor(owner), session_id: opts.sessionId }, workspace.vars, owner);
+    const us = userSettings();
+    const capped = us?.shellMaxOutputBytes
+      ? { ...policy, shell: { ...policy.shell, maxOutputBytes: Math.min(policy.shell.maxOutputBytes, us.shellMaxOutputBytes) } }
+      : policy;
+    const r = await runShell(capped, { ...a, user_env: workspace.inputs.envFor(owner), session_id: opts.sessionId }, workspace.vars, owner);
     return { ...asText(workspace.inputs.mask(r.text)), isError: r.isError };
   }));
 
@@ -375,7 +414,11 @@ Returned: {status, question, selected[], custom, request_id, elapsed_s}.`,
     description: `Create a temporary immutable snapshot. path is relative to ${SHARE_CWD} inside the first root, or use source_path for another allowed workspace file. HTTP returns a private, expiring download link; stdio attaches the bytes. List or revoke only your shares. Do not publish the link.`,
     inputSchema: { action: z.enum(["create", "list", "revoke"]).optional(), path: z.string().min(1).optional(), source_path: z.string().min(1).optional(), name: z.string().min(1).max(180).optional(), ttl_minutes: z.number().int().min(1).max(60).optional(), id: z.string().regex(/^[A-Za-z0-9_-]{43}$/).optional() },
     annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
-  }, wrap("ht_share", (a: ShareArgs) => workspace.shares.tool(policy, owner, a, origin)));
+  }, wrap("ht_share", (a: ShareArgs) => {
+    const dflt = userSettings()?.shareTtlMinutes;
+    const withTtl = a.ttl_minutes === undefined && dflt ? { ...a, ttl_minutes: dflt } : a;
+    return workspace.shares.tool(policy, owner, withTtl, origin);
+  }));
   // Only one resource shape exists. Advertise the template, but read by exact prefix and
   // opaque ID; resource reads do not need a general URI-template/regex engine.
   server.server.registerCapabilities({ resources: {} });
@@ -477,6 +520,34 @@ Returned: {status, question, selected[], custom, request_id, elapsed_s}.`,
 
   type StatusArgs = { audit_export?: boolean; audit_snapshot?: string; audit_offset?: number };
   // ---- araç yönetimi ---------------------------------------------------------------------
+  register("ht_undo", {
+    title: "Undo the file effects of a previous tool call",
+    description: "Revert the file effects of the most recent mutating tool call (ht_write, ht_edit, ht_move, ht_trash, ht_mkdir) in this session: files created by it are removed, files it changed or moved are restored from a pre-image captured before the call. This history exists only on the server — a shell cannot see what an earlier tool call changed. action=list shows the journal, clear forgets it.",
+    inputSchema: { action: z.enum(["undo", "list", "clear"]).optional() },
+    annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false },
+  }, wrap("ht_undo", (a) => htUndo(policy, undoJournal, owner, a)));
+
+  register("ht_schedule", {
+    title: "Run a tool call later in this session",
+    description: "Schedule any registered tool to run after after_s seconds inside this session, through the same policy and audit path, and collect its result later. A shell cannot call MCP tools, so deferred tool calls are only possible here. action=add|list|collect|cancel; results are kept in memory and truncated.",
+    inputSchema: {
+      action: z.enum(["add", "list", "collect", "cancel"]).optional(),
+      tool: z.string().min(1).max(64).optional(),
+      arguments: z.record(z.string(), z.unknown()).optional(),
+      after_s: z.number().min(0).max(3600).optional(),
+      id: z.string().min(1).max(16).optional(),
+      ids: z.array(z.string().min(1).max(16)).max(20).optional(),
+    },
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
+  }, wrap("ht_schedule", (a) => htSchedule(scheduler, registered, a, userSettings()?.scheduleMaxS)));
+
+  register("ht_memory", {
+    title: "Account-level notes shared across chats",
+    description: "Keep short notes that outlive a single chat: they are stored outside every session root, keyed by your account, so a new conversation can read what an earlier one wrote — and a confined shell can neither read nor write them. action=set|get|list|delete|clear.",
+    inputSchema: { action: z.enum(["set", "get", "list", "delete", "clear"]).optional(), key: z.string().min(1).max(120).optional(), value: z.string().max(8192).optional() },
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
+  }, wrap("ht_memory", (a) => htMemory(memory, owner, a)));
+
   register("ht_list_all_tools", {
     title: "List every hardtools tool (enabled, disabled, all)",
     description: "Shows all hardtools tools with their current state for this user: enabled, disabled and the complete catalog. Use it before ht_manage_tool when you are not sure what is off.",
