@@ -28054,7 +28054,8 @@ var UserInputs = class {
 // src/server.ts
 var usesProject = /* @__PURE__ */ new Set(["ht_transfer_file", "ht_new_shell_env", "ht_stop", "ht_read", "ht_write", "ht_edit", "ht_glob", "ht_search", "ht_move", "ht_mkdir", "ht_trash", "ht_empty_trash", "ht_shell", "ht_share"]);
 var createWorkspace = (inputStore, shared) => ({
-  vars: new Variables(),
+  // Değişkenler sahiplik (hesap) düzeyinde: aynı hesabın yeni sohbeti sırlarını kaybetmez.
+  vars: shared?.vars ?? new Variables(),
   // input formları ve paylaşım linkleri tüm oturumlarca görülmeli (owner ile ayrılırlar),
   // dosya kökü ise oturum başına ayrıdır.
   shares: shared?.shares ?? new Shares(),
@@ -28653,6 +28654,7 @@ async function main() {
   const inputStore = policy.audit.dir ? path14.join(path14.dirname(policy.audit.dir), "state", "inputs.json") : void 0;
   const sharedInputs = new UserInputs(inputStore ? { store: inputStore } : {});
   const sharedShares = new Shares();
+  const sharedVars = new Variables();
   const perSession = (process.env.HARDTOOLS_PER_SESSION_WORKSPACE ?? "1").trim() !== "0";
   const baseRoot = policy.roots[0];
   const baseIsFsRoot = Boolean(baseRoot) && baseRoot === path14.parse(baseRoot).root;
@@ -28697,11 +28699,11 @@ async function main() {
     if (cached2) return cached2;
     if (grants.size > 512) grants.clear();
     const p = dir === baseRoot ? policy : { ...policy, roots: [dir] };
-    const g = { policy: p, workspace: createWorkspace(void 0, { inputs: sharedInputs, shares: sharedShares }) };
+    const g = { policy: p, workspace: createWorkspace(void 0, { inputs: sharedInputs, shares: sharedShares, vars: sharedVars }) };
     grants.set(key, g);
     return g;
   };
-  const workspace = createWorkspace(inputStore, { inputs: sharedInputs, shares: sharedShares });
+  const workspace = createWorkspace(inputStore, { inputs: sharedInputs, shares: sharedShares, vars: sharedVars });
   const srv = http3.createServer(async (req, res) => {
     const send = (code, msg, headers = {}) => {
       res.writeHead(code, { "content-type": "application/json", ...headers });

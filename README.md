@@ -283,6 +283,7 @@ Her kimlik **kendi `/work` kökünü** alır; bir oturumda klonlanan depo başka
 - İstemci oturum kimliği göndermezse (eski davranış) hesap köküne düşer: `<HARDTOOLS_ROOTS[0]>/a-<hash(hesap)>`.
 - Eşleme `/data/state/sessions.json` içinde: yeniden başlatmadan sonra aynı kimlik yine aynı dizini bulur.
 - `static` (operatör bearer) taban kökte kalır. `HARDTOOLS_PER_SESSION_WORKSPACE=0` her şeyi kapatır.
+- **Değişkenler (`ht_add_var`) sahiplik düzeyinde**: sohbet değişse de aynı hesabın sırları yerinde kalır (dosyalar sohbet bazlı, sırlar hesap bazlı).
 - `ht_status` artık `session` alanını gösterir: iki sohbette farklı `s-…` görüyorsan kökler ayrı.
 
 ### 0.5.2 değişiklikleri
