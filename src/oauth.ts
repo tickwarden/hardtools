@@ -95,7 +95,6 @@ export class OAuth {
   private failures: number[] = [];
   private extra: Set<string>;
   private github?: GithubIdp;
-  private usedHuman = new Map<string, number>();   // jti -> exp (insan doğrulaması tek kullanım)
   private ghPending = new Map<string, GhPending>(); // device-flow ticket -> bekleyen giriş
 
   constructor(private o: OAuthOptions) {
@@ -251,7 +250,6 @@ export class OAuth {
     if (path === "/authorize")          { await this.authorize(req, res, origin); return true; }
     if (path === "/oauth/github/callback") { await this.githubCallback(req, res, origin); return true; }
     if (path === "/oauth/github/poll")     { await this.githubPoll(req, res, origin); return true; }
-    if (path === "/oauth/human")           { await this.humanEndpoint(req, res); return true; }
     if (path === "/token")              { await this.tokenEndpoint(req, res); return true; }
     if (path.startsWith("/invite/"))    { await this.handleInvite(req, res, path, origin); return true; }
     return false;
@@ -424,8 +422,8 @@ export class OAuth {
     }
 
     this.ghPending.delete(ticket);
-    // GitHub onayı geldi ama kod henüz üretilmez: önce bot doğrulaması.
-    return this.humanPage(res, { cid: p.cid, ru: p.ru, cc: p.cc, st: p.st, login: who.login }, "GitHub girişi tamam. Son adım: insan doğrulaması.");
+    // GitHub onayı = kapı. Ek doğrulama adımı yok (bot kapısı kaldırıldı: kullanıcıyı kilitlemesin).
+    return this.finishLogin(res, { cid: p.cid, ru: p.ru, cc: p.cc, st: p.st }, who.login, "github_device");
   }
 
   private html(resOut: http.ServerResponse, code: number, body: string, extra: Record<string, string> = {}) {
@@ -461,77 +459,15 @@ ${note ? `<p class="muted">${esc(note)}</p>` : ""}
   // ---- insan doğrulaması (bot kapısı) -----------------------------------------------------
   // GitHub girişi tamamlandıktan sonra, yetki kodu üretilmeden önce basit bir insan kontrolü.
   // Durum imzalı token içinde taşınır: sunucu belleğine bağlı değildir, yeniden başlatma bozmaz.
-  private humanPage(resOut: http.ServerResponse, pending: { cid: string; ru: string; cc: string; st: string; login: string }, note: string, ops?: { a: number; b: number }) {
-    const esc = uiEsc;
-    const a = ops?.a ?? 2 + crypto.randomInt(8), b = ops?.b ?? 2 + crypto.randomInt(8);
-    const token = this.sign({
-      t: "hv", jti: crypto.randomBytes(9).toString("base64url"),
-      cid: pending.cid, ru: pending.ru, cc: pending.cc, st: pending.st,
-      login: pending.login.slice(0, 64), a, b, ans: String(a * b), born: Date.now(), exp: this.now() + 300,
-    });
-    const body = `${heading("İnsan doğrulaması", note)}
-<div class="card">
-<form method="post" action="/oauth/human" autocomplete="off">
-  <input type="hidden" name="h" value="${esc(token)}">
-  <label for="answer">${a} çarpı ${b} kaç eder? <span class="muted">(${a} × ${b}, yani ${a} kere ${b}; toplama değil)</span></label>
-  <input id="answer" name="answer" type="text" inputmode="numeric" pattern="[0-9]{1,6}" required autofocus placeholder="sayı">
-  <div style="position:absolute;left:-9999px" aria-hidden="true">
-    <label for="website">Bu alanı boş bırak</label>
-    <input id="website" name="website" type="text" tabindex="-1" autocomplete="off">
-  </div>
-  <p class="row" style="margin-top:1rem">
-    <button class="primary" type="submit">Doğrula ve devam et</button>
-    <span class="muted">Sorunun yanıtı ${esc(pending.login || "hesabın")} için bir kez geçerli.</span>
-  </p>
-</form>
-</div>
-<p class="muted">Doğrulama yalnızca senin tarayıcında çözülür; hiçbir üçüncü tarafa veri gitmez.</p>`;
-    return this.html(resOut, 200, body, {});
-  }
-
-  private async humanEndpoint(req: http.IncomingMessage, resOut: http.ServerResponse) {
-    if (req.method !== "POST") return this.infoPage(resOut, 405, "Yalnız POST.", null);
-    const p = await this.readParams(req);
-    if (!p) return this.infoPage(resOut, 400, "İstek okunamadı.", null);
-    const t = this.verify(p.h, "hv");
-    if (!t) return this.infoPage(resOut, 400, "Doğrulama süresi doldu. Claude'dan bağlantıyı yeniden başlat.", null);
-    if (String(p.website ?? "").trim()) { this.o.audit?.({ ev: "oauth_human", ok: false, reason: "honeypot" }); return this.infoPage(resOut, 400, "Doğrulama başarısız.", null); }
-    const humanId = String(t.jti ?? "");
-    if (humanId) {
-      const nowS = this.now();
-      for (const [k, e] of this.usedHuman) if (e < nowS) this.usedHuman.delete(k);
-      if (this.usedHuman.has(humanId)) return this.infoPage(resOut, 400, "Bu doğrulama zaten kullanıldı. Claude'dan bağlantıyı yeniden başlat.", null);
-      this.usedHuman.set(humanId, Number(t.exp ?? nowS + 300));
-    }
-    const took = Date.now() - Number(t.born ?? 0);
-    if (!Number.isFinite(took) || took < 900) { this.o.audit?.({ ev: "oauth_human", ok: false, reason: "too_fast" }); return this.infoPage(resOut, 400, "Doğrulama çok hızlı tamamlandı; tekrar dene.", null); }
-    // Karşılaştırma: hem metin hem sayı olarak (boşluk, görünmez karakter, tam sayı biçimi).
-    const given = String(p.answer ?? "").trim();
-    const expected = String(t.ans ?? "").trim();
-    const givenNum = Number.parseInt(given, 10), expectedNum = Number.parseInt(expected, 10);
-    const answerOk = given !== "" && (given === expected || (Number.isFinite(givenNum) && Number.isFinite(expectedNum) && givenNum === expectedNum));
-    if (!answerOk) {
-      // Teşhis: yanıt hiçbir zaman tutmuyorsa sebebi loglardan görülsün (sayılar hassas değil).
-      console.error(`[hardtools] human-check mismatch expected=${JSON.stringify(expected)} got=${JSON.stringify(given)} jti=${humanId.slice(0, 8)}`);
-      this.o.audit?.({ ev: "oauth_human", ok: false, reason: "wrong", expected, got: given.slice(0, 32) });
-      // Çıkmaz sokak yok. Toplama yazıldıysa aynı soru korunur ve neden yanlış olduğu açıkça söylenir.
-      this.usedHuman.delete(humanId);
-      const a = Number(t.a), b = Number(t.b);
-      const env = { cid: String(t.cid ?? ""), ru: String(t.ru ?? ""), cc: String(t.cc ?? ""), st: String(t.st ?? ""), login: String(t.login ?? "") };
-      const wroteSum = Number.isFinite(a) && Number.isFinite(b) && Number.isFinite(givenNum) && givenNum === a + b;
-      if (wroteSum) {
-        return this.humanPage(resOut, env, `Yanıt yanlış: ${a} çarpı ${b} soruluyor, sen ${a} + ${b} = ${a + b} yazdın. Doğru yanıt ${a} × ${b} çarpımıdır, ${a * b}.`, { a, b });
-      }
-      return this.humanPage(resOut, env, "Yanıt yanlış. Yeni soru hazır, tekrar dene.");
-    }
-
+  /** Giriş onaylandı: kodu üret, kullanıcıyı istemcinin redirect_uri'sine geri gönder. */
+  private finishLogin(resOut: http.ServerResponse, ctx: { cid: string; ru: string; cc: string; st: string }, login: string, via: string) {
     const jti = crypto.randomBytes(12).toString("base64url");
-    if (t.login) this.o.onGrant?.(jti, String(t.login));
-    const code = this.sign({ t: "code", jti, cid: t.cid, ru: t.ru, cc: t.cc, exp: this.now() + CODE_TTL_S });
-    this.o.audit?.({ ev: "oauth_authorize", ok: true, via: "github+human", login: String(t.login ?? "").slice(0, 64) });
-    const back = new URL(String(t.ru));
+    if (login) this.o.onGrant?.(jti, login);
+    const code = this.sign({ t: "code", jti, cid: ctx.cid, ru: ctx.ru, cc: ctx.cc, exp: this.now() + CODE_TTL_S });
+    this.o.audit?.({ ev: "oauth_authorize", ok: true, via, login: String(login ?? "").slice(0, 64) });
+    const back = new URL(ctx.ru);
     back.searchParams.set("code", code);
-    if (t.st) back.searchParams.set("state", String(t.st));
+    if (ctx.st) back.searchParams.set("state", ctx.st);
     resOut.writeHead(302, { location: back.toString(), "cache-control": "no-store", "referrer-policy": "no-referrer" });
     resOut.end();
   }
@@ -562,8 +498,7 @@ ${note ? `<p class="muted">${esc(note)}</p>` : ""}
     }
     const login = who.login;
 
-    // Kod üretmeden önce bot doğrulaması.
-    return this.humanPage(res, { cid: String(state.cid), ru: String(state.ru), cc: String(state.cc), st: String(state.st ?? ""), login }, "GitHub girişi tamam. Son adım: insan doğrulaması.");
+    return this.finishLogin(res, { cid: String(state.cid), ru: String(state.ru), cc: String(state.cc), st: String(state.st ?? "") }, login, "github");
   }
 
   // ---- authorization endpoint -----------------------------------------------------------

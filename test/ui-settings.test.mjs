@@ -164,23 +164,16 @@ test("allowlist: izinli komut çalışır, izinsiz komut reddedilir", async () =
   } finally { await c.close(); }
 });
 
-test("bot kapısı: tarayıcıdan aynı origin POST kabul, yabancı origin 403", async (t) => {
+test("bot kapısı kaldırıldı: /oauth/human yok, /authorize hâlâ yalnız aynı origin", async (t) => {
   const { port } = await httpServer(t);
   const origin = `http://127.0.0.1:${port}`;
-  // aynı origin + geçersiz token: 403 değil, doğrulama hatası dönmeli
-  const own = await req(port, { method: "POST", target: "/oauth/human",
-    headers: { origin, "content-type": "application/x-www-form-urlencoded" }, body: "h=uydurma&answer=4&website=" });
-  assert.notEqual(own.status, 403, "aynı origin'den gelen form reddedilmemeli: " + own.body);
-  assert.match(own.body, /İnsan doğrulaması|süresi doldu/i);
+  // Bot kapısı tamamen kaldırıldı; eski adres artık akışın parçası değil.
+  const gone = await req(port, { method: "POST", target: "/oauth/human",
+    headers: { origin, "content-type": "application/x-www-form-urlencoded" }, body: "h=x&answer=4&website=" });
+  assert.ok(gone.status === 404 || gone.status === 401 || gone.status === 405, `bot kapısı sayfası dönmemeli: ${gone.status} ${gone.body}`);
+  assert.doesNotMatch(gone.body, /İnsan doğrulaması/);
 
-  // İmzalı token olmadan hiçbir origin işe yaramaz: yabancı origin'den gelen istek de 403 değil,
-  // doğrulama hatası alır (gömülü tarayıcılar Origin: null gönderebiliyor).
-  const evil = await req(port, { method: "POST", target: "/oauth/human",
-    headers: { origin: "https://kotu.example", "content-type": "application/x-www-form-urlencoded" }, body: "h=x&answer=4" });
-  assert.notEqual(evil.status, 403, "imzalı token yoksa da akış kırılmamalı");
-  assert.match(evil.body, /İnsan doğrulaması|süresi doldu/i);
-
-  // /authorize consent formu hâlâ yalnızca aynı origin'den kabul edilir
+  // İzin formu hâlâ yalnızca aynı origin'den kabul edilir
   const crossConsent = await req(port, { method: "POST", target: "/authorize",
     headers: { origin: "https://kotu.example", "content-type": "application/x-www-form-urlencoded" }, body: "access_token=x" });
   assert.equal(crossConsent.status, 403);

@@ -17084,8 +17084,6 @@ var OAuth = class {
   failures = [];
   extra;
   github;
-  usedHuman = /* @__PURE__ */ new Map();
-  // jti -> exp (insan doğrulaması tek kullanım)
   ghPending = /* @__PURE__ */ new Map();
   // ---- signed blobs ---------------------------------------------------------------------
   sign(p) {
@@ -17260,10 +17258,6 @@ var OAuth = class {
     }
     if (path16 === "/oauth/github/poll") {
       await this.githubPoll(req, res, origin);
-      return true;
-    }
-    if (path16 === "/oauth/human") {
-      await this.humanEndpoint(req, res);
       return true;
     }
     if (path16 === "/token") {
@@ -17457,7 +17451,7 @@ var OAuth = class {
       return this.infoPage(res, 403, `Bu GitHub hesab\u0131na izin verilmiyor${who.login ? ` (${who.login.replace(/[<>"']/g, "")})` : ""}.`, null);
     }
     this.ghPending.delete(ticket);
-    return this.humanPage(res, { cid: p.cid, ru: p.ru, cc: p.cc, st: p.st, login: who.login }, "GitHub giri\u015Fi tamam. Son ad\u0131m: insan do\u011Frulamas\u0131.");
+    return this.finishLogin(res, { cid: p.cid, ru: p.ru, cc: p.cc, st: p.st }, who.login, "github_device");
   }
   html(resOut, code, body, extra = {}) {
     resOut.writeHead(code, {
@@ -17491,87 +17485,15 @@ ${note ? `<p class="muted">${esc4(note)}</p>` : ""}
   // ---- insan doğrulaması (bot kapısı) -----------------------------------------------------
   // GitHub girişi tamamlandıktan sonra, yetki kodu üretilmeden önce basit bir insan kontrolü.
   // Durum imzalı token içinde taşınır: sunucu belleğine bağlı değildir, yeniden başlatma bozmaz.
-  humanPage(resOut, pending, note, ops) {
-    const esc4 = esc2;
-    const a = ops?.a ?? 2 + crypto3.randomInt(8), b = ops?.b ?? 2 + crypto3.randomInt(8);
-    const token = this.sign({
-      t: "hv",
-      jti: crypto3.randomBytes(9).toString("base64url"),
-      cid: pending.cid,
-      ru: pending.ru,
-      cc: pending.cc,
-      st: pending.st,
-      login: pending.login.slice(0, 64),
-      a,
-      b,
-      ans: String(a * b),
-      born: Date.now(),
-      exp: this.now() + 300
-    });
-    const body = `${heading("\u0130nsan do\u011Frulamas\u0131", note)}
-<div class="card">
-<form method="post" action="/oauth/human" autocomplete="off">
-  <input type="hidden" name="h" value="${esc4(token)}">
-  <label for="answer">${a} \xE7arp\u0131 ${b} ka\xE7 eder? <span class="muted">(${a} \xD7 ${b}, yani ${a} kere ${b}; toplama de\u011Fil)</span></label>
-  <input id="answer" name="answer" type="text" inputmode="numeric" pattern="[0-9]{1,6}" required autofocus placeholder="say\u0131">
-  <div style="position:absolute;left:-9999px" aria-hidden="true">
-    <label for="website">Bu alan\u0131 bo\u015F b\u0131rak</label>
-    <input id="website" name="website" type="text" tabindex="-1" autocomplete="off">
-  </div>
-  <p class="row" style="margin-top:1rem">
-    <button class="primary" type="submit">Do\u011Frula ve devam et</button>
-    <span class="muted">Sorunun yan\u0131t\u0131 ${esc4(pending.login || "hesab\u0131n")} i\xE7in bir kez ge\xE7erli.</span>
-  </p>
-</form>
-</div>
-<p class="muted">Do\u011Frulama yaln\u0131zca senin taray\u0131c\u0131nda \xE7\xF6z\xFCl\xFCr; hi\xE7bir \xFC\xE7\xFCnc\xFC tarafa veri gitmez.</p>`;
-    return this.html(resOut, 200, body, {});
-  }
-  async humanEndpoint(req, resOut) {
-    if (req.method !== "POST") return this.infoPage(resOut, 405, "Yaln\u0131z POST.", null);
-    const p = await this.readParams(req);
-    if (!p) return this.infoPage(resOut, 400, "\u0130stek okunamad\u0131.", null);
-    const t = this.verify(p.h, "hv");
-    if (!t) return this.infoPage(resOut, 400, "Do\u011Frulama s\xFCresi doldu. Claude'dan ba\u011Flant\u0131y\u0131 yeniden ba\u015Flat.", null);
-    if (String(p.website ?? "").trim()) {
-      this.o.audit?.({ ev: "oauth_human", ok: false, reason: "honeypot" });
-      return this.infoPage(resOut, 400, "Do\u011Frulama ba\u015Far\u0131s\u0131z.", null);
-    }
-    const humanId = String(t.jti ?? "");
-    if (humanId) {
-      const nowS = this.now();
-      for (const [k, e] of this.usedHuman) if (e < nowS) this.usedHuman.delete(k);
-      if (this.usedHuman.has(humanId)) return this.infoPage(resOut, 400, "Bu do\u011Frulama zaten kullan\u0131ld\u0131. Claude'dan ba\u011Flant\u0131y\u0131 yeniden ba\u015Flat.", null);
-      this.usedHuman.set(humanId, Number(t.exp ?? nowS + 300));
-    }
-    const took = Date.now() - Number(t.born ?? 0);
-    if (!Number.isFinite(took) || took < 900) {
-      this.o.audit?.({ ev: "oauth_human", ok: false, reason: "too_fast" });
-      return this.infoPage(resOut, 400, "Do\u011Frulama \xE7ok h\u0131zl\u0131 tamamland\u0131; tekrar dene.", null);
-    }
-    const given = String(p.answer ?? "").trim();
-    const expected = String(t.ans ?? "").trim();
-    const givenNum = Number.parseInt(given, 10), expectedNum = Number.parseInt(expected, 10);
-    const answerOk = given !== "" && (given === expected || Number.isFinite(givenNum) && Number.isFinite(expectedNum) && givenNum === expectedNum);
-    if (!answerOk) {
-      console.error(`[hardtools] human-check mismatch expected=${JSON.stringify(expected)} got=${JSON.stringify(given)} jti=${humanId.slice(0, 8)}`);
-      this.o.audit?.({ ev: "oauth_human", ok: false, reason: "wrong", expected, got: given.slice(0, 32) });
-      this.usedHuman.delete(humanId);
-      const a = Number(t.a), b = Number(t.b);
-      const env = { cid: String(t.cid ?? ""), ru: String(t.ru ?? ""), cc: String(t.cc ?? ""), st: String(t.st ?? ""), login: String(t.login ?? "") };
-      const wroteSum = Number.isFinite(a) && Number.isFinite(b) && Number.isFinite(givenNum) && givenNum === a + b;
-      if (wroteSum) {
-        return this.humanPage(resOut, env, `Yan\u0131t yanl\u0131\u015F: ${a} \xE7arp\u0131 ${b} soruluyor, sen ${a} + ${b} = ${a + b} yazd\u0131n. Do\u011Fru yan\u0131t ${a} \xD7 ${b} \xE7arp\u0131m\u0131d\u0131r, ${a * b}.`, { a, b });
-      }
-      return this.humanPage(resOut, env, "Yan\u0131t yanl\u0131\u015F. Yeni soru haz\u0131r, tekrar dene.");
-    }
+  /** Giriş onaylandı: kodu üret, kullanıcıyı istemcinin redirect_uri'sine geri gönder. */
+  finishLogin(resOut, ctx, login, via) {
     const jti = crypto3.randomBytes(12).toString("base64url");
-    if (t.login) this.o.onGrant?.(jti, String(t.login));
-    const code = this.sign({ t: "code", jti, cid: t.cid, ru: t.ru, cc: t.cc, exp: this.now() + CODE_TTL_S });
-    this.o.audit?.({ ev: "oauth_authorize", ok: true, via: "github+human", login: String(t.login ?? "").slice(0, 64) });
-    const back = new URL(String(t.ru));
+    if (login) this.o.onGrant?.(jti, login);
+    const code = this.sign({ t: "code", jti, cid: ctx.cid, ru: ctx.ru, cc: ctx.cc, exp: this.now() + CODE_TTL_S });
+    this.o.audit?.({ ev: "oauth_authorize", ok: true, via, login: String(login ?? "").slice(0, 64) });
+    const back = new URL(ctx.ru);
     back.searchParams.set("code", code);
-    if (t.st) back.searchParams.set("state", String(t.st));
+    if (ctx.st) back.searchParams.set("state", ctx.st);
     resOut.writeHead(302, { location: back.toString(), "cache-control": "no-store", "referrer-policy": "no-referrer" });
     resOut.end();
   }
@@ -17604,7 +17526,7 @@ ${note ? `<p class="muted">${esc4(note)}</p>` : ""}
       return this.infoPage(res, 403, `Bu GitHub hesab\u0131na izin verilmiyor${who.login ? ` (${who.login.replace(/[<>"']/g, "")})` : ""}.`, null);
     }
     const login = who.login;
-    return this.humanPage(res, { cid: String(state.cid), ru: String(state.ru), cc: String(state.cc), st: String(state.st ?? ""), login }, "GitHub giri\u015Fi tamam. Son ad\u0131m: insan do\u011Frulamas\u0131.");
+    return this.finishLogin(res, { cid: String(state.cid), ru: String(state.ru), cc: String(state.cc), st: String(state.st ?? "") }, login, "github");
   }
   // ---- authorization endpoint -----------------------------------------------------------
   async authorize(req, res, origin) {
@@ -26331,7 +26253,7 @@ import net from "node:net";
 import zlib from "node:zlib";
 
 // src/version.ts
-var VERSION = "0.5.16";
+var VERSION = "0.5.17";
 
 // src/net.ts
 var blocked = new net.BlockList();
@@ -29495,7 +29417,7 @@ async function main() {
       }
       if (sharedInputs.handle(req, res, path16, oauth.origin(req))) return;
       const sameOrigin = req.headers.origin === oauth.origin(req);
-      const tokenProtected = path16 === "/oauth/human" || path16.startsWith("/settings/");
+      const tokenProtected = path16.startsWith("/settings/");
       if (req.headers.origin && !sameOrigin && !tokenProtected) return send(403, "browser origins are not allowed");
       const ip = req.socket.remoteAddress ?? "?";
       const now = Date.now();
