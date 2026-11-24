@@ -17547,8 +17547,13 @@ ${note ? `<p class="muted">${esc4(note)}</p>` : ""}
       this.o.audit?.({ ev: "oauth_human", ok: false, reason: "too_fast" });
       return this.infoPage(resOut, 400, "Do\u011Frulama \xE7ok h\u0131zl\u0131 tamamland\u0131; tekrar dene.", null);
     }
-    if (String(p.answer ?? "").trim() !== String(t.ans)) {
-      this.o.audit?.({ ev: "oauth_human", ok: false, reason: "wrong" });
+    const given = String(p.answer ?? "").trim();
+    const expected = String(t.ans ?? "").trim();
+    const givenNum = Number.parseInt(given, 10), expectedNum = Number.parseInt(expected, 10);
+    const answerOk = given !== "" && (given === expected || Number.isFinite(givenNum) && Number.isFinite(expectedNum) && givenNum === expectedNum);
+    if (!answerOk) {
+      console.error(`[hardtools] human-check mismatch expected=${JSON.stringify(expected)} got=${JSON.stringify(given)} jti=${humanId.slice(0, 8)}`);
+      this.o.audit?.({ ev: "oauth_human", ok: false, reason: "wrong", expected, got: given.slice(0, 32) });
       return this.infoPage(resOut, 400, "Yan\u0131t yanl\u0131\u015F. Claude'dan ba\u011Flant\u0131y\u0131 yeniden ba\u015Flat.", null);
     }
     const jti = crypto3.randomBytes(12).toString("base64url");
@@ -26317,7 +26322,7 @@ import net from "node:net";
 import zlib from "node:zlib";
 
 // src/version.ts
-var VERSION = "0.5.13";
+var VERSION = "0.5.14";
 
 // src/net.ts
 var blocked = new net.BlockList();

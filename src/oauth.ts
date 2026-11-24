@@ -505,7 +505,17 @@ ${note ? `<p class="muted">${esc(note)}</p>` : ""}
     }
     const took = Date.now() - Number(t.born ?? 0);
     if (!Number.isFinite(took) || took < 900) { this.o.audit?.({ ev: "oauth_human", ok: false, reason: "too_fast" }); return this.infoPage(resOut, 400, "Doğrulama çok hızlı tamamlandı; tekrar dene.", null); }
-    if (String(p.answer ?? "").trim() !== String(t.ans)) { this.o.audit?.({ ev: "oauth_human", ok: false, reason: "wrong" }); return this.infoPage(resOut, 400, "Yanıt yanlış. Claude'dan bağlantıyı yeniden başlat.", null); }
+    // Karşılaştırma: hem metin hem sayı olarak (boşluk, görünmez karakter, tam sayı biçimi).
+    const given = String(p.answer ?? "").trim();
+    const expected = String(t.ans ?? "").trim();
+    const givenNum = Number.parseInt(given, 10), expectedNum = Number.parseInt(expected, 10);
+    const answerOk = given !== "" && (given === expected || (Number.isFinite(givenNum) && Number.isFinite(expectedNum) && givenNum === expectedNum));
+    if (!answerOk) {
+      // Teşhis: yanıt hiçbir zaman tutmuyorsa sebebi loglardan görülsün (sayılar hassas değil).
+      console.error(`[hardtools] human-check mismatch expected=${JSON.stringify(expected)} got=${JSON.stringify(given)} jti=${humanId.slice(0, 8)}`);
+      this.o.audit?.({ ev: "oauth_human", ok: false, reason: "wrong", expected, got: given.slice(0, 32) });
+      return this.infoPage(resOut, 400, "Yanıt yanlış. Claude'dan bağlantıyı yeniden başlat.", null);
+    }
 
     const jti = crypto.randomBytes(12).toString("base64url");
     if (t.login) this.o.onGrant?.(jti, String(t.login));
