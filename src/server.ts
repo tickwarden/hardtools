@@ -20,12 +20,15 @@ import { VERSION } from "./version.js";
 import { htUndo, touchedPaths, UndoJournal } from "./undo.js";
 import { htSchedule, Scheduler } from "./schedule.js";
 import { AccountMemory, htMemory } from "./memory.js";
+import { StateFile } from "./persist.js";
+import crypto from "node:crypto";
+import path from "node:path";
 import { ErrorCode, ListResourcesRequestSchema, ListResourceTemplatesRequestSchema, McpError, ReadResourceRequestSchema, type CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 
 // The HTTP worker can change its project tree. Do not race a running child against
 // host-side path checks (including cwd and stdin_file preparation for the next child).
 const usesProject = new Set(["ht_transfer_file", "ht_new_shell_env", "ht_stop","ht_read", "ht_write", "ht_edit", "ht_glob", "ht_search", "ht_move", "ht_mkdir", "ht_trash", "ht_empty_trash", "ht_shell", "ht_share"]);
-export const createWorkspace = (inputStore?: string, shared?: { inputs?: import("./user-input.js").UserInputs; shares?: import("./share.js").Shares; vars?: import("./variables.js").Variables }) => ({
+export const createWorkspace = (inputStore?: string, shared?: { inputs?: import("./user-input.js").UserInputs; shares?: import("./share.js").Shares; vars?: import("./variables.js").Variables; undo?: UndoJournal }) => ({
   // Değişkenler sahiplik (hesap) düzeyinde: aynı hesabın yeni sohbeti sırlarını kaybetmez.
   vars: shared?.vars ?? new Variables(),
   // input formları ve paylaşım linkleri tüm oturumlarca görülmeli (owner ile ayrılırlar),
@@ -34,7 +37,7 @@ export const createWorkspace = (inputStore?: string, shared?: { inputs?: import(
   inputs: shared?.inputs ?? new UserInputs(inputStore ? { store: inputStore } : {}),
   projectReady: Promise.resolve(),
   // HTTP'de her istek yeni bir McpServer örneği kurar; bu ikisi oturum ömrü boyunca yaşamalı.
-  undo: new UndoJournal(),
+  undo: shared?.undo ?? (undefined as UndoJournal | undefined),
   sched: undefined as Scheduler | undefined,
 });
 const asText = (text: string): CallToolResult => ({ content: [{ type: "text", text }] });
@@ -54,6 +57,8 @@ export interface ServerOptions {
   };
   /** Hesap kapsamlı not defteri (ht_memory) — köklerin dışında bir dizin. */
   memoryDir?: string;
+  /** Oturum durumu (geri alma günlüğü + zamanlanmış işler) için kalıcı dizin. */
+  state?: { dir: string; keyPath?: string };
 }
 
 export function createServer(policy: Policy, audit: Audit, workspace = createWorkspace(), owner = "stdio", origin?: string, opts: ServerOptions = {}): McpServer {
@@ -73,7 +78,11 @@ export function createServer(policy: Policy, audit: Audit, workspace = createWor
   }) as typeof server.registerTool;
 
   // Geri alma günlüğü: yalnız dosya değiştiren araçlar için çağrı öncesi ön görüntü tutar.
-  const undoJournal: UndoJournal = (workspace as { undo?: UndoJournal }).undo ?? new UndoJournal();
+  const ownerTag = crypto.createHash("sha256").update(owner.toLowerCase()).digest("hex").slice(0, 16);
+  const stateFile = (name: string) => opts.state
+    ? new StateFile(path.join(opts.state.dir, `${name}-${ownerTag}.enc`), opts.state.keyPath)
+    : undefined;
+  const undoJournal: UndoJournal = (workspace as { undo?: UndoJournal }).undo ?? new UndoJournal(stateFile("undo"));
   (workspace as { undo?: UndoJournal }).undo = undoJournal;
   const UNDOABLE = new Set(["ht_write", "ht_edit", "ht_move", "ht_trash", "ht_mkdir"]);
   const userSettings = () => opts.settings?.store.get(opts.settings.user);
@@ -84,7 +93,7 @@ export function createServer(policy: Policy, audit: Audit, workspace = createWor
     return h(args, { signal: abortSignal() });
   };
   const workspaceSched = (workspace as { sched?: Scheduler }).sched;
-  const scheduler: Scheduler = workspaceSched ?? new Scheduler(runTool);
+  const scheduler: Scheduler = workspaceSched ?? new Scheduler(runTool, stateFile("schedule"));
   (workspace as { sched?: Scheduler }).sched = scheduler;
   const memory = new AccountMemory(opts.memoryDir);
 

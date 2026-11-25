@@ -10,6 +10,7 @@ import fs from "node:fs";
 import path from "node:path";
 import type { Policy } from "./config.js";
 import { PolicyError, isInside, resolveSafe } from "./guard.js";
+import type { Persist } from "./persist.js";
 
 const MAX_OPS = 10;              // hesap başına saklanan işlem sayısı
 const MAX_OP_BYTES = 4 << 20;    // tek işlem için en çok 4 MiB ön görüntü
@@ -46,8 +47,29 @@ export function touchedPaths(tool: string, args: Record<string, unknown>): strin
   return out;
 }
 
+type StoredEntry = { tool: string; at: number; paths: string[]; complete: boolean; reason?: string;
+  snaps: { path: string; kind: "file" | "dir"; b64?: string; mode?: number }[] };
+
 export class UndoJournal {
   private byOwner = new Map<string, JournalEntry[]>();
+  constructor(private persist?: Persist) {
+    const saved = persist?.read<Record<string, StoredEntry[]>>({}) ?? {};
+    for (const [owner, list] of Object.entries(saved)) {
+      if (!Array.isArray(list)) continue;
+      this.byOwner.set(owner, list.slice(-MAX_OPS).map(e => ({
+        tool: e.tool, at: e.at, paths: e.paths ?? [], complete: Boolean(e.complete), reason: e.reason,
+        snaps: (e.snaps ?? []).map(sn => ({ path: sn.path, kind: sn.kind, mode: sn.mode, ...(sn.b64 ? { data: Buffer.from(sn.b64, "base64") } : {}) })),
+      })));
+    }
+  }
+  private save() {
+    if (!this.persist) return;
+    const out: Record<string, StoredEntry[]> = {};
+    for (const [owner, list] of this.byOwner)
+      out[owner] = list.map(e => ({ tool: e.tool, at: e.at, paths: e.paths, complete: e.complete, reason: e.reason,
+        snaps: e.snaps.map(sn => ({ path: sn.path, kind: sn.kind, mode: sn.mode, ...(sn.data ? { b64: sn.data.toString("base64") } : {}) })) }));
+    this.persist.write(out);
+  }
 
   /** Çağrı öncesi durumu kaydet. Hata yutulur: geri alma asla ana işlemi engellemez. */
   record(policy: Policy, owner: string, tool: string, args: Record<string, unknown>): void {
@@ -71,14 +93,15 @@ export class UndoJournal {
     stack.push({ tool, at: Date.now(), paths: raw, snaps: complete ? snaps : [], complete, reason: complete ? undefined : "snapshot_limit" });
     while (stack.length > MAX_OPS) stack.shift();
     this.byOwner.set(owner, stack);
+    this.save();
   }
 
   list(owner: string): JournalEntry[] { return this.byOwner.get(owner) ?? []; }
   last(owner: string): JournalEntry | undefined { return this.list(owner).at(-1); }
-  pop(owner: string): JournalEntry | undefined { const s = this.byOwner.get(owner) ?? []; const e = s.pop(); this.byOwner.set(owner, s); return e; }
+  pop(owner: string): JournalEntry | undefined { const s = this.byOwner.get(owner) ?? []; const e = s.pop(); this.byOwner.set(owner, s); this.save(); return e; }
   /** Çağrı reddedildi/başarısız olduysa son kaydı at (geri alınacak bir etki yok). */
-  dropLast(owner: string): void { const s2 = this.byOwner.get(owner); if (s2?.length) { s2.pop(); this.byOwner.set(owner, s2); } }
-  clear(owner: string): number { const n = this.list(owner).length; this.byOwner.set(owner, []); return n; }
+  dropLast(owner: string): void { const s2 = this.byOwner.get(owner); if (s2?.length) { s2.pop(); this.byOwner.set(owner, s2); this.save(); } }
+  clear(owner: string): number { const n = this.list(owner).length; this.byOwner.set(owner, []); this.save(); return n; }
 }
 
 const rel = (policy: Policy, abs: string) => policy.roots.map(r => isInside(r, abs) ? path.relative(r, abs) || "." : null).find(Boolean) ?? abs;

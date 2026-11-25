@@ -42,8 +42,22 @@ function sourceFile(p: Policy, a: ShareArgs) {
 /** One explicit export snapshots one file; a URL never maps a request path to disk. */
 export class Shares {
   private items = new Map<string, Shared>();
-  constructor(private now = Date.now) {}
-  private prune() { for (const [k, s] of this.items) if (s.expires <= this.now()) this.items.delete(k); }
+  constructor(private now = Date.now, private persist?: import("./persist.js").Persist) {
+    const saved = persist?.read<Array<Omit<Shared, "bytes"> & { b64: string }>>([]) ?? [];
+    for (const r of saved) {
+      if (!r || typeof r.id !== "string" || r.expires <= this.now()) continue;
+      try { this.items.set(r.id, { ...r, bytes: Buffer.from(r.b64, "base64") } as Shared); } catch { /* atla */ }
+    }
+  }
+  private save() {
+    if (!this.persist) return;
+    this.persist.write([...this.items.values()].map(({ bytes, ...rest }) => ({ ...rest, b64: bytes.toString("base64") })));
+  }
+  private prune() {
+    const before = this.items.size;
+    for (const [k, s] of this.items) if (s.expires <= this.now()) this.items.delete(k);
+    if (this.items.size !== before) this.save();
+  }
   private forOwner(owner: string, id?: string) {
     this.prune(); const s = id && idPattern.test(id) ? this.items.get(id) : undefined;
     if (!s || s.owner !== owner) throw new PolicyError("share_missing", "share not found or expired");
@@ -60,7 +74,7 @@ export class Shares {
       return { content: [{ type: "text", text: JSON.stringify({ cwd: SHARE_CWD, files }) }] };
     }
     if (a.action === "revoke") {
-      const s = this.forOwner(owner, a.id); this.items.delete(s.id);
+      const s = this.forOwner(owner, a.id); this.items.delete(s.id); this.save();
       return { content: [{ type: "text", text: "REVOKED: future downloads and resource reads are disabled" }] };
     }
     if (!p.fs.writeEnabled) throw new PolicyError("write_disabled", "creating a share requires write permission");
@@ -75,7 +89,7 @@ export class Shares {
     const warnings = enforceSecrets(p, bytes.toString("latin1"), "shared file");
     const id = crypto.randomBytes(32).toString("base64url");
     const s = { owner, id, bytes, name, mimeType: mime[path.extname(name).toLowerCase()] ?? "application/octet-stream", expires: this.now() + ttl * 60_000, sha256: crypto.createHash("sha256").update(bytes).digest("hex") };
-    this.items.set(id, s);
+    this.items.set(id, s); this.save();
     const url = origin && origin + SHARE_CWD + id;
     const text = JSON.stringify({ ...summary(s), ...(url && { url }), ...(warnings.length && { warnings }) });
     return { content: url ? [{ type: "text", text: `[Dosyayı indir](${url})\n${text}` }] : [{ type: "text", text }, { type: "resource", resource: resource(s) }] };
