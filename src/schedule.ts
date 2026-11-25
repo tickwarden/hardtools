@@ -6,6 +6,7 @@
  * denetim yolundan geçen bir çağrıyı ileri bir ana planlar; sonucu oturum belleğinde tutar.
  */
 import { PolicyError } from "./guard.js";
+import type { Persist } from "./persist.js";
 
 const MAX_ITEMS = 20;
 const MAX_DELAY_S = 3600;
@@ -24,10 +25,26 @@ const textOf = (r: SchedResult | string): string => {
   return t.length > MAX_RESULT ? t.slice(0, MAX_RESULT) + `\n… (${t.length - MAX_RESULT} bytes truncated)` : t;
 };
 
+const GRACE_S = 120; // yeniden başlatmadan sonra bu kadar gecikmiş iş hemen çalıştırılır
+
 export class Scheduler {
   private items: SchedItem[] = [];
   private seq = 0;
-  constructor(private run: (tool: string, args: Record<string, unknown>) => Promise<SchedResult | string>) {}
+  constructor(private run: (tool: string, args: Record<string, unknown>) => Promise<SchedResult | string>, private persist?: Persist) {
+    const saved = persist?.read<SchedItem[]>([]) ?? [];
+    const now = Date.now();
+    for (const it of saved.slice(-MAX_ITEMS)) {
+      if (!it || typeof it.tool !== "string" || it.status !== "pending") { this.items.push(it); continue; }
+      this.seq = Math.max(this.seq, Number(String(it.id).replace(/^s/, "")) || 0);
+      const late = (now - it.run_at) / 1000;
+      if (late > GRACE_S) { this.items.push({ ...it, status: "error", error: `missed: sunucu yeniden başladı (${Math.round(late)}s gecikme)` }); continue; }
+      this.items.push(it);
+      const timer = setTimeout(() => { void this.fire(it); }, Math.max(0, it.run_at - now));
+      (timer as unknown as { unref?: () => void }).unref?.();
+    }
+    this.save();
+  }
+  private save() { this.persist?.write(this.items.slice(-MAX_ITEMS)); }
 
   add(available: Set<string>, tool: string, args: Record<string, unknown>, afterS: number, maxDelayS = MAX_DELAY_S): SchedItem {
     if (!available.has(tool)) throw new PolicyError("bad_input", `bilinmeyen ya da kapalı araç: ${tool}`);
@@ -40,6 +57,7 @@ export class Scheduler {
     this.items.push(item);
     const timer = setTimeout(() => { void this.fire(item); }, delay * 1000);
     (timer as unknown as { unref?: () => void }).unref?.();
+    this.save();
     return item;
   }
 
@@ -50,6 +68,7 @@ export class Scheduler {
     try { item.result = textOf(await this.run(item.tool, item.args)); item.status = "done"; }
     catch (e) { item.error = (e as Error).message.slice(0, 400); item.status = "error"; }
     item.ms = Date.now() - t0;
+    this.save();
   }
 
   list(): SchedItem[] { return this.items.slice(-MAX_ITEMS); }
@@ -57,12 +76,13 @@ export class Scheduler {
     const done = this.items.filter(i => i.status === "done" || i.status === "error");
     const picked = ids?.length ? done.filter(i => ids.includes(i.id)) : done;
     this.items = this.items.filter(i => !picked.includes(i));
+    this.save();
     return picked;
   }
   cancel(id: string): boolean {
     const it = this.items.find(i => i.id === id);
     if (!it || it.status !== "pending") return false;
-    it.status = "cancelled"; return true;
+    it.status = "cancelled"; this.save(); return true;
   }
   get pending(): number { return this.items.filter(i => i.status === "pending" || i.status === "running").length; }
 }

@@ -18,6 +18,8 @@ import { UserInputs } from "./user-input.js";
 import { Shares } from "./share.js";
 import { Variables } from "./variables.js";
 import { page as uiPage, esc, PAGE_CSP } from "./ui.js";
+import { UndoJournal } from "./undo.js";
+import { StateFile } from "./persist.js";
 import { ALL_TOOLS, SettingsUI, UserSettingsStore } from "./settings.js";
 import { VERSION } from "./version.js";
 import { probeWorkspaceHttps, probeWorkspaceShell } from "./workspace-shell.js";
@@ -112,6 +114,10 @@ async function main() {
   const stateFile = (name: string) => stateDir ? path.join(stateDir, name) : undefined;
   /** ht_memory: oturum köklerinin dışında, hesap kapsamlı not defteri. */
   const memoryDir = stateDir ? path.join(stateDir, "memory") : undefined;
+  // Yeniden başlatmada kaybolmaması gereken oturum durumu (şifreli dosyalar).
+  const persistKey = stateDir ? path.join(stateDir, "persist.key") : undefined;
+  const persistFile = (name: string) => stateDir ? new StateFile(path.join(stateDir, name), persistKey) : undefined;
+  const undoState = persistFile("undo.enc"), schedState = persistFile("schedule.enc");
   let github: GithubIdp | undefined;
   if (ghId) {
     if (!ghLogins.length && !ghEmails.length && !ghAllowAny) {
@@ -162,8 +168,9 @@ async function main() {
   // Böylece bir oturumun klonladığı depo başka oturumlarda görünmez. HARDTOOLS_PER_SESSION_WORKSPACE=0
   // ile eski (tek, paylaşılan kök) davranışa dönülür.
   const sharedInputs = new UserInputs(inputStore ? { store: inputStore } : {});
-  const sharedShares = new Shares();
-  const sharedVars = new Variables();
+  const sharedShares = new Shares(Date.now, persistFile("shares.enc"));
+  const sharedVars = new Variables(persistFile("vars.enc"));
+  const sharedUndo = new UndoJournal(undoState);
   const perSession = (process.env.HARDTOOLS_PER_SESSION_WORKSPACE ?? "1").trim() !== "0";
   const baseRoot = policy.roots[0];
   const baseIsFsRoot = Boolean(baseRoot) && baseRoot === path.parse(baseRoot).root; // "/" gibi köklerde izolasyon yapılmaz
@@ -211,11 +218,11 @@ async function main() {
     if (grants.size > 512) grants.clear();
     const base = policyFor(owner);
     const p = dir === baseRoot ? base : { ...base, roots: [dir] };
-    const g = { policy: p, workspace: createWorkspace(undefined, { inputs: sharedInputs, shares: sharedShares, vars: sharedVars }) };
+    const g = { policy: p, workspace: createWorkspace(undefined, { inputs: sharedInputs, shares: sharedShares, vars: sharedVars, undo: sharedUndo }) };
     grants.set(key, g);
     return g;
   };
-  const workspace = createWorkspace(inputStore, { inputs: sharedInputs, shares: sharedShares, vars: sharedVars }); // ortak form/paylaşım kayıtları
+  const workspace = createWorkspace(inputStore, { inputs: sharedInputs, shares: sharedShares, vars: sharedVars, undo: sharedUndo }); // ortak form/paylaşım kayıtları
   const srv = http.createServer(async (req, res) => {
     const send = (code: number, msg: string, headers: Record<string, string> = {}) => { res.writeHead(code, { "content-type": "application/json", ...headers }); res.end(JSON.stringify({ error: msg })); };
     try {
@@ -326,6 +333,7 @@ async function main() {
           ...(sid ? { sessionId: "s-" + sid.slice(0, 12) } : {}),
           settings: { store: settingsStore, user: userFor(owner), all: ALL_TOOLS },
           ...(memoryDir ? { memoryDir } : {}),
+          ...(stateDir ? { state: { dir: stateDir, keyPath: persistKey } } : {}),
         });
       const transport = new WebStandardStreamableHTTPServerTransport({ sessionIdGenerator: sid && isInit ? () => sid! : undefined });
       if (sid && !isInit) transport.sessionId = sid; // SDK oturum kontrolünü geçmek için kimliği benimse

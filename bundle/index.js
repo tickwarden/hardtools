@@ -3367,8 +3367,8 @@ var require_utils = __commonJS({
       }
       return ind;
     }
-    function removeDotSegments(path18) {
-      let input = path18;
+    function removeDotSegments(path20) {
+      let input = path20;
       const output = [];
       let nextSlash = -1;
       let len = 0;
@@ -3442,11 +3442,11 @@ var require_utils = __commonJS({
       }
       return output.join("");
     }
-    function removeDotSegmentsRelative(path18) {
-      if (path18 === "" || path18[0] === "/") {
-        return removeDotSegments(path18);
+    function removeDotSegmentsRelative(path20) {
+      if (path20 === "" || path20[0] === "/") {
+        return removeDotSegments(path20);
       }
-      const segments = path18.split("/");
+      const segments = path20.split("/");
       const last = segments.length - 1;
       const output = [];
       let trailingDirectory = false;
@@ -3809,8 +3809,8 @@ var require_schemes = __commonJS({
       }
       if (wsComponent.resourceName) {
         const queryIndex = wsComponent.resourceName.indexOf("?");
-        const path18 = queryIndex === -1 ? wsComponent.resourceName : wsComponent.resourceName.slice(0, queryIndex);
-        wsComponent.path = path18 && path18 !== "/" ? path18 : void 0;
+        const path20 = queryIndex === -1 ? wsComponent.resourceName : wsComponent.resourceName.slice(0, queryIndex);
+        wsComponent.path = path20 && path20 !== "/" ? path20 : void 0;
         wsComponent.query = queryIndex === -1 ? void 0 : wsComponent.resourceName.slice(queryIndex + 1);
         wsComponent.resourceName = void 0;
       }
@@ -7347,12 +7347,12 @@ var require_dist = __commonJS({
         throw new Error(`Unknown format "${name}"`);
       return f;
     };
-    function addFormats(ajv, list, fs17, exportName) {
+    function addFormats(ajv, list, fs18, exportName) {
       var _a3;
       var _b;
       (_a3 = (_b = ajv.opts.code).formats) !== null && _a3 !== void 0 ? _a3 : _b.formats = (0, codegen_1._)`require("ajv-formats/dist/formats").${exportName}`;
       for (const f of list)
-        ajv.addFormat(f, fs17[f]);
+        ajv.addFormat(f, fs18[f]);
     }
     module.exports = exports = formatsPlugin;
     Object.defineProperty(exports, "__esModule", { value: true });
@@ -7597,10 +7597,10 @@ function mergeDefs(...defs) {
 function cloneDef(schema) {
   return mergeDefs(schema._zod.def);
 }
-function getElementAtPath(obj, path18) {
-  if (!path18)
+function getElementAtPath(obj, path20) {
+  if (!path20)
     return obj;
-  return path18.reduce((acc, key) => acc?.[key], obj);
+  return path20.reduce((acc, key) => acc?.[key], obj);
 }
 function promiseAllObject(promisesObj) {
   const keys = Object.keys(promisesObj);
@@ -7940,11 +7940,11 @@ function explicitlyAborted(x, startIndex = 0) {
   }
   return false;
 }
-function prefixIssues(path18, issues) {
+function prefixIssues(path20, issues) {
   return issues.map((iss) => {
     var _a3;
     (_a3 = iss).path ?? (_a3.path = []);
-    iss.path.unshift(path18);
+    iss.path.unshift(path20);
     return iss;
   });
 }
@@ -8402,16 +8402,16 @@ function flattenError(error2, mapper = (issue2) => issue2.message) {
 }
 function formatError(error2, mapper = (issue2) => issue2.message) {
   const fieldErrors = { _errors: [] };
-  const processError = (error3, path18 = []) => {
+  const processError = (error3, path20 = []) => {
     for (const issue2 of error3.issues) {
       if (issue2.code === "invalid_union" && issue2.errors.length) {
-        issue2.errors.map((issues) => processError({ issues }, [...path18, ...issue2.path]));
+        issue2.errors.map((issues) => processError({ issues }, [...path20, ...issue2.path]));
       } else if (issue2.code === "invalid_key") {
-        processError({ issues: issue2.issues }, [...path18, ...issue2.path]);
+        processError({ issues: issue2.issues }, [...path20, ...issue2.path]);
       } else if (issue2.code === "invalid_element") {
-        processError({ issues: issue2.issues }, [...path18, ...issue2.path]);
+        processError({ issues: issue2.issues }, [...path20, ...issue2.path]);
       } else {
-        const fullpath = [...path18, ...issue2.path];
+        const fullpath = [...path20, ...issue2.path];
         if (fullpath.length === 0) {
           fieldErrors._errors.push(mapper(issue2));
         } else {
@@ -12795,9 +12795,9 @@ function equalSecret(candidate, expected) {
 }
 
 // src/index.ts
-import crypto12 from "node:crypto";
-import fs16 from "node:fs";
-import path17 from "node:path";
+import crypto14 from "node:crypto";
+import fs17 from "node:fs";
+import path19 from "node:path";
 import { basename as pathBase, dirname as pathDir } from "node:path";
 import http3 from "node:http";
 
@@ -17234,10 +17234,10 @@ var OAuth = class {
   // ---- routing --------------------------------------------------------------------------
   /** Returns true when the request was an OAuth/discovery/invite route and has been fully handled. */
   async handle(req, res) {
-    const path18 = (req.url ?? "").split("?")[0];
+    const path20 = (req.url ?? "").split("?")[0];
     const method = req.method ?? "GET";
     const origin = this.origin(req);
-    if (path18 === "/.well-known/oauth-protected-resource" || path18 === "/.well-known/oauth-protected-resource/mcp") {
+    if (path20 === "/.well-known/oauth-protected-resource" || path20 === "/.well-known/oauth-protected-resource/mcp") {
       if (method !== "GET") {
         this.oerr(res, 405, "invalid_request", "GET only");
         return true;
@@ -17245,7 +17245,7 @@ var OAuth = class {
       this.json(res, 200, { resource: `${origin}/mcp`, authorization_servers: [origin], bearer_methods_supported: ["header"] });
       return true;
     }
-    if (path18 === "/.well-known/oauth-authorization-server" || path18 === "/.well-known/oauth-authorization-server/mcp") {
+    if (path20 === "/.well-known/oauth-authorization-server" || path20 === "/.well-known/oauth-authorization-server/mcp") {
       if (method !== "GET") {
         this.oerr(res, 405, "invalid_request", "GET only");
         return true;
@@ -17263,47 +17263,47 @@ var OAuth = class {
       });
       return true;
     }
-    if (path18 === "/register") {
+    if (path20 === "/register") {
       await this.register(req, res);
       return true;
     }
-    if (path18 === "/authorize") {
+    if (path20 === "/authorize") {
       await this.authorize(req, res, origin);
       return true;
     }
-    if (path18 === "/oauth/github/callback") {
+    if (path20 === "/oauth/github/callback") {
       await this.githubCallback(req, res, origin);
       return true;
     }
-    if (path18 === "/oauth/github/poll") {
+    if (path20 === "/oauth/github/poll") {
       await this.githubPoll(req, res, origin);
       return true;
     }
-    if (path18 === "/device/authorize") {
+    if (path20 === "/device/authorize") {
       await this.deviceAuthorize(req, res, origin);
       return true;
     }
-    if (path18 === "/device") {
+    if (path20 === "/device") {
       await this.devicePage(req, res, origin);
       return true;
     }
-    if (path18 === "/token") {
+    if (path20 === "/token") {
       await this.tokenEndpoint(req, res);
       return true;
     }
-    if (path18.startsWith("/invite/")) {
-      await this.handleInvite(req, res, path18, origin);
+    if (path20.startsWith("/invite/")) {
+      await this.handleInvite(req, res, path20, origin);
       return true;
     }
     return false;
   }
   // ---- /invite/<code> -------------------------------------------------------------------
-  async handleInvite(req, res, path18, origin) {
+  async handleInvite(req, res, path20, origin) {
     if (req.method !== "GET") {
       this.oerr(res, 405, "invalid_request", "GET only");
       return;
     }
-    const code = decodeURIComponent(path18.slice("/invite/".length));
+    const code = decodeURIComponent(path20.slice("/invite/".length));
     const sessionId = this.redeemInvite(code);
     if (!sessionId) {
       this.page(res, 410, "Bu davet kullan\u0131lm\u0131\u015F veya s\xFCresi dolmu\u015F. Daveti az \xF6nce a\xE7t\u0131ysan ayn\u0131 taray\u0131c\u0131 profilinde Claude\u2019dan devam et. Aksi halde yay\u0131n sahibiyle ileti\u015Fime ge\xE7.", null);
@@ -18126,8 +18126,8 @@ function getErrorMap() {
 
 // node_modules/zod/v3/helpers/parseUtil.js
 var makeIssue = (params) => {
-  const { data, path: path18, errorMaps, issueData } = params;
-  const fullPath = [...path18, ...issueData.path || []];
+  const { data, path: path20, errorMaps, issueData } = params;
+  const fullPath = [...path20, ...issueData.path || []];
   const fullIssue = {
     ...issueData,
     path: fullPath
@@ -18242,11 +18242,11 @@ var errorUtil;
 
 // node_modules/zod/v3/types.js
 var ParseInputLazyPath = class {
-  constructor(parent, value, path18, key) {
+  constructor(parent, value, path20, key) {
     this._cachedPath = [];
     this.parent = parent;
     this.data = value;
-    this._path = path18;
+    this._path = path20;
     this._key = key;
   }
   get path() {
@@ -21797,11 +21797,11 @@ function normalizeObjectSchema(schema) {
   }
   return void 0;
 }
-function getDotPath(path18) {
-  if (path18.length === 0) {
+function getDotPath(path20) {
+  if (path20.length === 0) {
     return "object root";
   }
-  return path18.reduce((acc, seg, index) => {
+  return path20.reduce((acc, seg, index) => {
     if (index === 0) {
       return String(seg);
     }
@@ -26395,7 +26395,7 @@ function anyMatch(patterns, value) {
 }
 
 // src/version.ts
-var VERSION = "1.5.25";
+var VERSION = "1.5.26";
 
 // src/net.ts
 var blocked = new net.BlockList();
@@ -26736,7 +26736,21 @@ var MAX_VARS = 32;
 var MAX_SCOPES = 128;
 var IDLE_MS = 12 * 36e5;
 var Variables = class {
+  constructor(persist) {
+    this.persist = persist;
+    const saved = persist?.read({}) ?? {};
+    const now = Date.now();
+    for (const [owner, v] of Object.entries(saved))
+      if (v && now - v.at < IDLE_MS && Array.isArray(v.vars)) this.scopes.set(owner, { at: v.at, vars: new Map(v.vars) });
+  }
+  persist;
   scopes = /* @__PURE__ */ new Map();
+  save() {
+    if (!this.persist) return;
+    const out = {};
+    for (const [owner, v] of this.scopes) out[owner] = { at: v.at, vars: [...v.vars] };
+    this.persist.write(out);
+  }
   scope(p, owner, create = false) {
     if (!p.shell.enabled) throw new PolicyError("shell_disabled", "shell variables require an enabled shell");
     const now = Date.now();
@@ -26757,12 +26771,14 @@ var Variables = class {
     if (vars.has(key) && !a.overwrite) throw new PolicyError("var_exists", "already set; use overwrite=true to replace");
     if (!vars.has(key) && vars.size >= MAX_VARS) throw new PolicyError("var_limit", `maximum ${MAX_VARS} variables`);
     vars.set(key, a.value);
+    this.save();
     return `SET ${key}; pass its name in ht_shell.inherit_vars to use it`;
   }
   /** Drop every variable of this scope (used when the environment is reset). */
   clear(owner) {
     const s = this.scopes.get(owner);
     this.scopes.delete(owner);
+    this.save();
     return s ? s.vars.size : 0;
   }
   list(p, owner) {
@@ -26772,6 +26788,7 @@ var Variables = class {
     const key = varName(name), vars = this.scope(p, owner);
     if (!vars?.delete(key)) return `NOT SET ${key}`;
     if (!vars.size) this.scopes.delete(owner);
+    this.save();
     return `DELETED ${key}`;
   }
   select(p, owner, names = []) {
@@ -27653,13 +27670,29 @@ function sourceFile(p, a) {
   return r.abs;
 }
 var Shares = class {
-  constructor(now = Date.now) {
+  constructor(now = Date.now, persist) {
     this.now = now;
+    this.persist = persist;
+    const saved = persist?.read([]) ?? [];
+    for (const r of saved) {
+      if (!r || typeof r.id !== "string" || r.expires <= this.now()) continue;
+      try {
+        this.items.set(r.id, { ...r, bytes: Buffer.from(r.b64, "base64") });
+      } catch {
+      }
+    }
   }
   now;
+  persist;
   items = /* @__PURE__ */ new Map();
+  save() {
+    if (!this.persist) return;
+    this.persist.write([...this.items.values()].map(({ bytes, ...rest }) => ({ ...rest, b64: bytes.toString("base64") })));
+  }
   prune() {
+    const before = this.items.size;
     for (const [k, s] of this.items) if (s.expires <= this.now()) this.items.delete(k);
+    if (this.items.size !== before) this.save();
   }
   forOwner(owner, id) {
     this.prune();
@@ -27682,6 +27715,7 @@ var Shares = class {
     if (a.action === "revoke") {
       const s2 = this.forOwner(owner, a.id);
       this.items.delete(s2.id);
+      this.save();
       return { content: [{ type: "text", text: "REVOKED: future downloads and resource reads are disabled" }] };
     }
     if (!p.fs.writeEnabled) throw new PolicyError("write_disabled", "creating a share requires write permission");
@@ -27697,6 +27731,7 @@ var Shares = class {
     const id = crypto7.randomBytes(32).toString("base64url");
     const s = { owner, id, bytes, name, mimeType: mime[path10.extname(name).toLowerCase()] ?? "application/octet-stream", expires: this.now() + ttl * 6e4, sha256: crypto7.createHash("sha256").update(bytes).digest("hex") };
     this.items.set(id, s);
+    this.save();
     const url = origin && origin + SHARE_CWD + id;
     const text = JSON.stringify({ ...summary(s), ...url && { url }, ...warnings.length && { warnings } });
     return { content: url ? [{ type: "text", text: `[Dosyay\u0131 indir](${url})
@@ -28305,8 +28340,8 @@ var UserInputs = class {
   }
   // ---- browser UI -------------------------------------------------------------------
   /** Serve /ui/input/<id>. Returns false when the path is not ours. */
-  handle(req, res, path18, origin) {
-    const m = /^\/ui\/input\/([A-Za-z0-9_-]{20,64})$/.exec(path18);
+  handle(req, res, path20, origin) {
+    const m = /^\/ui\/input\/([A-Za-z0-9_-]{20,64})$/.exec(path20);
     if (!m) return false;
     const id = m[1];
     const req_ = this.byId.get(id);
@@ -28353,7 +28388,7 @@ var UserInputs = class {
           }).join("") : "";
           page2(200, shell(`<p>Kaydedildi. Sohbete d\xF6n${secrets ? "" : `; de\u011Fer <code>$HT_USER_INPUT</code> olarak kullan\u0131labilir`}.</p>${summary2 ? `<ul class="m">${summary2}</ul>` : ""}${secrets ? `<p class="m">Gizli de\u011Ferler bu sayfada tekrar g\xF6sterilmez; modelin g\xF6rece\u011Fi \xE7\u0131kt\u0131da maskelenir.</p>` : ""}`));
         } catch (e) {
-          return page2(400, shell(`<p class="e">${esc3(e.message)}</p><p class="m"><a href="${esc3(path18)}">Geri d\xF6n</a></p>`));
+          return page2(400, shell(`<p class="e">${esc3(e.message)}</p><p class="m"><a href="${esc3(path20)}">Geri d\xF6n</a></p>`));
         }
       });
       req.on("error", () => {
@@ -28378,10 +28413,10 @@ var UserInputs = class {
     };
     const mins = Math.max(1, Math.round((req_.expiresAt - Date.now()) / 6e4));
     const body = req_.fields ? `<p class="q">${esc3(req_.title)}</p>${req_.help ? `<p class="m">${esc3(req_.help)}</p>` : ""}
-<form method="post" action="${esc3(path18)}" autocomplete="off"><fieldset>${req_.fields.map(field).join("")}</fieldset>
+<form method="post" action="${esc3(path20)}" autocomplete="off"><fieldset>${req_.fields.map(field).join("")}</fieldset>
 <button type="submit">G\xF6nder</button><button type="submit" name="action" value="cancel" formnovalidate>Vazge\xE7</button></form>
 <p class="m">Yan\u0131tlar <code>$HT_USER_INPUT</code> (JSON) ve her alan i\xE7in <code>$HT_USER_INPUT_ADI</code> olarak komutlara ge\xE7er. Bu ba\u011Flant\u0131 tek kullan\u0131ml\u0131kt\u0131r, ~${mins} dk ge\xE7erlidir.</p>` : `<p class="q">${esc3(req_.title)}</p>
-<form method="post" action="${esc3(path18)}" autocomplete="off">${field({ name: req_.secret ? "secret" : "value", title: "Yan\u0131t", kind: req_.kind, secret: req_.secret, required: true, ...req_.choices ? { choices: req_.choices } : {}, ...req_.default !== void 0 ? { default: req_.default } : {}, ...req_.placeholder ? { placeholder: req_.placeholder } : {} })}
+<form method="post" action="${esc3(path20)}" autocomplete="off">${field({ name: req_.secret ? "secret" : "value", title: "Yan\u0131t", kind: req_.kind, secret: req_.secret, required: true, ...req_.choices ? { choices: req_.choices } : {}, ...req_.default !== void 0 ? { default: req_.default } : {}, ...req_.placeholder ? { placeholder: req_.placeholder } : {} })}
 <button type="submit">G\xF6nder</button><button type="submit" name="action" value="cancel" formnovalidate>Vazge\xE7</button></form>
 <p class="m">${req_.secret ? "Bu de\u011Fer gizli kabul edilir: sohbete geri d\xF6nmez, denetim kayd\u0131na yaz\u0131lmaz, komut \xE7\u0131kt\u0131s\u0131nda maskelenir." : `T\xFCr: ${esc3(req_.kind)}. De\u011Fer <code>$HT_USER_INPUT</code> olarak komutlara ge\xE7er.`} ~${mins} dk ge\xE7erlidir.</p>`;
     page2(200, shell(body));
@@ -28432,7 +28467,37 @@ function touchedPaths(tool, args) {
   return out;
 }
 var UndoJournal = class {
+  constructor(persist) {
+    this.persist = persist;
+    const saved = persist?.read({}) ?? {};
+    for (const [owner, list] of Object.entries(saved)) {
+      if (!Array.isArray(list)) continue;
+      this.byOwner.set(owner, list.slice(-MAX_OPS).map((e) => ({
+        tool: e.tool,
+        at: e.at,
+        paths: e.paths ?? [],
+        complete: Boolean(e.complete),
+        reason: e.reason,
+        snaps: (e.snaps ?? []).map((sn) => ({ path: sn.path, kind: sn.kind, mode: sn.mode, ...sn.b64 ? { data: Buffer.from(sn.b64, "base64") } : {} }))
+      })));
+    }
+  }
+  persist;
   byOwner = /* @__PURE__ */ new Map();
+  save() {
+    if (!this.persist) return;
+    const out = {};
+    for (const [owner, list] of this.byOwner)
+      out[owner] = list.map((e) => ({
+        tool: e.tool,
+        at: e.at,
+        paths: e.paths,
+        complete: e.complete,
+        reason: e.reason,
+        snaps: e.snaps.map((sn) => ({ path: sn.path, kind: sn.kind, mode: sn.mode, ...sn.data ? { b64: sn.data.toString("base64") } : {} }))
+      }));
+    this.persist.write(out);
+  }
   /** Çağrı öncesi durumu kaydet. Hata yutulur: geri alma asla ana işlemi engellemez. */
   record(policy, owner, tool, args) {
     const raw = touchedPaths(tool, args);
@@ -28464,6 +28529,7 @@ var UndoJournal = class {
     stack.push({ tool, at: Date.now(), paths: raw, snaps: complete ? snaps : [], complete, reason: complete ? void 0 : "snapshot_limit" });
     while (stack.length > MAX_OPS) stack.shift();
     this.byOwner.set(owner, stack);
+    this.save();
   }
   list(owner) {
     return this.byOwner.get(owner) ?? [];
@@ -28475,6 +28541,7 @@ var UndoJournal = class {
     const s = this.byOwner.get(owner) ?? [];
     const e = s.pop();
     this.byOwner.set(owner, s);
+    this.save();
     return e;
   }
   /** Çağrı reddedildi/başarısız olduysa son kaydı at (geri alınacak bir etki yok). */
@@ -28483,11 +28550,13 @@ var UndoJournal = class {
     if (s2?.length) {
       s2.pop();
       this.byOwner.set(owner, s2);
+      this.save();
     }
   }
   clear(owner) {
     const n = this.list(owner).length;
     this.byOwner.set(owner, []);
+    this.save();
     return n;
   }
 };
@@ -28554,13 +28623,39 @@ var textOf = (r) => {
   return t.length > MAX_RESULT ? t.slice(0, MAX_RESULT) + `
 \u2026 (${t.length - MAX_RESULT} bytes truncated)` : t;
 };
+var GRACE_S = 120;
 var Scheduler = class {
-  constructor(run) {
+  constructor(run, persist) {
     this.run = run;
+    this.persist = persist;
+    const saved = persist?.read([]) ?? [];
+    const now = Date.now();
+    for (const it of saved.slice(-MAX_ITEMS2)) {
+      if (!it || typeof it.tool !== "string" || it.status !== "pending") {
+        this.items.push(it);
+        continue;
+      }
+      this.seq = Math.max(this.seq, Number(String(it.id).replace(/^s/, "")) || 0);
+      const late2 = (now - it.run_at) / 1e3;
+      if (late2 > GRACE_S) {
+        this.items.push({ ...it, status: "error", error: `missed: sunucu yeniden ba\u015Flad\u0131 (${Math.round(late2)}s gecikme)` });
+        continue;
+      }
+      this.items.push(it);
+      const timer = setTimeout(() => {
+        void this.fire(it);
+      }, Math.max(0, it.run_at - now));
+      timer.unref?.();
+    }
+    this.save();
   }
   run;
+  persist;
   items = [];
   seq = 0;
+  save() {
+    this.persist?.write(this.items.slice(-MAX_ITEMS2));
+  }
   add(available, tool, args, afterS, maxDelayS = MAX_DELAY_S) {
     if (!available.has(tool)) throw new PolicyError("bad_input", `bilinmeyen ya da kapal\u0131 ara\xE7: ${tool}`);
     if (FORBIDDEN.has(tool)) throw new PolicyError("bad_input", `${tool} zamanlanamaz`);
@@ -28574,6 +28669,7 @@ var Scheduler = class {
       void this.fire(item);
     }, delay * 1e3);
     timer.unref?.();
+    this.save();
     return item;
   }
   async fire(item) {
@@ -28588,6 +28684,7 @@ var Scheduler = class {
       item.status = "error";
     }
     item.ms = Date.now() - t0;
+    this.save();
   }
   list() {
     return this.items.slice(-MAX_ITEMS2);
@@ -28596,12 +28693,14 @@ var Scheduler = class {
     const done = this.items.filter((i) => i.status === "done" || i.status === "error");
     const picked = ids?.length ? done.filter((i) => ids.includes(i.id)) : done;
     this.items = this.items.filter((i) => !picked.includes(i));
+    this.save();
     return picked;
   }
   cancel(id) {
     const it = this.items.find((i) => i.id === id);
     if (!it || it.status !== "pending") return false;
     it.status = "cancelled";
+    this.save();
     return true;
   }
   get pending() {
@@ -28724,7 +28823,69 @@ ${e.value}` : `MEMORY: ${a.key} yok`;
 ${items.map((i) => `${i.key} \xB7 ${i.bytes} bayt \xB7 ${new Date(i.updated).toISOString().slice(0, 16).replace("T", " ")}`).join("\n")}`;
 }
 
+// src/persist.ts
+import crypto11 from "node:crypto";
+import fs15 from "node:fs";
+import path16 from "node:path";
+var StateFile = class {
+  constructor(file, keyPath) {
+    this.file = file;
+    this.keyPath = keyPath;
+  }
+  file;
+  keyPath;
+  get path() {
+    return this.file;
+  }
+  key() {
+    const p = this.keyPath ?? `${this.file}.key`;
+    try {
+      const b = fs15.readFileSync(p);
+      if (b.length === 32) return b;
+    } catch {
+    }
+    const k = crypto11.randomBytes(32);
+    fs15.mkdirSync(path16.dirname(p), { recursive: true, mode: 448 });
+    fs15.writeFileSync(p, k, { mode: 384 });
+    return k;
+  }
+  /** Bozuk/eski/eksik dosya: sessizce varsayılana döner (sunucu açılmaz diye durmaz). */
+  read(fallback) {
+    if (!this.file) return fallback;
+    let raw;
+    try {
+      raw = fs15.readFileSync(this.file);
+    } catch {
+      return fallback;
+    }
+    try {
+      if (raw.subarray(0, 4).toString() !== "HT1:") return fallback;
+      const iv = raw.subarray(4, 16), tag = raw.subarray(16, 32), body = raw.subarray(32);
+      const d = crypto11.createDecipheriv("aes-256-gcm", this.key(), iv);
+      d.setAuthTag(tag);
+      return JSON.parse(Buffer.concat([d.update(body), d.final()]).toString("utf8"));
+    } catch {
+      return fallback;
+    }
+  }
+  write(value) {
+    if (!this.file) return;
+    try {
+      const iv = crypto11.randomBytes(12);
+      const c = crypto11.createCipheriv("aes-256-gcm", this.key(), iv);
+      const body = Buffer.concat([c.update(JSON.stringify(value), "utf8"), c.final()]);
+      fs15.mkdirSync(path16.dirname(this.file), { recursive: true, mode: 448 });
+      const tmp = `${this.file}.tmp-${process.pid}`;
+      fs15.writeFileSync(tmp, Buffer.concat([Buffer.from("HT1:"), iv, c.getAuthTag(), body]), { mode: 384 });
+      fs15.renameSync(tmp, this.file);
+    } catch {
+    }
+  }
+};
+
 // src/server.ts
+import crypto12 from "node:crypto";
+import path17 from "node:path";
 var usesProject = /* @__PURE__ */ new Set(["ht_transfer_file", "ht_new_shell_env", "ht_stop", "ht_read", "ht_write", "ht_edit", "ht_glob", "ht_search", "ht_move", "ht_mkdir", "ht_trash", "ht_empty_trash", "ht_shell", "ht_share"]);
 var createWorkspace = (inputStore, shared) => ({
   // Değişkenler sahiplik (hesap) düzeyinde: aynı hesabın yeni sohbeti sırlarını kaybetmez.
@@ -28735,7 +28896,7 @@ var createWorkspace = (inputStore, shared) => ({
   inputs: shared?.inputs ?? new UserInputs(inputStore ? { store: inputStore } : {}),
   projectReady: Promise.resolve(),
   // HTTP'de her istek yeni bir McpServer örneği kurar; bu ikisi oturum ömrü boyunca yaşamalı.
-  undo: new UndoJournal(),
+  undo: shared?.undo ?? void 0,
   sched: void 0
 });
 var asText = (text) => ({ content: [{ type: "text", text }] });
@@ -28753,7 +28914,9 @@ function createServer(policy, audit, workspace = createWorkspace(), owner = "std
     handlers.set(name, cb);
     return server.registerTool(name, cfg, cb);
   });
-  const undoJournal = workspace.undo ?? new UndoJournal();
+  const ownerTag = crypto12.createHash("sha256").update(owner.toLowerCase()).digest("hex").slice(0, 16);
+  const stateFile = (name) => opts.state ? new StateFile(path17.join(opts.state.dir, `${name}-${ownerTag}.enc`), opts.state.keyPath) : void 0;
+  const undoJournal = workspace.undo ?? new UndoJournal(stateFile("undo"));
   workspace.undo = undoJournal;
   const UNDOABLE = /* @__PURE__ */ new Set(["ht_write", "ht_edit", "ht_move", "ht_trash", "ht_mkdir"]);
   const userSettings = () => opts.settings?.store.get(opts.settings.user);
@@ -28764,7 +28927,7 @@ function createServer(policy, audit, workspace = createWorkspace(), owner = "std
     return h(args, { signal: abortSignal() });
   };
   const workspaceSched = workspace.sched;
-  const scheduler = workspaceSched ?? new Scheduler(runTool);
+  const scheduler = workspaceSched ?? new Scheduler(runTool, stateFile("schedule"));
   workspace.sched = scheduler;
   const memory = new AccountMemory(opts.memoryDir);
   const wrap = (tool, fn) => async (args, extra) => {
@@ -29319,9 +29482,9 @@ Returned: {status, question, selected[], custom, request_id, elapsed_s}.`,
 }
 
 // src/settings.ts
-import crypto11 from "node:crypto";
-import fs15 from "node:fs";
-import path16 from "node:path";
+import crypto13 from "node:crypto";
+import fs16 from "node:fs";
+import path18 from "node:path";
 var ALL_TOOLS = [
   "ht_read",
   "ht_write",
@@ -29387,8 +29550,8 @@ var UserSettingsStore = class {
   // ---- kalıcılık ---------------------------------------------------------------------------
   load() {
     try {
-      if (this.store && fs15.existsSync(this.store)) {
-        const d = JSON.parse(fs15.readFileSync(this.store, "utf8"));
+      if (this.store && fs16.existsSync(this.store)) {
+        const d = JSON.parse(fs16.readFileSync(this.store, "utf8"));
         for (const [u, s] of Object.entries(d.users ?? {})) this.users.set(u, { ...defaultSettings(), ...s });
         for (const [g, u] of Object.entries(d.grants ?? {})) this.grants.set(g, u);
         for (const g of d.revoked ?? []) this.revoked.add(g);
@@ -29399,12 +29562,12 @@ var UserSettingsStore = class {
   save() {
     if (!this.store) return;
     try {
-      fs15.mkdirSync(path16.dirname(this.store), { recursive: true, mode: 448 });
+      fs16.mkdirSync(path18.dirname(this.store), { recursive: true, mode: 448 });
       const items = Object.fromEntries(this.users);
       const grants = Object.fromEntries(this.grants);
       const tmp = this.store + ".tmp";
-      fs15.writeFileSync(tmp, JSON.stringify({ v: 1, users: items, grants, revoked: [...this.revoked] }), { mode: 384 });
-      fs15.renameSync(tmp, this.store);
+      fs16.writeFileSync(tmp, JSON.stringify({ v: 1, users: items, grants, revoked: [...this.revoked] }), { mode: 384 });
+      fs16.renameSync(tmp, this.store);
     } catch {
     }
   }
@@ -29413,14 +29576,14 @@ var UserSettingsStore = class {
   refreshIfChanged() {
     if (!this.store) return;
     try {
-      const m = fs15.statSync(this.store).mtimeMs;
+      const m = fs16.statSync(this.store).mtimeMs;
       if (m !== this.mtime) {
         this.mtime = m;
         this.users.clear();
         this.grants.clear();
         this.revoked.clear();
         this.load();
-        this.mtime = fs15.statSync(this.store).mtimeMs;
+        this.mtime = fs16.statSync(this.store).mtimeMs;
       }
     } catch {
     }
@@ -29486,15 +29649,15 @@ var UserSettingsStore = class {
   signingKey() {
     if (this.key) return this.key;
     try {
-      if (this.keyPath && fs15.existsSync(this.keyPath)) this.key = fs15.readFileSync(this.keyPath);
+      if (this.keyPath && fs16.existsSync(this.keyPath)) this.key = fs16.readFileSync(this.keyPath);
     } catch {
     }
     if (!this.key || this.key.length < 32) {
-      this.key = crypto11.randomBytes(32);
+      this.key = crypto13.randomBytes(32);
       try {
         if (this.keyPath) {
-          fs15.mkdirSync(path16.dirname(this.keyPath), { recursive: true, mode: 448 });
-          fs15.writeFileSync(this.keyPath, this.key, { mode: 384 });
+          fs16.mkdirSync(path18.dirname(this.keyPath), { recursive: true, mode: 448 });
+          fs16.writeFileSync(this.keyPath, this.key, { mode: 384 });
         }
       } catch {
       }
@@ -29504,7 +29667,7 @@ var UserSettingsStore = class {
   cookieFor(user, ttlS = 12 * 3600) {
     const exp = Math.floor(Date.now() / 1e3) + ttlS;
     const body = `${Buffer.from(user).toString("base64url")}.${exp}`;
-    const sig = crypto11.createHmac("sha256", this.signingKey()).update(body).digest("base64url");
+    const sig = crypto13.createHmac("sha256", this.signingKey()).update(body).digest("base64url");
     return `${body}.${sig}`;
   }
   userFromCookie(value) {
@@ -29513,8 +29676,8 @@ var UserSettingsStore = class {
     if (parts.length !== 3) return null;
     const [b64, exp, sig] = parts;
     const body = `${b64}.${exp}`;
-    const want = crypto11.createHmac("sha256", this.signingKey()).update(body).digest("base64url");
-    if (sig.length !== want.length || !crypto11.timingSafeEqual(Buffer.from(sig), Buffer.from(want))) return null;
+    const want = crypto13.createHmac("sha256", this.signingKey()).update(body).digest("base64url");
+    if (sig.length !== want.length || !crypto13.timingSafeEqual(Buffer.from(sig), Buffer.from(want))) return null;
     if (Number(exp) * 1e3 < Date.now()) return null;
     try {
       return Buffer.from(b64, "base64url").toString("utf8") || null;
@@ -29730,7 +29893,7 @@ ${gh ? `<p class="muted">Claude'da ba\u011Flan\u0131rken kulland\u0131\u011F\u01
     const p = await this.body(req);
     const given = String(p?.get("token") ?? "").trim();
     const want = this.o.operatorToken ?? "";
-    if (!want || given.length !== want.length || !crypto11.timingSafeEqual(Buffer.from(given), Buffer.from(want)))
+    if (!want || given.length !== want.length || !crypto13.timingSafeEqual(Buffer.from(given), Buffer.from(want)))
       return this.loginPage(res, "Token yanl\u0131\u015F.");
     const user = "operator";
     this.setCookie(res, this.o.store.cookieFor(user), origin.startsWith("https://"), 12 * 3600);
@@ -29753,7 +29916,7 @@ ${gh ? `<p class="muted">Claude'da ba\u011Flan\u0131rken kulland\u0131\u011F\u01
       body: new URLSearchParams({ client_id: gh.clientId, scope: "read:user user:email" }).toString()
     });
     if (!dc || typeof dc.device_code !== "string") return this.loginPage(res, "GitHub'dan kod al\u0131namad\u0131, tekrar dene.");
-    const t = crypto11.randomBytes(18).toString("base64url");
+    const t = crypto13.randomBytes(18).toString("base64url");
     this.pending.set(t, {
       deviceCode: dc.device_code,
       userCode: String(dc.user_code),
@@ -29884,7 +30047,7 @@ async function main() {
   const loginFree = isPublic && (publicMode === "key" || publicTools !== null || anonAll);
   const loginRequired = isPublic && !loginFree;
   if (isPublic) console.error(`[hardtools] public connector mode=${publicMode}; tools=${publicTools ? [...publicTools].join(",") : "all"}; ${loginFree ? "no OAuth challenge" : "login required (bearer or OAuth)"}${anonAll && !publicTools ? " (HARDTOOLS_PUBLIC_ANON: tam set giri\u015Fsiz)" : ""}`);
-  const keyId = publicKey ? crypto12.createHash("sha256").update(publicKey).digest("hex").slice(0, 12) : "open";
+  const keyId = publicKey ? crypto14.createHash("sha256").update(publicKey).digest("hex").slice(0, 12) : "open";
   const publicOwner = (viaKey) => viaKey ? `public:${keyId}` : "public";
   const token = process.env.HARDTOOLS_HTTP_TOKEN ?? "";
   const hasToken = token.length >= 32;
@@ -29902,9 +30065,12 @@ async function main() {
   const ghLogins = (process.env.HARDTOOLS_OAUTH_ALLOWED_LOGINS ?? "").split(",").map((s) => s.trim()).filter(Boolean);
   const ghEmails = (process.env.HARDTOOLS_OAUTH_ALLOWED_EMAILS ?? "").split(",").map((s) => s.trim()).filter(Boolean);
   const ghAllowAny = ["1", "true", "yes", "*"].includes((process.env.HARDTOOLS_OAUTH_ALLOW_ANY ?? "").trim().toLowerCase()) || ghLogins.includes("*") || ghEmails.includes("*");
-  const stateDir = process.env.HARDTOOLS_STATE_DIR?.trim() || (policy.audit.dir ? path17.join(policy.audit.dir, "state") : void 0);
-  const stateFile = (name) => stateDir ? path17.join(stateDir, name) : void 0;
-  const memoryDir = stateDir ? path17.join(stateDir, "memory") : void 0;
+  const stateDir = process.env.HARDTOOLS_STATE_DIR?.trim() || (policy.audit.dir ? path19.join(policy.audit.dir, "state") : void 0);
+  const stateFile = (name) => stateDir ? path19.join(stateDir, name) : void 0;
+  const memoryDir = stateDir ? path19.join(stateDir, "memory") : void 0;
+  const persistKey = stateDir ? path19.join(stateDir, "persist.key") : void 0;
+  const persistFile = (name) => stateDir ? new StateFile(path19.join(stateDir, name), persistKey) : void 0;
+  const undoState = persistFile("undo.enc"), schedState = persistFile("schedule.enc");
   let github;
   if (ghId) {
     if (!ghLogins.length && !ghEmails.length && !ghAllowAny) {
@@ -29949,17 +30115,18 @@ async function main() {
   }
   const inputStore = stateFile("inputs.json");
   const sharedInputs = new UserInputs(inputStore ? { store: inputStore } : {});
-  const sharedShares = new Shares();
-  const sharedVars = new Variables();
+  const sharedShares = new Shares(Date.now, persistFile("shares.enc"));
+  const sharedVars = new Variables(persistFile("vars.enc"));
+  const sharedUndo = new UndoJournal(undoState);
   const perSession = (process.env.HARDTOOLS_PER_SESSION_WORKSPACE ?? "1").trim() !== "0";
   const baseRoot = policy.roots[0];
-  const baseIsFsRoot = Boolean(baseRoot) && baseRoot === path17.parse(baseRoot).root;
+  const baseIsFsRoot = Boolean(baseRoot) && baseRoot === path19.parse(baseRoot).root;
   const sessionBase = baseRoot && !baseIsFsRoot ? baseRoot : void 0;
   const sessionsFile = stateFile("sessions.json");
   const sessMap = /* @__PURE__ */ new Map();
   if (sessionsFile) {
     try {
-      const d = JSON.parse(fs16.readFileSync(sessionsFile, "utf8"));
+      const d = JSON.parse(fs17.readFileSync(sessionsFile, "utf8"));
       for (const r of d.items ?? []) if (r?.sid && r?.dir) sessMap.set(r.sid, { owner: r.owner ?? "", dir: r.dir, last: r.last ?? 0 });
     } catch {
     }
@@ -29972,21 +30139,21 @@ async function main() {
       try {
         const now = Date.now();
         for (const [sid, r] of sessMap) if (now - r.last > 7 * 24 * 36e5) sessMap.delete(sid);
-        fs16.mkdirSync(path17.dirname(sessionsFile), { recursive: true, mode: 448 });
+        fs17.mkdirSync(path19.dirname(sessionsFile), { recursive: true, mode: 448 });
         const tmp = sessionsFile + ".tmp";
-        fs16.writeFileSync(tmp, JSON.stringify({ v: 1, items: [...sessMap].map(([sid, r]) => ({ sid, ...r })) }), { mode: 384 });
-        fs16.renameSync(tmp, sessionsFile);
+        fs17.writeFileSync(tmp, JSON.stringify({ v: 1, items: [...sessMap].map(([sid, r]) => ({ sid, ...r })) }), { mode: 384 });
+        fs17.renameSync(tmp, sessionsFile);
       } catch {
       }
     }, 250);
     sessSaveTimer.unref?.();
   };
   const mkRoot = (dir) => {
-    fs16.mkdirSync(dir, { recursive: true, mode: 448 });
+    fs17.mkdirSync(dir, { recursive: true, mode: 448 });
     return dir;
   };
-  const accountRoot = (owner) => mkRoot(path17.join(baseRoot, "a-" + crypto12.createHash("sha256").update(owner).digest("hex").slice(0, 16)));
-  const sessionRoot = (sid) => mkRoot(path17.join(sessionBase, "u-" + crypto12.createHash("sha256").update("sid\0" + sid).digest("hex").slice(0, 16)));
+  const accountRoot = (owner) => mkRoot(path19.join(baseRoot, "a-" + crypto14.createHash("sha256").update(owner).digest("hex").slice(0, 16)));
+  const sessionRoot = (sid) => mkRoot(path19.join(sessionBase, "u-" + crypto14.createHash("sha256").update("sid\0" + sid).digest("hex").slice(0, 16)));
   const grants = /* @__PURE__ */ new Map();
   const grantFor = (owner, dir) => {
     const key = owner + "\0" + dir + "\0" + String(settingsStore.get(userFor(owner)).updatedAt);
@@ -29995,19 +30162,19 @@ async function main() {
     if (grants.size > 512) grants.clear();
     const base = policyFor(owner);
     const p = dir === baseRoot ? base : { ...base, roots: [dir] };
-    const g = { policy: p, workspace: createWorkspace(void 0, { inputs: sharedInputs, shares: sharedShares, vars: sharedVars }) };
+    const g = { policy: p, workspace: createWorkspace(void 0, { inputs: sharedInputs, shares: sharedShares, vars: sharedVars, undo: sharedUndo }) };
     grants.set(key, g);
     return g;
   };
-  const workspace = createWorkspace(inputStore, { inputs: sharedInputs, shares: sharedShares, vars: sharedVars });
+  const workspace = createWorkspace(inputStore, { inputs: sharedInputs, shares: sharedShares, vars: sharedVars, undo: sharedUndo });
   const srv = http3.createServer(async (req, res) => {
     const send = (code, msg, headers = {}) => {
       res.writeHead(code, { "content-type": "application/json", ...headers });
       res.end(JSON.stringify({ error: msg }));
     };
     try {
-      const path18 = (req.url ?? "").split("?")[0];
-      if (path18 === "/healthz") {
+      const path20 = (req.url ?? "").split("?")[0];
+      if (path20 === "/healthz") {
         res.writeHead(200, { "content-type": "application/json", "cache-control": "no-store" });
         res.end(JSON.stringify({
           ok: true,
@@ -30022,12 +30189,12 @@ async function main() {
       }
       const h = String(req.headers.host ?? "").toLowerCase();
       if (!allowedHosts.has(h)) return send(403, "host not allowed");
-      if (path18 === "/settings" || path18.startsWith("/settings/")) {
-        if (await settingsUI.handle(req, res, path18)) return;
+      if (path20 === "/settings" || path20.startsWith("/settings/")) {
+        if (await settingsUI.handle(req, res, path20)) return;
       }
-      if (sharedInputs.handle(req, res, path18, oauth.origin(req))) return;
+      if (sharedInputs.handle(req, res, path20, oauth.origin(req))) return;
       const sameOrigin = req.headers.origin === oauth.origin(req);
-      const tokenProtected = path18.startsWith("/settings/");
+      const tokenProtected = path20.startsWith("/settings/");
       if (req.headers.origin && !sameOrigin && !tokenProtected) return send(403, "browser origins are not allowed");
       const ip = req.socket.remoteAddress ?? "?";
       const now = Date.now();
@@ -30042,19 +30209,19 @@ async function main() {
       b.n++;
       hits.set(ip, b);
       if (b.n > 120) return send(429, "rate limited");
-      if (sharedShares.download(req, res, path18)) return;
+      if (sharedShares.download(req, res, path20)) return;
       if (loginFree) {
-        if (/^\/(?:\.well-known\/|register$|authorize$|token$|oauth\/|invite\/)/.test(path18)) return send(404, "not found");
-        if (req.method === "GET" && (path18 === "/connect" || /^\/c\/[A-Za-z0-9_-]{16,128}$/.test(path18))) return connectPage(req, res, path18, publicMode === "key" && publicKey ? publicKey : "");
+        if (/^\/(?:\.well-known\/|register$|authorize$|token$|oauth\/|invite\/)/.test(path20)) return send(404, "not found");
+        if (req.method === "GET" && (path20 === "/connect" || /^\/c\/[A-Za-z0-9_-]{16,128}$/.test(path20))) return connectPage(req, res, path20, publicMode === "key" && publicKey ? publicKey : "");
       } else if (await oauth.handle(req, res)) return;
-      const keyPath = /^\/c\/([A-Za-z0-9_-]{16,128})(?:\/mcp)?$/.exec(path18);
-      const isMcpPath = path18 === "/mcp" || keyPath !== null;
+      const keyPath = /^\/c\/([A-Za-z0-9_-]{16,128})(?:\/mcp)?$/.exec(path20);
+      const isMcpPath = path20 === "/mcp" || keyPath !== null;
       if (!isMcpPath) return send(404, "not found");
       const m = /^Bearer (.+)$/.exec(String(req.headers.authorization ?? ""));
       let owner = m ? hasToken && equalSecret(m[1], token) ? "static" : oauth.accessScope(m[1]) : null;
       if (!owner && loginFree) {
         if (keyPath && publicKey && equalSecret(keyPath[1], publicKey)) owner = publicOwner(true);
-        else if (path18 === "/mcp" && publicMode !== "key") owner = publicOwner(false);
+        else if (path20 === "/mcp" && publicMode !== "key") owner = publicOwner(false);
       }
       if (!owner) {
         return send(
@@ -30087,14 +30254,14 @@ async function main() {
       if (perSession && owner !== "static" && baseRoot && !baseIsFsRoot && sessionBase) {
         const rec = sid ? sessMap.get(sid) : void 0;
         const liveBase = policy.roots[0];
-        const recFresh = Boolean(rec && rec.owner === owner && fs16.existsSync(rec.dir) && pathDir(rec.dir) === liveBase && pathBase(rec.dir).startsWith("u-"));
+        const recFresh = Boolean(rec && rec.owner === owner && fs17.existsSync(rec.dir) && pathDir(rec.dir) === liveBase && pathBase(rec.dir).startsWith("u-"));
         if (rec && !recFresh && sid) sessMap.delete(sid);
         if (rec && recFresh && rec.dir) {
           workDir = rec.dir;
           rec.last = Date.now();
           saveSessions();
         } else if (isInit && !sid) {
-          sid = crypto12.randomBytes(18).toString("base64url");
+          sid = crypto14.randomBytes(18).toString("base64url");
           workDir = sessionRoot(sid);
           sessMap.set(sid, { owner, dir: workDir, last: Date.now() });
           saveSessions();
@@ -30114,7 +30281,8 @@ async function main() {
           ...owner === "public" ? { tools: publicTools } : {},
           ...sid ? { sessionId: "s-" + sid.slice(0, 12) } : {},
           settings: { store: settingsStore, user: userFor(owner), all: ALL_TOOLS },
-          ...memoryDir ? { memoryDir } : {}
+          ...memoryDir ? { memoryDir } : {},
+          ...stateDir ? { state: { dir: stateDir, keyPath: persistKey } } : {}
         }
       );
       const transport = new WebStandardStreamableHTTPServerTransport({ sessionIdGenerator: sid && isInit ? () => sid : void 0 });
@@ -30179,7 +30347,7 @@ async function main() {
     p = { ...policy, shell, net: net3 };
     return p;
   };
-  const connectPage = (req, res, path18, key) => {
+  const connectPage = (req, res, path20, key) => {
     const origin = oauth.origin(req);
     const base = key ? `${origin}/c/${key}` : `${origin}/mcp`;
     const others = key ? `${origin}/mcp` : "";
@@ -30193,7 +30361,7 @@ async function main() {
 <div class="card"><textarea readonly onclick="this.select()">${esc2(base)}</textarea></div>
 <ol><li>Ad: <code>hardtools</code></li><li>Uzak MCP sunucu adresi: <code>${esc2(base)}</code></li>${others ? `<li>Anahtar gerekmez; bu adres yaln\u0131zca s\u0131n\u0131rl\u0131 ara\xE7lar\u0131 a\xE7ar. Tam yetki i\xE7in <code>/c/&lt;anahtar&gt;</code> adresini kullan.</li>` : `<li>Bu adres anahtar\u0131n kendisidir: payla\u015Fma.</li>`}</ol>
 <p class="muted">Ba\u011Fland\u0131ktan sonra ara\xE7lar sohbette g\xF6r\xFCn\xFCr. Sunucu d\xFC\u015Ferse <code>/healthz</code> izleyicisi ve konteyner g\xF6zc\xFCs\xFC yeniden ba\u015Flat\u0131r.</p>
-${path18 !== "/connect" ? `<p class="muted"><a href="${origin}/connect">ba\u011Flanma sayfas\u0131</a> \xB7 <a href="${origin}/settings">ayarlar</a></p>` : ""}`
+${path20 !== "/connect" ? `<p class="muted"><a href="${origin}/connect">ba\u011Flanma sayfas\u0131</a> \xB7 <a href="${origin}/settings">ayarlar</a></p>` : ""}`
     });
     res.writeHead(200, { "content-type": "text/html; charset=utf-8", "cache-control": "no-store", "referrer-policy": "no-referrer", "x-frame-options": "DENY", "x-content-type-options": "nosniff", "content-security-policy": PAGE_CSP });
     res.end(html);

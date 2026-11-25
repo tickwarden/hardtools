@@ -1,5 +1,6 @@
 import type { Policy } from "./config.js";
 import { PolicyError } from "./guard.js";
+import type { Persist } from "./persist.js";
 
 // Never set a loader, interpreter, credential helper, or host process variable. A short
 // user name becomes HT_VAR_<name>; application-owned names can be used verbatim.
@@ -14,6 +15,18 @@ export function varName(input: string): string {
 const MAX_VARS = 32, MAX_SCOPES = 128, IDLE_MS = 12 * 3_600_000;
 export class Variables {
   private scopes = new Map<string, { at: number; vars: Map<string, string> }>();
+  constructor(private persist?: Persist) {
+    const saved = persist?.read<Record<string, { at: number; vars: [string, string][] }>>({}) ?? {};
+    const now = Date.now();
+    for (const [owner, v] of Object.entries(saved))
+      if (v && now - v.at < IDLE_MS && Array.isArray(v.vars)) this.scopes.set(owner, { at: v.at, vars: new Map(v.vars) });
+  }
+  private save() {
+    if (!this.persist) return;
+    const out: Record<string, { at: number; vars: [string, string][] }> = {};
+    for (const [owner, v] of this.scopes) out[owner] = { at: v.at, vars: [...v.vars] };
+    this.persist.write(out);
+  }
   private scope(p: Policy, owner: string, create = false) {
     if (!p.shell.enabled) throw new PolicyError("shell_disabled", "shell variables require an enabled shell");
     const now = Date.now();
@@ -34,12 +47,14 @@ export class Variables {
     if (vars.has(key) && !a.overwrite) throw new PolicyError("var_exists", "already set; use overwrite=true to replace");
     if (!vars.has(key) && vars.size >= MAX_VARS) throw new PolicyError("var_limit", `maximum ${MAX_VARS} variables`);
     vars.set(key, a.value);
+    this.save();
     return `SET ${key}; pass its name in ht_shell.inherit_vars to use it`;
   }
   /** Drop every variable of this scope (used when the environment is reset). */
   clear(owner: string): number {
     const s = this.scopes.get(owner);
     this.scopes.delete(owner);
+    this.save();
     return s ? s.vars.size : 0;
   }
   list(p: Policy, owner: string): string {
@@ -49,6 +64,7 @@ export class Variables {
     const key = varName(name), vars = this.scope(p, owner);
     if (!vars?.delete(key)) return `NOT SET ${key}`;
     if (!vars.size) this.scopes.delete(owner);
+    this.save();
     return `DELETED ${key}`;
   }
   select(p: Policy, owner: string, names: string[] = []): NodeJS.ProcessEnv {
