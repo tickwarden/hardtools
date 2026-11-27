@@ -57,36 +57,30 @@ async function start(t, env = {}) {
   return { port, root };
 }
 
-test("varsayılan: hesap kapsamlı kök — iki sohbet aynı kökü görür, yeniden bağlanma sıfırlamaz", async (t) => {
+test("iki ayrı sohbet (initialize) ayrı kök alır; aynı sohbet aynı kökte kalır", async (t) => {
   const { port } = await start(t);
   const target = `/c/${KEY}`;
 
   const a = await init(port, target);
   const sidA = a.headers["mcp-session-id"];
   assert.ok(sidA, "initialize bir oturum kimliği döndürmeli: " + JSON.stringify(a.headers));
+  await tool(port, target, "ht_write", { path: "sohbet-a.txt", content: "A" }, sidA);
 
   const b = await init(port, target);
   const sidB = b.headers["mcp-session-id"];
   assert.ok(sidB && sidB !== sidA, "her sohbet ayrı oturum kimliği: " + sidB);
 
+  const seenByB = JSON.stringify(await tool(port, target, "ht_read", { path: "sohbet-a.txt" }, sidB));
+  assert.match(seenByB, /isError|not found|ENOENT|yok/i, "B sohbeti A'nın dosyasını görmemeli: " + seenByB.slice(0, 160));
+
+  const stillA = JSON.stringify(await tool(port, target, "ht_read", { path: "sohbet-a.txt" }, sidA));
+  assert.match(stillA, /sohbet-a\.txt/, "A kendi dosyasını görmeli: " + stillA.slice(0, 160));
+
   const statusOf = async (sid) => JSON.parse((await tool(port, target, "ht_status", {}, sid)).result.content[0].text);
   const stA = await statusOf(sidA), stB = await statusOf(sidB);
-  assert.equal(stA.roots[0], stB.roots[0], "iki sohbet aynı hesap kökünü kullanmalı");
-
-  // Yazma yetkisi HTTP modunda kapalı: dosya doğrudan köke konur, iki sohbet de görür.
-  fs.mkdirSync(stA.roots[0], { recursive: true });
-  fs.writeFileSync(path.join(stA.roots[0], "ortak-dosya.txt"), "A");
-  const seenByB = JSON.stringify(await tool(port, target, "ht_glob", { pattern: "ortak-dosya.txt" }, sidB));
-  assert.match(seenByB, /1 match\(es\)/, "B sohbeti de görmeli (yeniden bağlanma sıfırlamaz): " + seenByB.slice(0, 160));
-});
-
-test("HARDTOOLS_PER_SESSION_WORKSPACE=1 ile sohbetler yine izole", async (t) => {
-  const { port } = await start(t, { HARDTOOLS_PER_SESSION_WORKSPACE: "1" });
-  const target = `/c/${KEY}`;
-  const a = await init(port, target), b = await init(port, target);
-  const statusOf = async (sid) => JSON.parse((await tool(port, target, "ht_status", {}, sid)).result.content[0].text);
-  const stA = await statusOf(a.headers["mcp-session-id"]), stB = await statusOf(b.headers["mcp-session-id"]);
-  assert.notEqual(stA.roots[0], stB.roots[0], "açıkça istendiğinde sohbetler ayrı kök almalı");
+  assert.match(stA.session, /^s-/, "ht_status oturum kimliğini göstermeli");
+  assert.notEqual(stA.session, stB.session, "iki sohbet iki ayrı oturum olmalı");
+  assert.notEqual(stA.roots[0], stB.roots[0], "iki sohbet iki ayrı kök olmalı");
 });
 
 test("oturum kimliği yoksa hesap köküne düşer (geriye dönük uyum)", async (t) => {

@@ -20,7 +20,7 @@ import { Variables } from "./variables.js";
 import { page as uiPage, esc, PAGE_CSP } from "./ui.js";
 import { UndoJournal } from "./undo.js";
 import { StateFile } from "./persist.js";
-import { adoptInto, scanWorkspaces, writeMarker } from "./workspaces.js";
+import { adoptInto, measure, scanWorkspaces, writeMarker } from "./workspaces.js";
 import { ALL_TOOLS, SettingsUI, UserSettingsStore } from "./settings.js";
 import { VERSION } from "./version.js";
 import { probeWorkspaceHttps, probeWorkspaceShell } from "./workspace-shell.js";
@@ -55,7 +55,11 @@ async function main() {
   console.error(`[hardtools] ${VERSION} profile=${policy.profile} roots=${policy.roots.join(",")} transport=${httpMode ? "http" : "stdio"} audit=${audit.file}`);
 
   if (!httpMode) {
-    await createServer(policy, audit).connect(new StdioServerTransport());
+    const stdioRoot = policy.roots[0];
+    const stdioOpts = stdioRoot && stdioRoot !== path.parse(stdioRoot).root
+      ? { workspaces: { base: stdioRoot, current: stdioRoot, user: (process.env.HARDTOOLS_ACCOUNT ?? "local").trim() || "local" } }
+      : undefined;
+    await createServer(policy, audit, undefined, undefined, undefined, stdioOpts).connect(new StdioServerTransport());
     return;
   }
 
@@ -176,7 +180,7 @@ async function main() {
   // değişir; kökü ona bağlamak, her restart/yeni sohbette çalışma alanını "sıfırlanmış" gösteriyordu
   // (dosyalar diskte kalıyor ama sohbet yeni boş bir u-<hash> dizinine düşüyordu).
   // Katı izolasyon isteyen kurulumlar HARDTOOLS_PER_SESSION_WORKSPACE=1 ile açıkça seçer.
-  const perSession = (process.env.HARDTOOLS_PER_SESSION_WORKSPACE ?? "0").trim() === "1";
+  const perSession = (process.env.HARDTOOLS_PER_SESSION_WORKSPACE ?? "1").trim() !== "0";
   const baseRoot = policy.roots[0];
   const baseIsFsRoot = Boolean(baseRoot) && baseRoot === path.parse(baseRoot).root; // "/" gibi köklerde izolasyon yapılmaz
   // Oturum kökleri taban kökün içinde tutulur (guard'ın izin verdiği tek ağaç): <kök>/u-<hash>.
@@ -271,6 +275,26 @@ async function main() {
    * Kullanıcı kökü boşsa, aynı kullanıcıya ait eski kökleri (grant bazlı a-*, sohbet u-*) sırayla
    * devralır. Yalnızca sahibi bu kullanıcı olan dizinler adaydır; başka hesabın verisi taşınmaz.
    */
+  /**
+   * Yeni sohbet kökünü, aynı kullanıcının hesap kökünün kopyasıyla başlatır. Kopyadır: sohbet
+   * yazdıkları hesap köküne geri akmaz, başka sohbet de bu dosyaları sonradan görmez. Amaç,
+   * sunucu yeniden başladıktan sonra açılan yeni sohbetin boş bir dizinle başlamaması.
+   */
+  const seedFromUser = (owner: string, dir: string) => {
+    try {
+      const from = accountRoot(owner);
+      if (path.resolve(from) === path.resolve(dir)) return;
+      const m = measure(from);
+      if (!m.files || m.files > 2000 || m.bytes > 64 * 1024 * 1024) return;   // büyük kökler sessizce atlanır
+      for (const name of fs.readdirSync(from)) {
+        if (name === ".ht-owner" || name === ".hardtools") continue;
+        const src = path.join(from, name), dst = path.join(dir, name);
+        if (fs.existsSync(dst)) continue;
+        try { fs.cpSync(src, dst, { recursive: true, errorOnExist: false, force: false }); } catch { /* tek öğe atlanır */ }
+      }
+    } catch { /* tohumlama isteğe bağlı; hata sohbeti düşürmez */ }
+  };
+
   const migrateUser = (owner: string, userRoot: string) => {
     if (countFiles(userRoot) > 0) return;
     const user = userFor(owner);
@@ -398,17 +422,14 @@ async function main() {
         } else if (isInit && !sid) {
           sid = crypto.randomBytes(18).toString("base64url");                  // yeni sohbet: yeni kök
           workDir = sessionRoot(sid, owner);
+          if (baseRoot && !baseIsFsRoot) seedFromUser(owner, workDir);
           sessMap.set(sid, { owner, dir: workDir, last: Date.now() }); saveSessions();
         } else {
           sid = undefined;                                                      // kimlik yok/bilinmiyor: hesap kökü
           workDir = accountRoot(owner);
+          const key = userFor(owner);
+          if (!adopted.has(key)) { migrateUser(owner, workDir); adopted.add(key); }
         }
-      }
-      if (!perSession && baseRoot && !baseIsFsRoot) {
-        const accountDir = accountRoot(owner);
-        const key = userFor(owner);
-        if (!adopted.has(key)) { migrateUser(owner, accountDir); adopted.add(key); }
-        workDir = accountDir;
       }
       const grant = grantFor(owner, workDir);
       const server = createServer(grant.policy, audit.forGrant(owner), grant.workspace, owner, origin,

@@ -30199,7 +30199,9 @@ async function main() {
   audit.write({ ev: "start", version: VERSION, profile: policy.profile, transport: httpMode ? "http" : "stdio", roots: policy.roots, shell: policy.shell.enabled, write: policy.fs.writeEnabled, ...policy.shellWorker && { workspaceHttps: Boolean(policy.workspaceHttps) } });
   console.error(`[hardtools] ${VERSION} profile=${policy.profile} roots=${policy.roots.join(",")} transport=${httpMode ? "http" : "stdio"} audit=${audit.file}`);
   if (!httpMode) {
-    await createServer(policy, audit).connect(new StdioServerTransport());
+    const stdioRoot = policy.roots[0];
+    const stdioOpts = stdioRoot && stdioRoot !== path20.parse(stdioRoot).root ? { workspaces: { base: stdioRoot, current: stdioRoot, user: (process.env.HARDTOOLS_ACCOUNT ?? "local").trim() || "local" } } : void 0;
+    await createServer(policy, audit, void 0, void 0, void 0, stdioOpts).connect(new StdioServerTransport());
     return;
   }
   const publicMode = (process.env.HARDTOOLS_PUBLIC ?? "off").trim().toLowerCase();
@@ -30293,7 +30295,7 @@ async function main() {
   const sharedShares = new Shares(Date.now, persistFile("shares.enc"));
   const sharedVars = new Variables(persistFile("vars.enc"));
   const sharedUndo = new UndoJournal(undoState);
-  const perSession = (process.env.HARDTOOLS_PER_SESSION_WORKSPACE ?? "0").trim() === "1";
+  const perSession = (process.env.HARDTOOLS_PER_SESSION_WORKSPACE ?? "1").trim() !== "0";
   const baseRoot = policy.roots[0];
   const baseIsFsRoot = Boolean(baseRoot) && baseRoot === path20.parse(baseRoot).root;
   const sessionBase = baseRoot && !baseIsFsRoot ? baseRoot : void 0;
@@ -30381,6 +30383,24 @@ async function main() {
     return void 0;
   };
   const adopted = /* @__PURE__ */ new Set();
+  const seedFromUser = (owner, dir) => {
+    try {
+      const from = accountRoot(owner);
+      if (path20.resolve(from) === path20.resolve(dir)) return;
+      const m = measure(from);
+      if (!m.files || m.files > 2e3 || m.bytes > 64 * 1024 * 1024) return;
+      for (const name of fs18.readdirSync(from)) {
+        if (name === ".ht-owner" || name === ".hardtools") continue;
+        const src = path20.join(from, name), dst = path20.join(dir, name);
+        if (fs18.existsSync(dst)) continue;
+        try {
+          fs18.cpSync(src, dst, { recursive: true, errorOnExist: false, force: false });
+        } catch {
+        }
+      }
+    } catch {
+    }
+  };
   const migrateUser = (owner, userRoot) => {
     if (countFiles(userRoot) > 0) return;
     const user = userFor(owner);
@@ -30503,21 +30523,18 @@ async function main() {
         } else if (isInit && !sid) {
           sid = crypto14.randomBytes(18).toString("base64url");
           workDir = sessionRoot(sid, owner);
+          if (baseRoot && !baseIsFsRoot) seedFromUser(owner, workDir);
           sessMap.set(sid, { owner, dir: workDir, last: Date.now() });
           saveSessions();
         } else {
           sid = void 0;
           workDir = accountRoot(owner);
+          const key = userFor(owner);
+          if (!adopted.has(key)) {
+            migrateUser(owner, workDir);
+            adopted.add(key);
+          }
         }
-      }
-      if (!perSession && baseRoot && !baseIsFsRoot) {
-        const accountDir = accountRoot(owner);
-        const key = userFor(owner);
-        if (!adopted.has(key)) {
-          migrateUser(owner, accountDir);
-          adopted.add(key);
-        }
-        workDir = accountDir;
       }
       const grant = grantFor(owner, workDir);
       const server = createServer(
