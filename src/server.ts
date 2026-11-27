@@ -21,6 +21,7 @@ import { htUndo, touchedPaths, UndoJournal } from "./undo.js";
 import { htSchedule, Scheduler } from "./schedule.js";
 import { AccountMemory, htMemory } from "./memory.js";
 import { StateFile } from "./persist.js";
+import { htWorkspace, type WsContext } from "./workspaces.js";
 import crypto from "node:crypto";
 import path from "node:path";
 import { ErrorCode, ListResourcesRequestSchema, ListResourceTemplatesRequestSchema, McpError, ReadResourceRequestSchema, type CallToolResult } from "@modelcontextprotocol/sdk/types.js";
@@ -59,6 +60,8 @@ export interface ServerOptions {
   memoryDir?: string;
   /** Oturum durumu (geri alma günlüğü + zamanlanmış işler) için kalıcı dizin. */
   state?: { dir: string; keyPath?: string };
+  /** Çalışma alanı dizinleri: hangi hesap hangi kökte, eski kökü devralma. */
+  workspaces?: WsContext;
 }
 
 export function createServer(policy: Policy, audit: Audit, workspace = createWorkspace(), owner = "stdio", origin?: string, opts: ServerOptions = {}): McpServer {
@@ -556,6 +559,15 @@ Returned: {status, question, selected[], custom, request_id, elapsed_s}.`,
     inputSchema: { action: z.enum(["set", "get", "list", "delete", "clear"]).optional(), key: z.string().min(1).max(120).optional(), value: z.string().max(8192).optional() },
     annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
   }, wrap("ht_memory", (a) => htMemory(memory, owner, a)));
+
+  if (opts.workspaces) {
+    register("ht_workspace", {
+      title: "Show which account uses which workspace and adopt an older one",
+      description: "List the workspace directories under the root with file count, size, last use and the account that owns each, marking the one this chat is using; then adopt another listed directory into the current one (files are moved, existing names are never overwritten). Use it to see where an earlier chat's work is and to continue from it after a reconnect or restart.",
+      inputSchema: { action: z.enum(["list", "adopt"]).optional(), dir: z.string().min(1).max(32).optional() },
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
+    }, wrap("ht_workspace", (a) => htWorkspace(opts.workspaces!, a)));
+  }
 
   register("ht_list_all_tools", {
     title: "List every hardtools tool (enabled, disabled, all)",
