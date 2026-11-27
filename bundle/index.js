@@ -26431,7 +26431,7 @@ function anyMatch(patterns, value) {
 }
 
 // src/version.ts
-var VERSION = "1.5.31";
+var VERSION = "1.5.32";
 
 // src/net.ts
 var blocked = new net.BlockList();
@@ -28985,7 +28985,7 @@ function writeMarker(dir, owner, user) {
   } catch {
   }
 }
-function scanWorkspaces(base, current, ownerFor) {
+function scanWorkspaces(base, current, ownerFor, userFor) {
   let names = [];
   try {
     names = fs16.readdirSync(base);
@@ -29004,8 +29004,9 @@ function scanWorkspaces(base, current, ownerFor) {
     }
     if (!st.isDirectory()) continue;
     const m = readMarker(dir), owner = m.owner ?? ownerFor?.(dir);
+    const user = m.user ?? (owner ? userFor?.(owner) : void 0);
     const { files, bytes, scratchFiles, scratchBytes } = measure(dir);
-    out.push({ rel: name, dir, kind: name.startsWith("a-") ? "account" : "session", owner, user: m.user, files, bytes, scratchFiles, scratchBytes, lastUsed: st.mtimeMs, current: path17.resolve(dir) === path17.resolve(current) });
+    out.push({ rel: name, dir, kind: name.startsWith("a-") ? "account" : "session", owner, user, files, bytes, scratchFiles, scratchBytes, lastUsed: st.mtimeMs, current: path17.resolve(dir) === path17.resolve(current) });
   }
   return out.sort((a, b) => (b.current ? 1 : 0) - (a.current ? 1 : 0) || b.lastUsed - a.lastUsed);
 }
@@ -29678,6 +29679,7 @@ import path19 from "node:path";
 var USER_RE = /^[a-z0-9][a-z0-9_.-]{2,31}$/;
 var MIN_PASSWORD = 10;
 var MAX_ACCOUNTS = 200;
+var MAX_FAILS = 8;
 var SCRYPT = { N: 16384, r: 8, p: 1, maxmem: 64 * 1024 * 1024 };
 var normUser = (v) => String(v ?? "").trim().toLowerCase();
 function passwordProblem(user, password) {
@@ -29769,15 +29771,15 @@ var LocalAccounts = class {
     const u = normUser(user);
     const now = Date.now();
     const f = this.fails.get(u);
-    if (f && f.until > now) return { ok: false, error: "\xC7ok fazla hatal\u0131 deneme; birka\xE7 dakika sonra tekrar dene." };
+    if (f && f.n >= MAX_FAILS && f.until > now) return { ok: false, error: "\xC7ok fazla hatal\u0131 deneme; birka\xE7 dakika sonra tekrar dene." };
     const a = this.items.get(u);
     if (!a) return { ok: false, error: "Kullan\u0131c\u0131 ad\u0131 veya parola yanl\u0131\u015F." };
     const want = Buffer.from(a.hash, "base64url");
     const got = crypto13.scryptSync(String(password ?? ""), a.salt, 64, SCRYPT);
     const ok = want.length === got.length && crypto13.timingSafeEqual(want, got);
     if (!ok) {
-      const n = (f?.until && f.until <= now ? 0 : f?.n ?? 0) + 1;
-      this.fails.set(u, { n, until: n >= 8 ? now + 10 * 6e4 : now + 6e4 });
+      const n = (f && f.until > now ? f.n : 0) + 1;
+      this.fails.set(u, { n, until: n >= MAX_FAILS ? now + 10 * 6e4 : now + 6e4 });
       return { ok: false, error: "Kullan\u0131c\u0131 ad\u0131 veya parola yanl\u0131\u015F." };
     }
     this.fails.delete(u);
@@ -30812,6 +30814,9 @@ async function main() {
       hits.set(ip, b);
       if (b.n > 120) return send(429, "rate limited");
       if (sharedShares.download(req, res, path22)) return;
+      if (req.method === "GET" && path22 === "/connect") {
+        return connectPage(req, res, path22, loginFree && publicMode === "key" && publicKey ? publicKey : "");
+      }
       if (loginFree) {
         if (/^\/(?:\.well-known\/|register$|authorize$|token$|oauth\/|invite\/)/.test(path22)) return send(404, "not found");
         if (req.method === "GET" && (path22 === "/connect" || /^\/c\/[A-Za-z0-9_-]{16,128}$/.test(path22))) return connectPage(req, res, path22, publicMode === "key" && publicKey ? publicKey : "");
@@ -30899,7 +30904,7 @@ async function main() {
               base: baseRoot,
               current: workDir,
               user: userFor(owner),
-              entries: () => scanWorkspaces(baseRoot, workDir, (dir) => [...sessMap.values()].find((r) => r.dir === dir)?.owner)
+              entries: () => scanWorkspaces(baseRoot, workDir, (dir) => [...sessMap.values()].find((r) => r.dir === dir)?.owner, userFor)
             }
           } : {},
           ...memoryDir ? { memoryDir } : {},
@@ -30942,7 +30947,7 @@ async function main() {
       workspaces: {
         // Tarayıcıdan gelen istekte MCP oturumu yok: etkin kök = hesabın kökü.
         current: (user) => accountRootForUser(user),
-        list: (user) => scanWorkspaces(baseRoot, accountRootForUser(user), (dir) => [...sessMap.values()].find((r) => r.dir === dir)?.owner).filter((e) => e.user === user || e.user === void 0),
+        list: (user) => scanWorkspaces(baseRoot, accountRootForUser(user), (dir) => [...sessMap.values()].find((r) => r.dir === dir)?.owner, userFor).filter((e) => e.user === user || user === "operator" && e.user === void 0),
         adopt: (user, rel2) => {
           if (!/^(a|u)-[0-9a-f]{16}$/.test(rel2)) throw new Error("ge\xE7ersiz dizin");
           const target = accountRootForUser(user);

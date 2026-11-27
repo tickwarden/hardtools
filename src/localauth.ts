@@ -20,6 +20,8 @@ export interface LocalAccount {
 const USER_RE = /^[a-z0-9][a-z0-9_.-]{2,31}$/;
 const MIN_PASSWORD = 10;
 const MAX_ACCOUNTS = 200;
+/** Bu sayıya ulaşan hatalı deneme hesabı geçici olarak kilitler. */
+const MAX_FAILS = 8;
 const SCRYPT = { N: 16384, r: 8, p: 1, maxmem: 64 * 1024 * 1024 } as const;
 
 const normUser = (v: unknown) => String(v ?? "").trim().toLowerCase();
@@ -110,15 +112,17 @@ export class LocalAccounts {
     const u = normUser(user);
     const now = Date.now();
     const f = this.fails.get(u);
-    if (f && f.until > now) return { ok: false, error: "Çok fazla hatalı deneme; birkaç dakika sonra tekrar dene." };
+    // Yalnızca eşiğe ulaşan denemeler kilitler: tek yazım hatası doğru parolayı bloklamamalı
+    // (yerel hesap, GitHub bozulduğunda acil giriş yolu; kilit burada işe yaramaz hâle gelmemeli).
+    if (f && f.n >= MAX_FAILS && f.until > now) return { ok: false, error: "Çok fazla hatalı deneme; birkaç dakika sonra tekrar dene." };
     const a = this.items.get(u);
     if (!a) return { ok: false, error: "Kullanıcı adı veya parola yanlış." };
     const want = Buffer.from(a.hash, "base64url");
     const got = crypto.scryptSync(String(password ?? ""), a.salt, 64, SCRYPT);
     const ok = want.length === got.length && crypto.timingSafeEqual(want, got);
     if (!ok) {
-      const n = (f?.until && f.until <= now ? 0 : f?.n ?? 0) + 1;
-      this.fails.set(u, { n, until: n >= 8 ? now + 10 * 60_000 : now + 60_000 });
+      const n = (f && f.until > now ? f.n : 0) + 1;
+      this.fails.set(u, { n, until: n >= MAX_FAILS ? now + 10 * 60_000 : now + 60_000 });
       return { ok: false, error: "Kullanıcı adı veya parola yanlış." };
     }
     this.fails.delete(u);

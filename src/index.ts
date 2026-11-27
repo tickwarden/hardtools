@@ -372,6 +372,12 @@ async function main() {
 
       if (sharedShares.download(req, res, path)) return;
 
+      // Bağlanma sayfası her modda açılır: /settings'ten bağlantı veriliyor ve giriş zorunlu
+      // kurulumda 404 dönüyordu. Anahtar modunda anahtar yalnızca girişsiz modda gösterilir.
+      if (req.method === "GET" && path === "/connect") {
+        return connectPage(req, res, path, loginFree && publicMode === "key" && publicKey ? publicKey : "");
+      }
+
       // No-login mode: never advertise OAuth metadata, otherwise claude.ai shows a sign-in button.
       if (loginFree) {
         if (/^\/(?:\.well-known\/|register$|authorize$|token$|oauth\/|invite\/)/.test(path)) return send(404, "not found");
@@ -450,7 +456,7 @@ async function main() {
           ...(baseRoot && !baseIsFsRoot ? {
             workspaces: {
               base: baseRoot, current: workDir, user: userFor(owner),
-              entries: () => scanWorkspaces(baseRoot, workDir, (dir) => [...sessMap.values()].find(r => r.dir === dir)?.owner),
+              entries: () => scanWorkspaces(baseRoot, workDir, (dir) => [...sessMap.values()].find(r => r.dir === dir)?.owner, userFor),
             },
           } : {}),
           ...(memoryDir ? { memoryDir } : {}),
@@ -489,8 +495,8 @@ async function main() {
       workspaces: {
         // Tarayıcıdan gelen istekte MCP oturumu yok: etkin kök = hesabın kökü.
         current: (user: string) => accountRootForUser(user),
-        list: (user: string) => scanWorkspaces(baseRoot, accountRootForUser(user), (dir) => [...sessMap.values()].find(r => r.dir === dir)?.owner)
-          .filter(e => e.user === user || e.user === undefined),
+        list: (user: string) => scanWorkspaces(baseRoot, accountRootForUser(user), (dir) => [...sessMap.values()].find(r => r.dir === dir)?.owner, userFor)
+          .filter(e => e.user === user || (user === "operator" && e.user === undefined)),
         adopt: (user: string, rel: string) => {
           if (!/^(a|u)-[0-9a-f]{16}$/.test(rel)) throw new Error("geçersiz dizin");
           const target = accountRootForUser(user);

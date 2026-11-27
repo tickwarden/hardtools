@@ -60,7 +60,7 @@ export function writeMarker(dir: string, owner: string, user: string): void {
 }
 
 /** Kök altındaki hesap (a-) ve oturum (u-) dizinlerini listele; eski kayıtlar için sahip `ownerFor` ile çözülür. */
-export function scanWorkspaces(base: string, current: string, ownerFor?: (dir: string) => string | undefined): WsEntry[] {
+export function scanWorkspaces(base: string, current: string, ownerFor?: (dir: string) => string | undefined, userFor?: (owner: string) => string): WsEntry[] {
   let names: string[] = [];
   try { names = fs.readdirSync(base); } catch { return []; }
   const out: WsEntry[] = [];
@@ -70,8 +70,11 @@ export function scanWorkspaces(base: string, current: string, ownerFor?: (dir: s
     let st; try { st = fs.lstatSync(dir); } catch { continue; }
     if (!st.isDirectory()) continue;
     const m = readMarker(dir), owner = m.owner ?? ownerFor?.(dir);
+    // İşaretsiz eski dizinler: oturum kaydındaki sahipten kullanıcı çıkarılabiliyorsa o kullanıcıya
+    // atfedilir (kendi eski işini görsün); hiç kayıt yoksa sahibi bilinmiyordur → yalnız operatör görür.
+    const user = m.user ?? (owner ? userFor?.(owner) : undefined);
     const { files, bytes, scratchFiles, scratchBytes } = measure(dir);
-    out.push({ rel: name, dir, kind: name.startsWith("a-") ? "account" : "session", owner, user: m.user, files, bytes, scratchFiles, scratchBytes, lastUsed: st.mtimeMs, current: path.resolve(dir) === path.resolve(current) });
+    out.push({ rel: name, dir, kind: name.startsWith("a-") ? "account" : "session", owner, user, files, bytes, scratchFiles, scratchBytes, lastUsed: st.mtimeMs, current: path.resolve(dir) === path.resolve(current) });
   }
   return out.sort((a, b) => (b.current ? 1 : 0) - (a.current ? 1 : 0) || b.lastUsed - a.lastUsed);
 }
