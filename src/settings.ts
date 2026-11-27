@@ -12,7 +12,7 @@ export const ALL_TOOLS = [
   "ht_read", "ht_write", "ht_edit", "ht_glob", "ht_search", "ht_mkdir", "ht_move", "ht_trash",
   "ht_empty_trash", "ht_shell", "ht_fetch", "ht_image_search", "ht_share", "ht_transfer_file",
   "ht_status", "ht_stop", "ht_new_shell_env", "ht_add_var", "ht_list_vars", "ht_delete_var",
-  "ht_user_input", "ht_ask", "ht_undo", "ht_schedule", "ht_memory", "ht_list_all_tools", "ht_manage_tool",
+  "ht_user_input", "ht_ask", "ht_undo", "ht_schedule", "ht_memory", "ht_workspace", "ht_list_all_tools", "ht_manage_tool",
 ] as const;
 
 export interface UserSettings {
@@ -203,6 +203,12 @@ export interface SettingsUIOptions {
   github?: { clientId: string; webBase?: string; apiBase?: string; allowAny?: boolean; allowedLogins?: string[]; allowedEmails?: string[] };
   origin?: (req: http.IncomingMessage) => string;
   audit?: (ev: Record<string, unknown>) => void;
+  /** /workspaces: hesabın kökleri ve eski kökü devralma. */
+  workspaces?: {
+    current: string;
+    list: (user: string) => { rel: string; kind: string; files: number; bytes: number; lastUsed: number; user?: string; current: boolean }[];
+    adopt: (user: string, rel: string) => string;
+  };
 }
 
 interface Pending { deviceCode: string; userCode: string; verifyUri: string; intervalS: number; exp: number; nextPoll: number }
@@ -243,7 +249,38 @@ export class SettingsUI {
     if (pathname === "/settings/token") return await this.tokenLogin(req, res, origin), true;
     if (pathname === "/settings/save") return await this.save(req, res, origin), true;
     if (pathname === "/settings/logout") return await this.logout(req, res, origin), true;
+    if (pathname === "/workspaces") return await this.workspacesPage(req, res, origin), true;
     return false;
+  }
+
+  /** /workspaces — hangi hesap hangi kökte, ne kadar iş var, eski kökü devral. */
+  private async workspacesPage(req: http.IncomingMessage, res: http.ServerResponse, origin: string) {
+    const user = this.cookieUser(req);
+    if (!user) return this.loginPage(res, "Çalışma alanlarını görmek için giriş yap.");
+    const ws = this.o.workspaces;
+    if (!ws) return this.html(res, 404, uiPage({ title: "Çalışma alanları", body: `<p class="e">Bu sunucuda çalışma alanı listesi kapalı.</p>` }));
+    let notice = "";
+    if (req.method === "POST") {
+      const p = await this.body(req);
+      const dir = p?.get("adopt");
+      if (!dir) notice = "Devralınacak dizin seçilmedi.";
+      else { try { notice = ws.adopt(user, dir); } catch (e) { notice = `Hata: ${(e as Error).message}`; } }
+    }
+    const rows = ws.list(user);
+    const kb = (n: number) => n < 1024 ? `${n} B` : n < 1 << 20 ? `${(n / 1024).toFixed(1)} KB` : n < 1 << 30 ? `${(n / 1048576).toFixed(1)} MB` : `${(n / 1073741824).toFixed(2)} GB`;
+    const body = `${heading("Çalışma alanları", "Hesabın kökleri ve eski sohbetlerin bıraktığı işler. Devral, dosyaları mevcut köke taşır; var olanın üzerine yazmaz.")}
+${notice ? `<p class="ok">${esc(notice)}</p>` : ""}
+<div class="card"><table>
+<thead><tr><th>Dizin</th><th>Tür</th><th>Dosya</th><th>Boyut</th><th>Son kullanım</th><th></th></tr></thead>
+<tbody>${rows.map(r => `<tr${r.current ? ' style="font-weight:600"' : ""}>
+<td><code>${esc(r.rel)}</code>${r.current ? ' <span class="pill">bu sohbet</span>' : ""}</td>
+<td>${r.kind === "account" ? "hesap" : "sohbet"}${r.user ? ` · ${esc(r.user)}` : ""}</td>
+<td>${r.files}</td><td>${kb(r.bytes)}</td><td>${new Date(r.lastUsed).toISOString().replace("T", " ").slice(0, 16)}</td>
+<td>${r.current ? "" : `<form method="post" action="/workspaces" style="margin:0"><input type="hidden" name="adopt" value="${esc(r.rel)}"><button type="submit" data-once>Devral</button></form>`}</td>
+</tr>`).join("") || `<tr><td colspan="6" class="muted">Kayıt yok.</td></tr>`}</tbody></table></div>
+<p class="muted">Aynı listeyi modelden de isteyebilirsin: <code>ht_workspace {"action":"list"}</code> · devam: <code>ht_workspace {"action":"adopt","dir":"u-…"}</code></p>
+<p class="muted"><a href="/settings">ayarlar</a> · <a href="/tools">araç kataloğu</a> · <a href="/status">durum</a></p>`;
+    this.html(res, 200, uiPage({ title: "Çalışma alanları", subtitle: "workspaces", body }));
   }
 
   private async body(req: http.IncomingMessage): Promise<URLSearchParams | null> {

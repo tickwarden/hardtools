@@ -20,6 +20,7 @@ import { Variables } from "./variables.js";
 import { page as uiPage, esc, PAGE_CSP } from "./ui.js";
 import { UndoJournal } from "./undo.js";
 import { StateFile } from "./persist.js";
+import { adoptInto, scanWorkspaces, writeMarker } from "./workspaces.js";
 import { ALL_TOOLS, SettingsUI, UserSettingsStore } from "./settings.js";
 import { VERSION } from "./version.js";
 import { probeWorkspaceHttps, probeWorkspaceShell } from "./workspace-shell.js";
@@ -171,7 +172,11 @@ async function main() {
   const sharedShares = new Shares(Date.now, persistFile("shares.enc"));
   const sharedVars = new Variables(persistFile("vars.enc"));
   const sharedUndo = new UndoJournal(undoState);
-  const perSession = (process.env.HARDTOOLS_PER_SESSION_WORKSPACE ?? "1").trim() !== "0";
+  // Varsayılan HESAP kapsamlı kök: MCP taşıma oturumu (mcp-session-id) her yeniden bağlanmada
+  // değişir; kökü ona bağlamak, her restart/yeni sohbette çalışma alanını "sıfırlanmış" gösteriyordu
+  // (dosyalar diskte kalıyor ama sohbet yeni boş bir u-<hash> dizinine düşüyordu).
+  // Katı izolasyon isteyen kurulumlar HARDTOOLS_PER_SESSION_WORKSPACE=1 ile açıkça seçer.
+  const perSession = (process.env.HARDTOOLS_PER_SESSION_WORKSPACE ?? "0").trim() === "1";
   const baseRoot = policy.roots[0];
   const baseIsFsRoot = Boolean(baseRoot) && baseRoot === path.parse(baseRoot).root; // "/" gibi köklerde izolasyon yapılmaz
   // Oturum kökleri taban kökün içinde tutulur (guard'ın izin verdiği tek ağaç): <kök>/u-<hash>.
@@ -204,10 +209,83 @@ async function main() {
     }, 250);
     sessSaveTimer.unref?.();
   };
-  const mkRoot = (dir: string) => { fs.mkdirSync(dir, { recursive: true, mode: 0o700 }); return dir; };
-  const accountRoot = (owner: string) => mkRoot(path.join(baseRoot, "a-" + crypto.createHash("sha256").update(owner).digest("hex").slice(0, 16)));
-  const sessionRoot = (sid: string) => mkRoot(path.join(sessionBase!, "u-" + crypto.createHash("sha256").update("sid\0" + sid).digest("hex").slice(0, 16)));
+  const mkRoot = (dir: string, owner?: string) => {
+    fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
+    if (owner) writeMarker(dir, owner, userFor(owner));
+    return dir;
+  };
+  // Hesap kökü KULLANICIYA (giriş adı) göre: OAuth grant'ı her yeniden girişte değişir; kökü
+  // grant kimliğine bağlamak "yeniden giriş = her şey sıfırlandı" demekti.
+  const accountRootForUser = (user: string) => {
+    const dir = path.join(baseRoot, "a-" + crypto.createHash("sha256").update("user\0" + user.toLowerCase()).digest("hex").slice(0, 16));
+    mkRoot(dir);
+    writeMarker(dir, "user:" + user, user);
+    return dir;
+  };
+  const accountRoot = (owner: string) => accountRootForUser(userFor(owner));
+  const sessionRoot = (sid: string, owner?: string) => mkRoot(path.join(sessionBase!, "u-" + crypto.createHash("sha256").update("sid\0" + sid).digest("hex").slice(0, 16)), owner);
 
+  const countFiles = (dir: string, limit = 25): number => {
+    let n = 0;
+    const walk = (d: string, depth: number) => {
+      if (n >= limit || depth > 3) return;
+      let names: string[];
+      try { names = fs.readdirSync(d); } catch { return; }
+      for (const name of names) {
+        if (n >= limit) return;
+        if (name.startsWith(".")) continue;
+        const abs = path.join(d, name);
+        let st; try { st = fs.lstatSync(abs); } catch { continue; }
+        if (st.isSymbolicLink()) continue;
+        if (st.isDirectory()) walk(abs, depth + 1); else n++;
+      }
+    };
+    walk(dir, 0);
+    return n;
+  };
+
+  /**
+   * Eski sürümlerde her sohbet ayrı bir u-<hash> kökü alıyordu; yeniden bağlanınca sohbet yeni boş
+   * köke düşüp "her şey sıfırlandı" gibi görünüyordu. Hesap kökü boşsa, o hesabın en son kullandığı
+   * dolu oturum kökü buraya taşınır (üzerine yazmadan) ve bir kez çalışır.
+   */
+  const adoptLatestSession = (owner: string, accountDir: string): string | undefined => {
+    const marker = path.join(accountDir, ".ht-adopted");
+    if (fs.existsSync(marker) || countFiles(accountDir) > 0) return undefined;
+    const mine = [...sessMap.entries()]
+      .filter(([, r]) => r.owner === owner && r.dir !== accountDir && fs.existsSync(r.dir))
+      .sort((a, b) => b[1].last - a[1].last);
+    for (const [, rec] of mine) {
+      if (countFiles(rec.dir) === 0) continue;
+      const r = adoptInto(rec.dir, accountDir);
+      try { fs.writeFileSync(marker, JSON.stringify({ from: rec.dir, at: Date.now(), moved: r.moved }), { mode: 0o600 }); } catch { /* işaret zorunlu değil */ }
+      audit.write({ ev: "workspace_adopt", owner, from: rec.dir, to: accountDir, moved: r.moved, skipped: r.skipped });
+      return rec.dir;
+    }
+    return undefined;
+  };
+
+  const adopted = new Set<string>();
+
+  /**
+   * Kullanıcı kökü boşsa, aynı kullanıcıya ait eski kökleri (grant bazlı a-*, sohbet u-*) sırayla
+   * devralır. Yalnızca sahibi bu kullanıcı olan dizinler adaydır; başka hesabın verisi taşınmaz.
+   */
+  const migrateUser = (owner: string, userRoot: string) => {
+    if (countFiles(userRoot) > 0) return;
+    const user = userFor(owner);
+    const candidates = scanWorkspaces(baseRoot, userRoot, (dir) => [...sessMap.values()].find(r => r.dir === dir)?.owner)
+      .filter(e => !e.current && e.files > 0 && (e.user === user || (e.user === undefined && e.owner && userFor(e.owner) === user)))
+      .sort((a2, b2) => b2.lastUsed - a2.lastUsed);
+    for (const c of candidates) {
+      const r = adoptInto(c.dir, userRoot);
+      if (r.moved) {
+        writeMarker(userRoot, owner, user);
+        audit.write({ ev: "workspace_migrate", owner, user, from: c.rel, moved: r.moved });
+        return c.rel;
+      }
+    }
+  };   // hesap başına devralma bir kez denenir
   const grants = new Map<string, { policy: Policy; workspace: ReturnType<typeof createWorkspace> }>();
   const grantFor = (owner: string, dir: string) => {
     // Anahtara ayarların sürümü de girer: kullanıcı ayarları (araçlar, allowlist, ağ) değişince
@@ -247,7 +325,7 @@ async function main() {
       // Capability URL for ht_user_input: a random one-time id, answered by the user's browser
       // (so it must be checked before the browser-origin rejection below).
       // Ayar sayfası: tarayıcıdan açılır, bu yüzden browser-origin reddinden önce.
-      if (path === "/settings" || path.startsWith("/settings/")) {
+      if (path === "/settings" || path.startsWith("/settings/") || path === "/workspaces") {
         if (await settingsUI.handle(req, res, path)) return;
       }
       if (sharedInputs.handle(req, res, path, oauth.origin(req))) return;
@@ -319,12 +397,18 @@ async function main() {
           workDir = rec.dir; rec.last = Date.now(); saveSessions();           // aynı sohbet: aynı kök
         } else if (isInit && !sid) {
           sid = crypto.randomBytes(18).toString("base64url");                  // yeni sohbet: yeni kök
-          workDir = sessionRoot(sid);
+          workDir = sessionRoot(sid, owner);
           sessMap.set(sid, { owner, dir: workDir, last: Date.now() }); saveSessions();
         } else {
           sid = undefined;                                                      // kimlik yok/bilinmiyor: hesap kökü
           workDir = accountRoot(owner);
         }
+      }
+      if (!perSession && baseRoot && !baseIsFsRoot) {
+        const accountDir = accountRoot(owner);
+        const key = userFor(owner);
+        if (!adopted.has(key)) { migrateUser(owner, accountDir); adopted.add(key); }
+        workDir = accountDir;
       }
       const grant = grantFor(owner, workDir);
       const server = createServer(grant.policy, audit.forGrant(owner), grant.workspace, owner, origin,
@@ -332,6 +416,12 @@ async function main() {
           ...(owner === "public" ? { tools: publicTools } : {}),
           ...(sid ? { sessionId: "s-" + sid.slice(0, 12) } : {}),
           settings: { store: settingsStore, user: userFor(owner), all: ALL_TOOLS },
+          ...(baseRoot && !baseIsFsRoot ? {
+            workspaces: {
+              base: baseRoot, current: workDir, user: userFor(owner),
+              entries: () => scanWorkspaces(baseRoot, workDir, (dir) => [...sessMap.values()].find(r => r.dir === dir)?.owner),
+            },
+          } : {}),
           ...(memoryDir ? { memoryDir } : {}),
           ...(stateDir ? { state: { dir: stateDir, keyPath: persistKey } } : {}),
         });
@@ -362,6 +452,20 @@ async function main() {
     github: github ? { clientId: github.clientId, webBase: github.webBase, apiBase: github.apiBase, allowAny: github.allowAny, allowedLogins: github.allowedLogins, allowedEmails: github.allowedEmails } : undefined,
     audit: (e) => audit.write(e),
     origin: (r) => oauth.origin(r),
+    ...(baseRoot && !baseIsFsRoot ? {
+      workspaces: {
+        current: baseRoot,
+        list: (user: string) => scanWorkspaces(baseRoot, baseRoot, (dir) => [...sessMap.values()].find(r => r.dir === dir)?.owner)
+          .filter(e => e.user === user || e.user === undefined),
+        adopt: (user: string, rel: string) => {
+          if (!/^(a|u)-[0-9a-f]{16}$/.test(rel)) throw new Error("geçersiz dizin");
+          const target = accountRootForUser(user);
+          const r = adoptInto(path.join(baseRoot, rel), target);
+          audit.write({ ev: "workspace_adopt", user, from: rel, to: pathBase(target), moved: r.moved, skipped: r.skipped });
+          return `${rel} → ${pathBase(target)}: ${r.moved} öğe taşındı, ${r.skipped} atlandı`;
+        },
+      },
+    } : {}),
   });
 
   /** Sahip (owner) -> ayar kullanıcısı. Ayarlar hesap düzeyinde tutulur. */
