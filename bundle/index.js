@@ -3367,8 +3367,8 @@ var require_utils = __commonJS({
       }
       return ind;
     }
-    function removeDotSegments(path21) {
-      let input = path21;
+    function removeDotSegments(path22) {
+      let input = path22;
       const output = [];
       let nextSlash = -1;
       let len = 0;
@@ -3442,11 +3442,11 @@ var require_utils = __commonJS({
       }
       return output.join("");
     }
-    function removeDotSegmentsRelative(path21) {
-      if (path21 === "" || path21[0] === "/") {
-        return removeDotSegments(path21);
+    function removeDotSegmentsRelative(path22) {
+      if (path22 === "" || path22[0] === "/") {
+        return removeDotSegments(path22);
       }
-      const segments = path21.split("/");
+      const segments = path22.split("/");
       const last = segments.length - 1;
       const output = [];
       let trailingDirectory = false;
@@ -3809,8 +3809,8 @@ var require_schemes = __commonJS({
       }
       if (wsComponent.resourceName) {
         const queryIndex = wsComponent.resourceName.indexOf("?");
-        const path21 = queryIndex === -1 ? wsComponent.resourceName : wsComponent.resourceName.slice(0, queryIndex);
-        wsComponent.path = path21 && path21 !== "/" ? path21 : void 0;
+        const path22 = queryIndex === -1 ? wsComponent.resourceName : wsComponent.resourceName.slice(0, queryIndex);
+        wsComponent.path = path22 && path22 !== "/" ? path22 : void 0;
         wsComponent.query = queryIndex === -1 ? void 0 : wsComponent.resourceName.slice(queryIndex + 1);
         wsComponent.resourceName = void 0;
       }
@@ -7347,12 +7347,12 @@ var require_dist = __commonJS({
         throw new Error(`Unknown format "${name}"`);
       return f;
     };
-    function addFormats(ajv, list, fs19, exportName) {
+    function addFormats(ajv, list, fs20, exportName) {
       var _a3;
       var _b;
       (_a3 = (_b = ajv.opts.code).formats) !== null && _a3 !== void 0 ? _a3 : _b.formats = (0, codegen_1._)`require("ajv-formats/dist/formats").${exportName}`;
       for (const f of list)
-        ajv.addFormat(f, fs19[f]);
+        ajv.addFormat(f, fs20[f]);
     }
     module.exports = exports = formatsPlugin;
     Object.defineProperty(exports, "__esModule", { value: true });
@@ -7597,10 +7597,10 @@ function mergeDefs(...defs) {
 function cloneDef(schema) {
   return mergeDefs(schema._zod.def);
 }
-function getElementAtPath(obj, path21) {
-  if (!path21)
+function getElementAtPath(obj, path22) {
+  if (!path22)
     return obj;
-  return path21.reduce((acc, key) => acc?.[key], obj);
+  return path22.reduce((acc, key) => acc?.[key], obj);
 }
 function promiseAllObject(promisesObj) {
   const keys = Object.keys(promisesObj);
@@ -7940,11 +7940,11 @@ function explicitlyAborted(x, startIndex = 0) {
   }
   return false;
 }
-function prefixIssues(path21, issues) {
+function prefixIssues(path22, issues) {
   return issues.map((iss) => {
     var _a3;
     (_a3 = iss).path ?? (_a3.path = []);
-    iss.path.unshift(path21);
+    iss.path.unshift(path22);
     return iss;
   });
 }
@@ -8402,16 +8402,16 @@ function flattenError(error2, mapper = (issue2) => issue2.message) {
 }
 function formatError(error2, mapper = (issue2) => issue2.message) {
   const fieldErrors = { _errors: [] };
-  const processError = (error3, path21 = []) => {
+  const processError = (error3, path22 = []) => {
     for (const issue2 of error3.issues) {
       if (issue2.code === "invalid_union" && issue2.errors.length) {
-        issue2.errors.map((issues) => processError({ issues }, [...path21, ...issue2.path]));
+        issue2.errors.map((issues) => processError({ issues }, [...path22, ...issue2.path]));
       } else if (issue2.code === "invalid_key") {
-        processError({ issues: issue2.issues }, [...path21, ...issue2.path]);
+        processError({ issues: issue2.issues }, [...path22, ...issue2.path]);
       } else if (issue2.code === "invalid_element") {
-        processError({ issues: issue2.issues }, [...path21, ...issue2.path]);
+        processError({ issues: issue2.issues }, [...path22, ...issue2.path]);
       } else {
-        const fullpath = [...path21, ...issue2.path];
+        const fullpath = [...path22, ...issue2.path];
         if (fullpath.length === 0) {
           fieldErrors._errors.push(mapper(issue2));
         } else {
@@ -12795,9 +12795,9 @@ function equalSecret(candidate, expected) {
 }
 
 // src/index.ts
-import crypto14 from "node:crypto";
-import fs18 from "node:fs";
-import path20 from "node:path";
+import crypto15 from "node:crypto";
+import fs19 from "node:fs";
+import path21 from "node:path";
 import { basename as pathBase, dirname as pathDir } from "node:path";
 import http3 from "node:http";
 
@@ -16942,7 +16942,20 @@ main{max-width:var(--w);margin:2.2rem auto 4rem;padding:0 1rem}
 h1{font-size:1.45rem;margin:0 0 1rem}
 h2{font-size:1.05rem;margin:1.8rem 0 .6rem;color:var(--fg)}
 p{margin:.6rem 0}
-.card{background:var(--panel);border:1px solid var(--line);border-radius:.8rem;padding:1rem 1.1rem;margin:1rem 0}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:.8rem;padding:1rem 1.1rem;margin:1rem 0;overflow-x:auto}
+main.wide{max-width:58rem}
+.tablewrap{overflow-x:auto;margin:0 -.2rem}
+td form,th form{margin:0}
+td button,th button{padding:.35rem .8rem;white-space:nowrap}
+table th:last-child,table td:last-child{text-align:right;white-space:nowrap}
+.copybox{display:flex;gap:.5rem;align-items:center;flex-wrap:wrap}
+.copybox input{flex:1 1 14rem;min-width:10rem;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:.92rem}
+.copybox .pill{min-width:5.2rem;text-align:center}
+.tiles{display:grid;grid-template-columns:repeat(auto-fill,minmax(14rem,1fr));gap:.7rem;margin:1rem 0}
+.tile{display:block;text-decoration:none;color:inherit;background:var(--panel);border:1px solid var(--line);border-radius:.8rem;padding:.9rem 1rem}
+.tile:hover{border-color:var(--accent)}
+.tile b{display:block;margin-bottom:.25rem}
+.tile span{color:var(--muted);font-size:.9rem}
 label{display:block;margin:.7rem 0 .3rem;font-size:.92rem;color:var(--muted)}
 input[type=text],input[type=password],input[type=number],textarea,select{width:100%;padding:.6rem .7rem;border-radius:.5rem;border:1px solid var(--line);background:var(--panel2);color:var(--fg);font:inherit}
 textarea{min-height:6rem;resize:vertical}
@@ -16985,6 +16998,26 @@ var THEME_JS = `
   document.addEventListener('click',function(e){
     var b=e.target.closest('[data-theme-set]');if(!b)return;
     var t=b.getAttribute('data-theme-set');apply(t);try{localStorage.setItem(KEY,t)}catch(err){}
+  });
+})();`;
+var COPY_JS = `
+(function(){
+  function flash(el,txt){var old=el.textContent;el.textContent=txt;setTimeout(function(){el.textContent=old;},1600);}
+  function copy(text){
+    if(navigator.clipboard&&navigator.clipboard.writeText)return navigator.clipboard.writeText(text);
+    return new Promise(function(res,rej){
+      try{var t=document.createElement('textarea');t.value=text;t.setAttribute('readonly','');t.style.position='fixed';t.style.opacity='0';
+        document.body.appendChild(t);t.select();var ok=document.execCommand('copy');document.body.removeChild(t);ok?res():rej(new Error('copy'));}
+      catch(e){rej(e);}
+    });
+  }
+  document.addEventListener('click',function(e){
+    var b=e.target.closest('[data-copy]');if(!b)return;
+    e.preventDefault();
+    var src=b.getAttribute('data-copy');
+    var el=src==='prev'?b.previousElementSibling:(src?document.querySelector(src):null);
+    var text=el?(el.value!==undefined?el.value:el.textContent):'';
+    copy(text).then(function(){flash(b,'Kopyaland\u0131');}).catch(function(){flash(b,'Kopyalanamad\u0131');});
   });
 })();`;
 var GUARD_JS = `
@@ -17046,10 +17079,11 @@ function page(o) {
   <button type="button" class="ghost" id="b-dark" data-theme-set="dark" title="Koyu tema">Koyu tema</button>
   <button type="button" class="ghost" id="b-light" data-theme-set="light" title="A\xE7\u0131k tema: s\u0131cak, a\u015F\u0131r\u0131 beyaz olmayan k\u0131r\u0131k beyaz">A\xE7\u0131k tema</button>
 </div>
-<main>${o.body}</main>
+<main${o.wide ? ' class="wide"' : ""}>${o.body}</main>
 <div class="foot">hardtools \xB7 sayfa verisi \xE7erezde tutulmaz; kimlik bilgileri yaln\u0131zca sunucuda do\u011Frulan\u0131r.</div>
 <script>${THEME_JS}</script>
 <script>${GUARD_JS}</script>
+<script>${COPY_JS}</script>
 ${o.script ? `<script>${o.script}</script>` : ""}
 </body>
 </html>`;
@@ -17234,10 +17268,10 @@ var OAuth = class {
   // ---- routing --------------------------------------------------------------------------
   /** Returns true when the request was an OAuth/discovery/invite route and has been fully handled. */
   async handle(req, res) {
-    const path21 = (req.url ?? "").split("?")[0];
+    const path22 = (req.url ?? "").split("?")[0];
     const method = req.method ?? "GET";
     const origin = this.origin(req);
-    if (path21 === "/.well-known/oauth-protected-resource" || path21 === "/.well-known/oauth-protected-resource/mcp") {
+    if (path22 === "/.well-known/oauth-protected-resource" || path22 === "/.well-known/oauth-protected-resource/mcp") {
       if (method !== "GET") {
         this.oerr(res, 405, "invalid_request", "GET only");
         return true;
@@ -17245,7 +17279,7 @@ var OAuth = class {
       this.json(res, 200, { resource: `${origin}/mcp`, authorization_servers: [origin], bearer_methods_supported: ["header"] });
       return true;
     }
-    if (path21 === "/.well-known/oauth-authorization-server" || path21 === "/.well-known/oauth-authorization-server/mcp") {
+    if (path22 === "/.well-known/oauth-authorization-server" || path22 === "/.well-known/oauth-authorization-server/mcp") {
       if (method !== "GET") {
         this.oerr(res, 405, "invalid_request", "GET only");
         return true;
@@ -17263,47 +17297,47 @@ var OAuth = class {
       });
       return true;
     }
-    if (path21 === "/register") {
+    if (path22 === "/register") {
       await this.register(req, res);
       return true;
     }
-    if (path21 === "/authorize") {
+    if (path22 === "/authorize") {
       await this.authorize(req, res, origin);
       return true;
     }
-    if (path21 === "/oauth/github/callback") {
+    if (path22 === "/oauth/github/callback") {
       await this.githubCallback(req, res, origin);
       return true;
     }
-    if (path21 === "/oauth/github/poll") {
+    if (path22 === "/oauth/github/poll") {
       await this.githubPoll(req, res, origin);
       return true;
     }
-    if (path21 === "/device/authorize") {
+    if (path22 === "/device/authorize") {
       await this.deviceAuthorize(req, res, origin);
       return true;
     }
-    if (path21 === "/device") {
+    if (path22 === "/device") {
       await this.devicePage(req, res, origin);
       return true;
     }
-    if (path21 === "/token") {
+    if (path22 === "/token") {
       await this.tokenEndpoint(req, res);
       return true;
     }
-    if (path21.startsWith("/invite/")) {
-      await this.handleInvite(req, res, path21, origin);
+    if (path22.startsWith("/invite/")) {
+      await this.handleInvite(req, res, path22, origin);
       return true;
     }
     return false;
   }
   // ---- /invite/<code> -------------------------------------------------------------------
-  async handleInvite(req, res, path21, origin) {
+  async handleInvite(req, res, path22, origin) {
     if (req.method !== "GET") {
       this.oerr(res, 405, "invalid_request", "GET only");
       return;
     }
-    const code = decodeURIComponent(path21.slice("/invite/".length));
+    const code = decodeURIComponent(path22.slice("/invite/".length));
     const sessionId = this.redeemInvite(code);
     if (!sessionId) {
       this.page(res, 410, "Bu davet kullan\u0131lm\u0131\u015F veya s\xFCresi dolmu\u015F. Daveti az \xF6nce a\xE7t\u0131ysan ayn\u0131 taray\u0131c\u0131 profilinde Claude\u2019dan devam et. Aksi halde yay\u0131n sahibiyle ileti\u015Fime ge\xE7.", null);
@@ -18126,8 +18160,8 @@ function getErrorMap() {
 
 // node_modules/zod/v3/helpers/parseUtil.js
 var makeIssue = (params) => {
-  const { data, path: path21, errorMaps, issueData } = params;
-  const fullPath = [...path21, ...issueData.path || []];
+  const { data, path: path22, errorMaps, issueData } = params;
+  const fullPath = [...path22, ...issueData.path || []];
   const fullIssue = {
     ...issueData,
     path: fullPath
@@ -18242,11 +18276,11 @@ var errorUtil;
 
 // node_modules/zod/v3/types.js
 var ParseInputLazyPath = class {
-  constructor(parent, value, path21, key) {
+  constructor(parent, value, path22, key) {
     this._cachedPath = [];
     this.parent = parent;
     this.data = value;
-    this._path = path21;
+    this._path = path22;
     this._key = key;
   }
   get path() {
@@ -21797,11 +21831,11 @@ function normalizeObjectSchema(schema) {
   }
   return void 0;
 }
-function getDotPath(path21) {
-  if (path21.length === 0) {
+function getDotPath(path22) {
+  if (path22.length === 0) {
     return "object root";
   }
-  return path21.reduce((acc, seg, index) => {
+  return path22.reduce((acc, seg, index) => {
     if (index === 0) {
       return String(seg);
     }
@@ -26395,7 +26429,7 @@ function anyMatch(patterns, value) {
 }
 
 // src/version.ts
-var VERSION = "1.5.28";
+var VERSION = "1.5.29";
 
 // src/net.ts
 var blocked = new net.BlockList();
@@ -28340,8 +28374,8 @@ var UserInputs = class {
   }
   // ---- browser UI -------------------------------------------------------------------
   /** Serve /ui/input/<id>. Returns false when the path is not ours. */
-  handle(req, res, path21, origin) {
-    const m = /^\/ui\/input\/([A-Za-z0-9_-]{20,64})$/.exec(path21);
+  handle(req, res, path22, origin) {
+    const m = /^\/ui\/input\/([A-Za-z0-9_-]{20,64})$/.exec(path22);
     if (!m) return false;
     const id = m[1];
     const req_ = this.byId.get(id);
@@ -28388,7 +28422,7 @@ var UserInputs = class {
           }).join("") : "";
           page2(200, shell(`<p>Kaydedildi. Sohbete d\xF6n${secrets ? "" : `; de\u011Fer <code>$HT_USER_INPUT</code> olarak kullan\u0131labilir`}.</p>${summary2 ? `<ul class="m">${summary2}</ul>` : ""}${secrets ? `<p class="m">Gizli de\u011Ferler bu sayfada tekrar g\xF6sterilmez; modelin g\xF6rece\u011Fi \xE7\u0131kt\u0131da maskelenir.</p>` : ""}`));
         } catch (e) {
-          return page2(400, shell(`<p class="e">${esc3(e.message)}</p><p class="m"><a href="${esc3(path21)}">Geri d\xF6n</a></p>`));
+          return page2(400, shell(`<p class="e">${esc3(e.message)}</p><p class="m"><a href="${esc3(path22)}">Geri d\xF6n</a></p>`));
         }
       });
       req.on("error", () => {
@@ -28413,10 +28447,10 @@ var UserInputs = class {
     };
     const mins = Math.max(1, Math.round((req_.expiresAt - Date.now()) / 6e4));
     const body = req_.fields ? `<p class="q">${esc3(req_.title)}</p>${req_.help ? `<p class="m">${esc3(req_.help)}</p>` : ""}
-<form method="post" action="${esc3(path21)}" autocomplete="off"><fieldset>${req_.fields.map(field).join("")}</fieldset>
+<form method="post" action="${esc3(path22)}" autocomplete="off"><fieldset>${req_.fields.map(field).join("")}</fieldset>
 <button type="submit">G\xF6nder</button><button type="submit" name="action" value="cancel" formnovalidate>Vazge\xE7</button></form>
 <p class="m">Yan\u0131tlar <code>$HT_USER_INPUT</code> (JSON) ve her alan i\xE7in <code>$HT_USER_INPUT_ADI</code> olarak komutlara ge\xE7er. Bu ba\u011Flant\u0131 tek kullan\u0131ml\u0131kt\u0131r, ~${mins} dk ge\xE7erlidir.</p>` : `<p class="q">${esc3(req_.title)}</p>
-<form method="post" action="${esc3(path21)}" autocomplete="off">${field({ name: req_.secret ? "secret" : "value", title: "Yan\u0131t", kind: req_.kind, secret: req_.secret, required: true, ...req_.choices ? { choices: req_.choices } : {}, ...req_.default !== void 0 ? { default: req_.default } : {}, ...req_.placeholder ? { placeholder: req_.placeholder } : {} })}
+<form method="post" action="${esc3(path22)}" autocomplete="off">${field({ name: req_.secret ? "secret" : "value", title: "Yan\u0131t", kind: req_.kind, secret: req_.secret, required: true, ...req_.choices ? { choices: req_.choices } : {}, ...req_.default !== void 0 ? { default: req_.default } : {}, ...req_.placeholder ? { placeholder: req_.placeholder } : {} })}
 <button type="submit">G\xF6nder</button><button type="submit" name="action" value="cancel" formnovalidate>Vazge\xE7</button></form>
 <p class="m">${req_.secret ? "Bu de\u011Fer gizli kabul edilir: sohbete geri d\xF6nmez, denetim kayd\u0131na yaz\u0131lmaz, komut \xE7\u0131kt\u0131s\u0131nda maskelenir." : `T\xFCr: ${esc3(req_.kind)}. De\u011Fer <code>$HT_USER_INPUT</code> olarak komutlara ge\xE7er.`} ~${mins} dk ge\xE7erlidir.</p>`;
     page2(200, shell(body));
@@ -29619,10 +29653,171 @@ Returned: {status, question, selected[], custom, request_id, elapsed_s}.`,
   return server;
 }
 
-// src/settings.ts
+// src/localauth.ts
 import crypto13 from "node:crypto";
 import fs17 from "node:fs";
 import path19 from "node:path";
+var USER_RE = /^[a-z0-9][a-z0-9_.-]{2,31}$/;
+var MIN_PASSWORD = 10;
+var MAX_ACCOUNTS = 200;
+var SCRYPT = { N: 16384, r: 8, p: 1, maxmem: 64 * 1024 * 1024 };
+var normUser = (v) => String(v ?? "").trim().toLowerCase();
+function passwordProblem(user, password) {
+  const pw = String(password ?? "");
+  if (pw.length < MIN_PASSWORD) return `Parola en az ${MIN_PASSWORD} karakter olmal\u0131.`;
+  if (pw.length > 200) return "Parola \xE7ok uzun.";
+  if (pw.toLowerCase().includes(user.toLowerCase())) return "Parola kullan\u0131c\u0131 ad\u0131n\u0131 i\xE7ermemeli.";
+  const kinds = [/[a-zçğıöşü]/, /[A-ZÇĞİÖŞÜ]/, /[0-9]/, /[^A-Za-z0-9]/].filter((re) => re.test(pw)).length;
+  if (kinds < 2) return "Parola en az iki t\xFCr karakter i\xE7ermeli (harf, rakam, i\u015Faret).";
+  return null;
+}
+var LocalAccounts = class {
+  /**
+   * @param opts.store  Hesap dosyası (durum dizininde, 0600). Yoksa hesaplar yalnızca bellekte tutulur.
+   * @param opts.signup "first" (varsayılan: yalnızca hiç hesap yokken kayıt), "open", "off".
+   */
+  constructor(opts = {}) {
+    this.opts = opts;
+    this.file = opts.store;
+    this.load();
+  }
+  opts;
+  items = /* @__PURE__ */ new Map();
+  fails = /* @__PURE__ */ new Map();
+  file;
+  get signupMode() {
+    const v = (this.opts.signup ?? "first").trim().toLowerCase();
+    return v === "open" || v === "off" ? v : "first";
+  }
+  /** Kayıt sayfası gösterilsin mi? ("first" modunda yalnızca ilk hesap için.) */
+  canRegister() {
+    const mode = this.signupMode;
+    if (mode === "off") return false;
+    if (mode === "open") return this.items.size < MAX_ACCOUNTS;
+    return this.items.size === 0;
+  }
+  count() {
+    return this.items.size;
+  }
+  list() {
+    return [...this.items.keys()].sort();
+  }
+  get(user) {
+    return this.items.get(normUser(user));
+  }
+  /** Bu kullanıcı adı yerel bir hesap mı? (GitHub login'leriyle çakışma denetimi için.) */
+  has(user) {
+    return this.items.has(normUser(user));
+  }
+  /** Bağlantı anahtarından kullanıcı adı (MCP /lc/<anahtar> yolu). */
+  userForConnector(token) {
+    if (!/^[A-Za-z0-9_-]{16,128}$/.test(token)) return null;
+    for (const a of this.items.values()) {
+      if (a.connector.length === token.length && crypto13.timingSafeEqual(Buffer.from(a.connector), Buffer.from(token))) return a.user;
+    }
+    return null;
+  }
+  connectorFor(user) {
+    return this.items.get(normUser(user))?.connector ?? null;
+  }
+  /**
+   * Hesap oluşturur. `reserved` içindeki adlar (bilinen GitHub login'leri) reddedilir:
+   * aynı ad iki kimlik türünde birleşirse ayarlar/çalışma alanı karışırdı.
+   */
+  create(user, password, reserved = () => false) {
+    const u = normUser(user);
+    if (!USER_RE.test(u)) return { ok: false, error: "Kullan\u0131c\u0131 ad\u0131 3-32 karakter olmal\u0131; k\xFC\xE7\xFCk harf, rakam, nokta, tire, alt \xE7izgi." };
+    if (this.items.has(u)) return { ok: false, error: "Bu kullan\u0131c\u0131 ad\u0131 zaten var." };
+    if (reserved(u)) return { ok: false, error: "Bu ad GitHub hesab\u0131na ait; ba\u015Fka bir ad se\xE7." };
+    const pwProblem = passwordProblem(u, password);
+    if (pwProblem) return { ok: false, error: pwProblem };
+    if (this.items.size >= MAX_ACCOUNTS) return { ok: false, error: "Hesap s\u0131n\u0131r\u0131na ula\u015F\u0131ld\u0131." };
+    const salt = crypto13.randomBytes(16).toString("base64url");
+    const hash = crypto13.scryptSync(String(password), salt, 64, SCRYPT).toString("base64url");
+    const account = {
+      user: u,
+      salt,
+      hash,
+      createdAt: Date.now(),
+      lastLogin: 0,
+      connector: crypto13.randomBytes(32).toString("base64url")
+    };
+    this.items.set(u, account);
+    this.save();
+    return { ok: true, account };
+  }
+  /** Parola doğrulama; hatalı denemeler kullanıcı başına 10 dakika kilitler. */
+  verify(user, password) {
+    const u = normUser(user);
+    const now = Date.now();
+    const f = this.fails.get(u);
+    if (f && f.until > now) return { ok: false, error: "\xC7ok fazla hatal\u0131 deneme; birka\xE7 dakika sonra tekrar dene." };
+    const a = this.items.get(u);
+    if (!a) return { ok: false, error: "Kullan\u0131c\u0131 ad\u0131 veya parola yanl\u0131\u015F." };
+    const want = Buffer.from(a.hash, "base64url");
+    const got = crypto13.scryptSync(String(password ?? ""), a.salt, 64, SCRYPT);
+    const ok = want.length === got.length && crypto13.timingSafeEqual(want, got);
+    if (!ok) {
+      const n = (f?.until && f.until <= now ? 0 : f?.n ?? 0) + 1;
+      this.fails.set(u, { n, until: n >= 8 ? now + 10 * 6e4 : now + 6e4 });
+      return { ok: false, error: "Kullan\u0131c\u0131 ad\u0131 veya parola yanl\u0131\u015F." };
+    }
+    this.fails.delete(u);
+    a.lastLogin = now;
+    this.save();
+    return { ok: true };
+  }
+  /** Parola değiştirme (mevcut parola doğrulanarak). */
+  changePassword(user, current, next) {
+    const u = normUser(user);
+    const v = this.verify(u, current);
+    if (!v.ok) return v;
+    const problem = passwordProblem(u, next);
+    if (problem) return { ok: false, error: problem };
+    const a = this.items.get(u);
+    a.salt = crypto13.randomBytes(16).toString("base64url");
+    a.hash = crypto13.scryptSync(String(next), a.salt, 64, SCRYPT).toString("base64url");
+    this.save();
+    return { ok: true };
+  }
+  /** Bağlantı anahtarını yeniler (sızdıysa eski URL çalışmaz). */
+  rotateConnector(user) {
+    const a = this.items.get(normUser(user));
+    if (!a) return null;
+    a.connector = crypto13.randomBytes(32).toString("base64url");
+    this.save();
+    return a.connector;
+  }
+  load() {
+    if (!this.file) return;
+    try {
+      const d = JSON.parse(fs17.readFileSync(this.file, "utf8"));
+      for (const a of d.items ?? []) {
+        if (a && typeof a.user === "string" && typeof a.hash === "string" && typeof a.salt === "string") {
+          this.items.set(normUser(a.user), { ...a, user: normUser(a.user), connector: a.connector ?? "" });
+        }
+      }
+    } catch {
+    }
+  }
+  save() {
+    if (!this.file) return;
+    try {
+      const dir = path19.dirname(this.file);
+      fs17.mkdirSync(dir, { recursive: true, mode: 448 });
+      const tmp = `${this.file}.tmp`;
+      fs17.writeFileSync(tmp, JSON.stringify({ v: 1, items: [...this.items.values()] }), { mode: 384 });
+      fs17.renameSync(tmp, this.file);
+      fs17.chmodSync(this.file, 384);
+    } catch {
+    }
+  }
+};
+
+// src/settings.ts
+import crypto14 from "node:crypto";
+import fs18 from "node:fs";
+import path20 from "node:path";
 var ALL_TOOLS = [
   "ht_read",
   "ht_write",
@@ -29689,8 +29884,8 @@ var UserSettingsStore = class {
   // ---- kalıcılık ---------------------------------------------------------------------------
   load() {
     try {
-      if (this.store && fs17.existsSync(this.store)) {
-        const d = JSON.parse(fs17.readFileSync(this.store, "utf8"));
+      if (this.store && fs18.existsSync(this.store)) {
+        const d = JSON.parse(fs18.readFileSync(this.store, "utf8"));
         for (const [u, s] of Object.entries(d.users ?? {})) this.users.set(u, { ...defaultSettings(), ...s });
         for (const [g, u] of Object.entries(d.grants ?? {})) this.grants.set(g, u);
         for (const g of d.revoked ?? []) this.revoked.add(g);
@@ -29701,12 +29896,12 @@ var UserSettingsStore = class {
   save() {
     if (!this.store) return;
     try {
-      fs17.mkdirSync(path19.dirname(this.store), { recursive: true, mode: 448 });
+      fs18.mkdirSync(path20.dirname(this.store), { recursive: true, mode: 448 });
       const items = Object.fromEntries(this.users);
       const grants = Object.fromEntries(this.grants);
       const tmp = this.store + ".tmp";
-      fs17.writeFileSync(tmp, JSON.stringify({ v: 1, users: items, grants, revoked: [...this.revoked] }), { mode: 384 });
-      fs17.renameSync(tmp, this.store);
+      fs18.writeFileSync(tmp, JSON.stringify({ v: 1, users: items, grants, revoked: [...this.revoked] }), { mode: 384 });
+      fs18.renameSync(tmp, this.store);
     } catch {
     }
   }
@@ -29715,14 +29910,14 @@ var UserSettingsStore = class {
   refreshIfChanged() {
     if (!this.store) return;
     try {
-      const m = fs17.statSync(this.store).mtimeMs;
+      const m = fs18.statSync(this.store).mtimeMs;
       if (m !== this.mtime) {
         this.mtime = m;
         this.users.clear();
         this.grants.clear();
         this.revoked.clear();
         this.load();
-        this.mtime = fs17.statSync(this.store).mtimeMs;
+        this.mtime = fs18.statSync(this.store).mtimeMs;
       }
     } catch {
     }
@@ -29788,15 +29983,15 @@ var UserSettingsStore = class {
   signingKey() {
     if (this.key) return this.key;
     try {
-      if (this.keyPath && fs17.existsSync(this.keyPath)) this.key = fs17.readFileSync(this.keyPath);
+      if (this.keyPath && fs18.existsSync(this.keyPath)) this.key = fs18.readFileSync(this.keyPath);
     } catch {
     }
     if (!this.key || this.key.length < 32) {
-      this.key = crypto13.randomBytes(32);
+      this.key = crypto14.randomBytes(32);
       try {
         if (this.keyPath) {
-          fs17.mkdirSync(path19.dirname(this.keyPath), { recursive: true, mode: 448 });
-          fs17.writeFileSync(this.keyPath, this.key, { mode: 384 });
+          fs18.mkdirSync(path20.dirname(this.keyPath), { recursive: true, mode: 448 });
+          fs18.writeFileSync(this.keyPath, this.key, { mode: 384 });
         }
       } catch {
       }
@@ -29806,8 +30001,12 @@ var UserSettingsStore = class {
   cookieFor(user, ttlS = 12 * 3600) {
     const exp = Math.floor(Date.now() / 1e3) + ttlS;
     const body = `${Buffer.from(user).toString("base64url")}.${exp}`;
-    const sig = crypto13.createHmac("sha256", this.signingKey()).update(body).digest("base64url");
+    const sig = crypto14.createHmac("sha256", this.signingKey()).update(body).digest("base64url");
     return `${body}.${sig}`;
+  }
+  /** Bu ad bir kullanıcı kaydı olarak biliniyor mu? (Yerel hesapla çakışmayı engellemek için.) */
+  hasUser(name) {
+    return this.users.has(name) || this.grants.has(name);
   }
   userFromCookie(value) {
     if (!value) return null;
@@ -29815,8 +30014,8 @@ var UserSettingsStore = class {
     if (parts.length !== 3) return null;
     const [b64, exp, sig] = parts;
     const body = `${b64}.${exp}`;
-    const want = crypto13.createHmac("sha256", this.signingKey()).update(body).digest("base64url");
-    if (sig.length !== want.length || !crypto13.timingSafeEqual(Buffer.from(sig), Buffer.from(want))) return null;
+    const want = crypto14.createHmac("sha256", this.signingKey()).update(body).digest("base64url");
+    if (sig.length !== want.length || !crypto14.timingSafeEqual(Buffer.from(sig), Buffer.from(want))) return null;
     if (Number(exp) * 1e3 < Date.now()) return null;
     try {
       return Buffer.from(b64, "base64url").toString("utf8") || null;
@@ -29866,7 +30065,106 @@ var SettingsUI = class {
     if (pathname === "/settings/save") return await this.save(req, res, origin), true;
     if (pathname === "/settings/logout") return await this.logout(req, res, origin), true;
     if (pathname === "/workspaces") return await this.workspacesPage(req, res, origin), true;
+    if (pathname === "/") return this.dashboard(req, res, origin), true;
+    if (pathname === "/local") return this.localPage(req, res, ""), true;
+    if (pathname === "/local/login") return await this.localLogin(req, res, origin), true;
+    if (pathname === "/local/register") return await this.localRegister(req, res, origin), true;
+    if (pathname === "/local/connector") return await this.localConnector(req, res, origin), true;
     return false;
+  }
+  /** Panel (/): çalışma alanları, ayarlar ve MCP adresi tek yerde; adresi kopyalama düğmesi. */
+  dashboard(req, res, origin) {
+    if (req.method !== "GET") return this.html(res, 405, page({ title: "Panel", body: `<p class="e">Yaln\u0131z GET.</p>` }));
+    const user = this.cookieUser(req);
+    const localConnector = user && this.o.local?.has(user) ? this.o.local.get(user)?.connector ?? "" : "";
+    const mcpUrl = localConnector ? `${origin}/lc/${localConnector}` : `${origin}/mcp`;
+    const tiles = [
+      { href: "/workspaces", title: "\xC7al\u0131\u015Fma alanlar\u0131", note: "Hesab\u0131n k\xF6kleri, eski sohbetlerin i\u015Fi, devralma." },
+      { href: "/settings", title: "Ayarlar", note: "Ara\xE7lar, a\u011F, allowlist ve oturum." },
+      ...user ? [{ href: "/settings", title: `Hesap: ${user}`, note: "Bu oturumun kimli\u011Fi." }] : [{ href: "/local", title: "Yerel hesap", note: "GitHub olmadan giri\u015F yap ya da hesap a\xE7." }]
+    ].map((t) => `<a class="tile" href="${t.href}"><b>${esc2(t.title)}</b><span>${esc2(t.note)}</span></a>`).join("");
+    const body = `${heading("Panel", user ? `Giri\u015F: ${user}` : "Ba\u011Flant\u0131 adresini kopyala, sayfalara g\xF6z at.")}
+<div class="card">
+<h2 style="margin-top:0">MCP adresi</h2>
+<p class="muted">Bu adresi Claude'da \u201CConnector ekle\u201D alan\u0131na yap\u0131\u015Ft\u0131r. Ba\u015Fkas\u0131 da kopyalay\u0131p kendi hesab\u0131yla ekleyebilir;${localConnector ? " bu adres yaln\u0131zca senin yerel hesab\u0131na ba\u011Fl\u0131d\u0131r." : " giri\u015F kendi hesab\u0131yla yap\u0131l\u0131r."}</p>
+<div class="copybox"><input id="mcp" type="text" readonly value="${esc2(mcpUrl)}"><button type="button" data-copy="#mcp">Kopyala</button></div>
+<p class="muted" style="margin-bottom:0">${localConnector ? 'Anahtar s\u0131zd\u0131ysa <a href="/local">yerel hesap sayfas\u0131ndan</a> yenileyebilirsin.' : `Sunucu: <code>${esc2(origin)}</code>`}</p>
+</div>
+<h2>Sayfalar</h2>
+<div class="tiles">${tiles}</div>
+${user ? `<p class="muted"><a href="/settings/logout">\xE7\u0131k\u0131\u015F yap</a></p>` : `<p class="muted"><a href="/settings">giri\u015F yap</a> \xB7 <a href="/local">yerel hesap</a></p>`}`;
+    this.html(res, 200, page({ title: "Panel", subtitle: "panel", body }));
+  }
+  /** /local — yerel hesap girişi ve (izinliyse) kayıt. */
+  localPage(req, res, notice = "") {
+    const la = this.o.local;
+    const canReg = Boolean(la?.canRegister());
+    const body = `${heading("Yerel hesap", "GitHub hesab\u0131n yoksa ya da GitHub giri\u015Fi \xE7al\u0131\u015Fm\u0131yorsa buradan gir.")}
+${notice ? `<p class="${notice.startsWith("Hata") ? "e" : "ok"}">${esc2(notice)}</p>` : ""}
+<div class="card">
+<h2 style="margin-top:0">Giri\u015F</h2>
+<form method="post" action="/local/login" autocomplete="on">
+  <label for="lu">Kullan\u0131c\u0131 ad\u0131</label>
+  <input id="lu" name="user" type="text" autocomplete="username" required>
+  <label for="lp">Parola</label>
+  <input id="lp" name="password" type="password" autocomplete="current-password" required>
+  <p><button class="primary" type="submit">Giri\u015F yap</button></p>
+</form>
+</div>
+${canReg ? `<div class="card">
+<h2 style="margin-top:0">Hesap a\xE7</h2>
+<p class="muted">${la?.count() === 0 ? "Bu sunucuda hen\xFCz yerel hesap yok: ilk hesab\u0131 sen a\xE7acaks\u0131n." : "Yeni yerel hesap a\xE7."} Parola en az 10 karakter, iki t\xFCr karakter i\xE7ermeli.</p>
+<form method="post" action="/local/register" autocomplete="off">
+  <label for="ru">Kullan\u0131c\u0131 ad\u0131 (3-32 karakter)</label>
+  <input id="ru" name="user" type="text" autocomplete="username" required>
+  <label for="rp">Parola</label>
+  <input id="rp" name="password" type="password" autocomplete="new-password" required>
+  <p><button type="submit">Hesap a\xE7</button></p>
+</form>
+</div>` : `<p class="muted">Yeni hesap a\xE7ma kapal\u0131. Operat\xF6r yeni bir yerel hesap a\xE7abilir.</p>`}
+<p class="muted"><a href="/">panel</a> \xB7 <a href="/settings/login">GitHub ile giri\u015F</a></p>`;
+    this.html(res, 200, page({ title: "Yerel hesap", subtitle: "local", body }));
+  }
+  async localLogin(req, res, origin) {
+    if (req.method !== "POST") return this.localPage(req, res);
+    const la = this.o.local;
+    if (!la) return this.localPage(req, res, "Hata: bu sunucuda yerel hesaplar kapal\u0131.");
+    const p = await this.body(req);
+    const user = (p?.get("user") ?? "").trim().toLowerCase();
+    const pw = p?.get("password") ?? "";
+    const r = la.verify(user, pw);
+    if (!r.ok) {
+      this.o.audit?.({ ev: "local_login_failed", user });
+      return this.localPage(req, res, `Hata: ${r.error}`);
+    }
+    this.o.audit?.({ ev: "local_login", user });
+    this.setCookie(res, this.o.store.cookieFor(user), origin.startsWith("https://"), 12 * 3600);
+    res.writeHead(303, { location: "/", "cache-control": "no-store" });
+    res.end();
+  }
+  async localRegister(req, res, origin) {
+    if (req.method !== "POST") return this.localPage(req, res);
+    const la = this.o.local;
+    if (!la || !la.canRegister()) return this.localPage(req, res, "Hata: yeni yerel hesap a\xE7ma kapal\u0131.");
+    const p = await this.body(req);
+    const user = (p?.get("user") ?? "").trim().toLowerCase();
+    const r = la.create(user, p?.get("password") ?? "", (n) => Boolean(this.o.reservedLogin?.(n)));
+    if (!r.ok) return this.localPage(req, res, `Hata: ${r.error}`);
+    this.o.audit?.({ ev: "local_account_created", user: r.account.user });
+    this.setCookie(res, this.o.store.cookieFor(r.account.user), origin.startsWith("https://"), 12 * 3600);
+    res.writeHead(303, { location: "/", "cache-control": "no-store" });
+    res.end();
+  }
+  /** Bağlantı anahtarını yenile (sızmışsa eski adres çalışmaz). */
+  async localConnector(req, res, _origin) {
+    if (req.method !== "POST") return this.localPage(req, res);
+    const user = this.cookieUser(req);
+    const la = this.o.local;
+    if (!user || !la?.has(user)) return this.localPage(req, res, "Hata: yerel hesap oturumu yok.");
+    la.rotateConnector(user);
+    this.o.audit?.({ ev: "local_connector_rotated", user });
+    res.writeHead(303, { location: "/", "cache-control": "no-store" });
+    res.end();
   }
   /** /workspaces — hangi hesap hangi kökte, ne kadar iş var, eski kökü devral. */
   async workspacesPage(req, res, origin) {
@@ -29891,17 +30189,17 @@ var SettingsUI = class {
     const kb2 = (n) => n < 1024 ? `${n} B` : n < 1 << 20 ? `${(n / 1024).toFixed(1)} KB` : n < 1 << 30 ? `${(n / 1048576).toFixed(1)} MB` : `${(n / 1073741824).toFixed(2)} GB`;
     const body = `${heading("\xC7al\u0131\u015Fma alanlar\u0131", "Hesab\u0131n k\xF6kleri ve eski sohbetlerin b\u0131rakt\u0131\u011F\u0131 i\u015Fler. Devral, dosyalar\u0131 mevcut k\xF6ke ta\u015F\u0131r; var olan\u0131n \xFCzerine yazmaz.")}
 ${notice ? `<p class="ok">${esc2(notice)}</p>` : ""}
-<div class="card"><table>
+<div class="card"><div class="tablewrap"><table>
 <thead><tr><th>Dizin</th><th>T\xFCr</th><th>Dosya</th><th>Boyut</th><th>Son kullan\u0131m</th><th></th></tr></thead>
 <tbody>${rows.map((r) => `<tr${r.current ? ' style="font-weight:600"' : ""}>
 <td><code>${esc2(r.rel)}</code>${r.current ? ' <span class="pill">bu sohbet</span>' : ""}</td>
 <td>${r.kind === "account" ? "hesap" : "sohbet"}${r.user ? ` \xB7 ${esc2(r.user)}` : ""}</td>
 <td>${r.files}</td><td>${kb2(r.bytes)}</td><td>${new Date(r.lastUsed).toISOString().replace("T", " ").slice(0, 16)}</td>
 <td>${r.current ? "" : `<form method="post" action="/workspaces" style="margin:0"><input type="hidden" name="adopt" value="${esc2(r.rel)}"><button type="submit" data-once>Devral</button></form>`}</td>
-</tr>`).join("") || `<tr><td colspan="6" class="muted">Kay\u0131t yok.</td></tr>`}</tbody></table></div>
+</tr>`).join("") || `<tr><td colspan="6" class="muted">Kay\u0131t yok.</td></tr>`}</tbody></table></div></div>
 <p class="muted">Ayn\u0131 listeyi modelden de isteyebilirsin: <code>ht_workspace {"action":"list"}</code> \xB7 devam: <code>ht_workspace {"action":"adopt","dir":"u-\u2026"}</code></p>
-<p class="muted"><a href="/settings">ayarlar</a> \xB7 <a href="/tools">ara\xE7 katalo\u011Fu</a> \xB7 <a href="/status">durum</a></p>`;
-    this.html(res, 200, page({ title: "\xC7al\u0131\u015Fma alanlar\u0131", subtitle: "workspaces", body }));
+<p class="muted"><a href="/">panel</a> \xB7 <a href="/settings">ayarlar</a></p>`;
+    this.html(res, 200, page({ title: "\xC7al\u0131\u015Fma alanlar\u0131", subtitle: "workspaces", body, wide: true }));
   }
   async body(req) {
     const chunks = [];
@@ -29921,6 +30219,17 @@ ${error2 ? `<p class="e">${esc2(error2)}</p>` : ""}
 <h2 style="margin-top:0">GitHub ile giri\u015F</h2>
 ${gh ? `<p class="muted">Claude'da ba\u011Flan\u0131rken kulland\u0131\u011F\u0131n GitHub hesab\u0131yla gir; ayarlar\u0131n o hesaba ba\u011Flan\u0131r.</p>
 <p><a class="btn" href="/settings/login" data-once>GitHub ile giri\u015F yap</a></p>` : `<p class="muted">Bu sunucuda GitHub giri\u015Fi yap\u0131land\u0131r\u0131lmam\u0131\u015F. Operat\xF6r token'\u0131 ile gir.</p>`}
+</div>
+<div class="card">
+<h2 style="margin-top:0">GitHub hesab\u0131n yok mu?</h2>
+<p class="muted">Yerel hesapla girebilirsin. GitHub giri\u015Fi bozuldu\u011Funda da bu yol \xE7al\u0131\u015F\u0131r.</p>
+<form method="post" action="/local/login" autocomplete="on">
+  <label for="lu">Kullan\u0131c\u0131 ad\u0131</label>
+  <input id="lu" name="user" type="text" autocomplete="username" required>
+  <label for="lp">Parola</label>
+  <input id="lp" name="password" type="password" autocomplete="current-password" required>
+  <p class="row"><button class="primary" type="submit">Yerel hesapla gir</button><a class="btn" href="/local">Hesap a\xE7</a></p>
+</form>
 </div>
 <div class="card">
 <h2 style="margin-top:0">Operat\xF6r giri\u015Fi</h2>
@@ -29944,6 +30253,7 @@ ${gh ? `<p class="muted">Claude'da ba\u011Flan\u0131rken kulland\u0131\u011F\u01
     const cmdRows = s.allowedCommands.map((c, i) => `<li><code>${esc2(c)}</code><form method="post" action="/settings/save" style="margin:0"><input type="hidden" name="removeCommand" value="${esc2(c)}"><button class="ghost" type="submit" data-once>Kald\u0131r</button></form></li>`).join("");
     const urlRows = s.allowedUrls.map((u) => `<li><code>${esc2(u)}</code><form method="post" action="/settings/save" style="margin:0"><input type="hidden" name="removeUrl" value="${esc2(u)}"><button class="ghost" type="submit" data-once>Kald\u0131r</button></form></li>`).join("");
     const body = `${heading("Ayarlar", `Kullan\u0131c\u0131: ${user}`)}
+<p class="muted"><a href="/">panel</a> \xB7 <a href="/workspaces">\xE7al\u0131\u015Fma alanlar\u0131</a></p>
 <form method="post" action="/settings/save" autocomplete="off">
 
 <div class="card">
@@ -30068,7 +30378,7 @@ ${gh ? `<p class="muted">Claude'da ba\u011Flan\u0131rken kulland\u0131\u011F\u01
     const p = await this.body(req);
     const given = String(p?.get("token") ?? "").trim();
     const want = this.o.operatorToken ?? "";
-    if (!want || given.length !== want.length || !crypto13.timingSafeEqual(Buffer.from(given), Buffer.from(want)))
+    if (!want || given.length !== want.length || !crypto14.timingSafeEqual(Buffer.from(given), Buffer.from(want)))
       return this.loginPage(res, "Token yanl\u0131\u015F.");
     const user = "operator";
     this.setCookie(res, this.o.store.cookieFor(user), origin.startsWith("https://"), 12 * 3600);
@@ -30091,7 +30401,7 @@ ${gh ? `<p class="muted">Claude'da ba\u011Flan\u0131rken kulland\u0131\u011F\u01
       body: new URLSearchParams({ client_id: gh.clientId, scope: "read:user user:email" }).toString()
     });
     if (!dc || typeof dc.device_code !== "string") return this.loginPage(res, "GitHub'dan kod al\u0131namad\u0131, tekrar dene.");
-    const t = crypto13.randomBytes(18).toString("base64url");
+    const t = crypto14.randomBytes(18).toString("base64url");
     this.pending.set(t, {
       deviceCode: dc.device_code,
       userCode: String(dc.user_code),
@@ -30200,7 +30510,7 @@ async function main() {
   console.error(`[hardtools] ${VERSION} profile=${policy.profile} roots=${policy.roots.join(",")} transport=${httpMode ? "http" : "stdio"} audit=${audit.file}`);
   if (!httpMode) {
     const stdioRoot = policy.roots[0];
-    const stdioOpts = stdioRoot && stdioRoot !== path20.parse(stdioRoot).root ? { workspaces: { base: stdioRoot, current: stdioRoot, user: (process.env.HARDTOOLS_ACCOUNT ?? "local").trim() || "local" } } : void 0;
+    const stdioOpts = stdioRoot && stdioRoot !== path21.parse(stdioRoot).root ? { workspaces: { base: stdioRoot, current: stdioRoot, user: (process.env.HARDTOOLS_ACCOUNT ?? "local").trim() || "local" } } : void 0;
     await createServer(policy, audit, void 0, void 0, void 0, stdioOpts).connect(new StdioServerTransport());
     return;
   }
@@ -30224,7 +30534,7 @@ async function main() {
   const loginFree = isPublic && (publicMode === "key" || publicTools !== null || anonAll);
   const loginRequired = isPublic && !loginFree;
   if (isPublic) console.error(`[hardtools] public connector mode=${publicMode}; tools=${publicTools ? [...publicTools].join(",") : "all"}; ${loginFree ? "no OAuth challenge" : "login required (bearer or OAuth)"}${anonAll && !publicTools ? " (HARDTOOLS_PUBLIC_ANON: tam set giri\u015Fsiz)" : ""}`);
-  const keyId = publicKey ? crypto14.createHash("sha256").update(publicKey).digest("hex").slice(0, 12) : "open";
+  const keyId = publicKey ? crypto15.createHash("sha256").update(publicKey).digest("hex").slice(0, 12) : "open";
   const publicOwner = (viaKey) => viaKey ? `public:${keyId}` : "public";
   const token = process.env.HARDTOOLS_HTTP_TOKEN ?? "";
   const hasToken = token.length >= 32;
@@ -30242,11 +30552,11 @@ async function main() {
   const ghLogins = (process.env.HARDTOOLS_OAUTH_ALLOWED_LOGINS ?? "").split(",").map((s) => s.trim()).filter(Boolean);
   const ghEmails = (process.env.HARDTOOLS_OAUTH_ALLOWED_EMAILS ?? "").split(",").map((s) => s.trim()).filter(Boolean);
   const ghAllowAny = ["1", "true", "yes", "*"].includes((process.env.HARDTOOLS_OAUTH_ALLOW_ANY ?? "").trim().toLowerCase()) || ghLogins.includes("*") || ghEmails.includes("*");
-  const stateDir = process.env.HARDTOOLS_STATE_DIR?.trim() || (policy.audit.dir ? path20.join(policy.audit.dir, "state") : void 0);
-  const stateFile = (name) => stateDir ? path20.join(stateDir, name) : void 0;
-  const memoryDir = stateDir ? path20.join(stateDir, "memory") : void 0;
-  const persistKey = stateDir ? path20.join(stateDir, "persist.key") : void 0;
-  const persistFile = (name) => stateDir ? new StateFile(path20.join(stateDir, name), persistKey) : void 0;
+  const stateDir = process.env.HARDTOOLS_STATE_DIR?.trim() || (policy.audit.dir ? path21.join(policy.audit.dir, "state") : void 0);
+  const stateFile = (name) => stateDir ? path21.join(stateDir, name) : void 0;
+  const memoryDir = stateDir ? path21.join(stateDir, "memory") : void 0;
+  const persistKey = stateDir ? path21.join(stateDir, "persist.key") : void 0;
+  const persistFile = (name) => stateDir ? new StateFile(path21.join(stateDir, name), persistKey) : void 0;
   const undoState = persistFile("undo.enc"), schedState = persistFile("schedule.enc");
   let github;
   if (ghId) {
@@ -30291,19 +30601,20 @@ async function main() {
     console.error(`[hardtools] invite URL (one use; keep private): ${inviteUrl}`);
   }
   const inputStore = stateFile("inputs.json");
+  const localAccounts = new LocalAccounts({ store: stateFile("local-accounts.json"), signup: process.env.HARDTOOLS_LOCAL_SIGNUP });
   const sharedInputs = new UserInputs(inputStore ? { store: inputStore } : {});
   const sharedShares = new Shares(Date.now, persistFile("shares.enc"));
   const sharedVars = new Variables(persistFile("vars.enc"));
   const sharedUndo = new UndoJournal(undoState);
   const perSession = (process.env.HARDTOOLS_PER_SESSION_WORKSPACE ?? "1").trim() !== "0";
   const baseRoot = policy.roots[0];
-  const baseIsFsRoot = Boolean(baseRoot) && baseRoot === path20.parse(baseRoot).root;
+  const baseIsFsRoot = Boolean(baseRoot) && baseRoot === path21.parse(baseRoot).root;
   const sessionBase = baseRoot && !baseIsFsRoot ? baseRoot : void 0;
   const sessionsFile = stateFile("sessions.json");
   const sessMap = /* @__PURE__ */ new Map();
   if (sessionsFile) {
     try {
-      const d = JSON.parse(fs18.readFileSync(sessionsFile, "utf8"));
+      const d = JSON.parse(fs19.readFileSync(sessionsFile, "utf8"));
       for (const r of d.items ?? []) if (r?.sid && r?.dir) sessMap.set(r.sid, { owner: r.owner ?? "", dir: r.dir, last: r.last ?? 0 });
     } catch {
     }
@@ -30316,45 +30627,45 @@ async function main() {
       try {
         const now = Date.now();
         for (const [sid, r] of sessMap) if (now - r.last > 7 * 24 * 36e5) sessMap.delete(sid);
-        fs18.mkdirSync(path20.dirname(sessionsFile), { recursive: true, mode: 448 });
+        fs19.mkdirSync(path21.dirname(sessionsFile), { recursive: true, mode: 448 });
         const tmp = sessionsFile + ".tmp";
-        fs18.writeFileSync(tmp, JSON.stringify({ v: 1, items: [...sessMap].map(([sid, r]) => ({ sid, ...r })) }), { mode: 384 });
-        fs18.renameSync(tmp, sessionsFile);
+        fs19.writeFileSync(tmp, JSON.stringify({ v: 1, items: [...sessMap].map(([sid, r]) => ({ sid, ...r })) }), { mode: 384 });
+        fs19.renameSync(tmp, sessionsFile);
       } catch {
       }
     }, 250);
     sessSaveTimer.unref?.();
   };
   const mkRoot = (dir, owner) => {
-    fs18.mkdirSync(dir, { recursive: true, mode: 448 });
+    fs19.mkdirSync(dir, { recursive: true, mode: 448 });
     if (owner) writeMarker(dir, owner, userFor(owner));
     return dir;
   };
   const accountRootForUser = (user) => {
-    const dir = path20.join(baseRoot, "a-" + crypto14.createHash("sha256").update("user\0" + user.toLowerCase()).digest("hex").slice(0, 16));
+    const dir = path21.join(baseRoot, "a-" + crypto15.createHash("sha256").update("user\0" + user.toLowerCase()).digest("hex").slice(0, 16));
     mkRoot(dir);
     writeMarker(dir, "user:" + user, user);
     return dir;
   };
   const accountRoot = (owner) => accountRootForUser(userFor(owner));
-  const sessionRoot = (sid, owner) => mkRoot(path20.join(sessionBase, "u-" + crypto14.createHash("sha256").update("sid\0" + sid).digest("hex").slice(0, 16)), owner);
+  const sessionRoot = (sid, owner) => mkRoot(path21.join(sessionBase, "u-" + crypto15.createHash("sha256").update("sid\0" + sid).digest("hex").slice(0, 16)), owner);
   const countFiles = (dir, limit = 25) => {
     let n = 0;
     const walk = (d, depth) => {
       if (n >= limit || depth > 3) return;
       let names;
       try {
-        names = fs18.readdirSync(d);
+        names = fs19.readdirSync(d);
       } catch {
         return;
       }
       for (const name of names) {
         if (n >= limit) return;
         if (name.startsWith(".")) continue;
-        const abs = path20.join(d, name);
+        const abs = path21.join(d, name);
         let st;
         try {
-          st = fs18.lstatSync(abs);
+          st = fs19.lstatSync(abs);
         } catch {
           continue;
         }
@@ -30367,14 +30678,14 @@ async function main() {
     return n;
   };
   const adoptLatestSession = (owner, accountDir) => {
-    const marker = path20.join(accountDir, ".ht-adopted");
-    if (fs18.existsSync(marker) || countFiles(accountDir) > 0) return void 0;
-    const mine = [...sessMap.entries()].filter(([, r]) => r.owner === owner && r.dir !== accountDir && fs18.existsSync(r.dir)).sort((a, b) => b[1].last - a[1].last);
+    const marker = path21.join(accountDir, ".ht-adopted");
+    if (fs19.existsSync(marker) || countFiles(accountDir) > 0) return void 0;
+    const mine = [...sessMap.entries()].filter(([, r]) => r.owner === owner && r.dir !== accountDir && fs19.existsSync(r.dir)).sort((a, b) => b[1].last - a[1].last);
     for (const [, rec] of mine) {
       if (countFiles(rec.dir) === 0) continue;
       const r = adoptInto(rec.dir, accountDir);
       try {
-        fs18.writeFileSync(marker, JSON.stringify({ from: rec.dir, at: Date.now(), moved: r.moved }), { mode: 384 });
+        fs19.writeFileSync(marker, JSON.stringify({ from: rec.dir, at: Date.now(), moved: r.moved }), { mode: 384 });
       } catch {
       }
       audit.write({ ev: "workspace_adopt", owner, from: rec.dir, to: accountDir, moved: r.moved, skipped: r.skipped });
@@ -30386,15 +30697,15 @@ async function main() {
   const seedFromUser = (owner, dir) => {
     try {
       const from = accountRoot(owner);
-      if (path20.resolve(from) === path20.resolve(dir)) return;
+      if (path21.resolve(from) === path21.resolve(dir)) return;
       const m = measure(from);
       if (!m.files || m.files > 2e3 || m.bytes > 64 * 1024 * 1024) return;
-      for (const name of fs18.readdirSync(from)) {
+      for (const name of fs19.readdirSync(from)) {
         if (name === ".ht-owner" || name === ".hardtools") continue;
-        const src = path20.join(from, name), dst = path20.join(dir, name);
-        if (fs18.existsSync(dst)) continue;
+        const src = path21.join(from, name), dst = path21.join(dir, name);
+        if (fs19.existsSync(dst)) continue;
         try {
-          fs18.cpSync(src, dst, { recursive: true, errorOnExist: false, force: false });
+          fs19.cpSync(src, dst, { recursive: true, errorOnExist: false, force: false });
         } catch {
         }
       }
@@ -30433,8 +30744,8 @@ async function main() {
       res.end(JSON.stringify({ error: msg }));
     };
     try {
-      const path21 = (req.url ?? "").split("?")[0];
-      if (path21 === "/healthz") {
+      const path22 = (req.url ?? "").split("?")[0];
+      if (path22 === "/healthz") {
         res.writeHead(200, { "content-type": "application/json", "cache-control": "no-store" });
         res.end(JSON.stringify({
           ok: true,
@@ -30449,12 +30760,12 @@ async function main() {
       }
       const h = String(req.headers.host ?? "").toLowerCase();
       if (!allowedHosts.has(h)) return send(403, "host not allowed");
-      if (path21 === "/settings" || path21.startsWith("/settings/") || path21 === "/workspaces") {
-        if (await settingsUI.handle(req, res, path21)) return;
+      if (path22 === "/" || path22 === "/local" || path22.startsWith("/local/") || path22 === "/settings" || path22.startsWith("/settings/") || path22 === "/workspaces") {
+        if (await settingsUI.handle(req, res, path22)) return;
       }
-      if (sharedInputs.handle(req, res, path21, oauth.origin(req))) return;
+      if (sharedInputs.handle(req, res, path22, oauth.origin(req))) return;
       const sameOrigin = req.headers.origin === oauth.origin(req);
-      const tokenProtected = path21.startsWith("/settings/");
+      const tokenProtected = path22.startsWith("/settings/");
       if (req.headers.origin && !sameOrigin && !tokenProtected) return send(403, "browser origins are not allowed");
       const ip = req.socket.remoteAddress ?? "?";
       const now = Date.now();
@@ -30469,19 +30780,24 @@ async function main() {
       b.n++;
       hits.set(ip, b);
       if (b.n > 120) return send(429, "rate limited");
-      if (sharedShares.download(req, res, path21)) return;
+      if (sharedShares.download(req, res, path22)) return;
       if (loginFree) {
-        if (/^\/(?:\.well-known\/|register$|authorize$|token$|oauth\/|invite\/)/.test(path21)) return send(404, "not found");
-        if (req.method === "GET" && (path21 === "/connect" || /^\/c\/[A-Za-z0-9_-]{16,128}$/.test(path21))) return connectPage(req, res, path21, publicMode === "key" && publicKey ? publicKey : "");
+        if (/^\/(?:\.well-known\/|register$|authorize$|token$|oauth\/|invite\/)/.test(path22)) return send(404, "not found");
+        if (req.method === "GET" && (path22 === "/connect" || /^\/c\/[A-Za-z0-9_-]{16,128}$/.test(path22))) return connectPage(req, res, path22, publicMode === "key" && publicKey ? publicKey : "");
       } else if (await oauth.handle(req, res)) return;
-      const keyPath = /^\/c\/([A-Za-z0-9_-]{16,128})(?:\/mcp)?$/.exec(path21);
-      const isMcpPath = path21 === "/mcp" || keyPath !== null;
+      const keyPath = /^\/c\/([A-Za-z0-9_-]{16,128})(?:\/mcp)?$/.exec(path22);
+      const localPath = /^\/lc\/([A-Za-z0-9_-]{16,128})(?:\/mcp)?$/.exec(path22);
+      const isMcpPath = path22 === "/mcp" || keyPath !== null || localPath !== null;
       if (!isMcpPath) return send(404, "not found");
       const m = /^Bearer (.+)$/.exec(String(req.headers.authorization ?? ""));
       let owner = m ? hasToken && equalSecret(m[1], token) ? "static" : oauth.accessScope(m[1]) : null;
+      if (!owner && localPath) {
+        const lu = localAccounts.userForConnector(localPath[1]);
+        if (lu) owner = "local:" + lu;
+      }
       if (!owner && loginFree) {
         if (keyPath && publicKey && equalSecret(keyPath[1], publicKey)) owner = publicOwner(true);
-        else if (path21 === "/mcp" && publicMode !== "key") owner = publicOwner(false);
+        else if (path22 === "/mcp" && publicMode !== "key") owner = publicOwner(false);
       }
       if (!owner) {
         return send(
@@ -30514,14 +30830,14 @@ async function main() {
       if (perSession && owner !== "static" && baseRoot && !baseIsFsRoot && sessionBase) {
         const rec = sid ? sessMap.get(sid) : void 0;
         const liveBase = policy.roots[0];
-        const recFresh = Boolean(rec && rec.owner === owner && fs18.existsSync(rec.dir) && pathDir(rec.dir) === liveBase && pathBase(rec.dir).startsWith("u-"));
+        const recFresh = Boolean(rec && rec.owner === owner && fs19.existsSync(rec.dir) && pathDir(rec.dir) === liveBase && pathBase(rec.dir).startsWith("u-"));
         if (rec && !recFresh && sid) sessMap.delete(sid);
         if (rec && recFresh && rec.dir) {
           workDir = rec.dir;
           rec.last = Date.now();
           saveSessions();
         } else if (isInit && !sid) {
-          sid = crypto14.randomBytes(18).toString("base64url");
+          sid = crypto15.randomBytes(18).toString("base64url");
           workDir = sessionRoot(sid, owner);
           if (baseRoot && !baseIsFsRoot) seedFromUser(owner, workDir);
           sessMap.set(sid, { owner, dir: workDir, last: Date.now() });
@@ -30585,6 +30901,8 @@ async function main() {
   });
   const settingsUI = new SettingsUI({
     store: settingsStore,
+    local: localAccounts,
+    reservedLogin: (n) => settingsStore.hasUser(n) && !localAccounts.has(n),
     operatorToken: hasToken ? token : void 0,
     github: github ? { clientId: github.clientId, webBase: github.webBase, apiBase: github.apiBase, allowAny: github.allowAny, allowedLogins: github.allowedLogins, allowedEmails: github.allowedEmails } : void 0,
     audit: (e) => audit.write(e),
@@ -30596,7 +30914,7 @@ async function main() {
         adopt: (user, rel2) => {
           if (!/^(a|u)-[0-9a-f]{16}$/.test(rel2)) throw new Error("ge\xE7ersiz dizin");
           const target = accountRootForUser(user);
-          const r = adoptInto(path20.join(baseRoot, rel2), target);
+          const r = adoptInto(path21.join(baseRoot, rel2), target);
           audit.write({ ev: "workspace_adopt", user, from: rel2, to: pathBase(target), moved: r.moved, skipped: r.skipped });
           return `${rel2} \u2192 ${pathBase(target)}: ${r.moved} \xF6\u011Fe ta\u015F\u0131nd\u0131, ${r.skipped} atland\u0131`;
         }
@@ -30604,6 +30922,8 @@ async function main() {
     } : {}
   });
   const userFor = (owner) => {
+    const l = /^local:(.+)$/.exec(owner);
+    if (l) return l[1];
     if (owner === "static") return "operator";
     const g = /^grant:(.+)$/.exec(owner);
     if (g) return settingsStore.loginForGrant(g[1]) ?? "operator";
@@ -30634,7 +30954,7 @@ async function main() {
     p = { ...policy, shell, net: net3 };
     return p;
   };
-  const connectPage = (req, res, path21, key) => {
+  const connectPage = (req, res, path22, key) => {
     const origin = oauth.origin(req);
     const base = key ? `${origin}/c/${key}` : `${origin}/mcp`;
     const others = key ? `${origin}/mcp` : "";
@@ -30648,7 +30968,7 @@ async function main() {
 <div class="card"><textarea readonly onclick="this.select()">${esc2(base)}</textarea></div>
 <ol><li>Ad: <code>hardtools</code></li><li>Uzak MCP sunucu adresi: <code>${esc2(base)}</code></li>${others ? `<li>Anahtar gerekmez; bu adres yaln\u0131zca s\u0131n\u0131rl\u0131 ara\xE7lar\u0131 a\xE7ar. Tam yetki i\xE7in <code>/c/&lt;anahtar&gt;</code> adresini kullan.</li>` : `<li>Bu adres anahtar\u0131n kendisidir: payla\u015Fma.</li>`}</ol>
 <p class="muted">Ba\u011Fland\u0131ktan sonra ara\xE7lar sohbette g\xF6r\xFCn\xFCr. Sunucu d\xFC\u015Ferse <code>/healthz</code> izleyicisi ve konteyner g\xF6zc\xFCs\xFC yeniden ba\u015Flat\u0131r.</p>
-${path21 !== "/connect" ? `<p class="muted"><a href="${origin}/connect">ba\u011Flanma sayfas\u0131</a> \xB7 <a href="${origin}/settings">ayarlar</a></p>` : ""}`
+${path22 !== "/connect" ? `<p class="muted"><a href="${origin}/connect">ba\u011Flanma sayfas\u0131</a> \xB7 <a href="${origin}/settings">ayarlar</a></p>` : ""}`
     });
     res.writeHead(200, { "content-type": "text/html; charset=utf-8", "cache-control": "no-store", "referrer-policy": "no-referrer", "x-frame-options": "DENY", "x-content-type-options": "nosniff", "content-security-policy": PAGE_CSP });
     res.end(html);
