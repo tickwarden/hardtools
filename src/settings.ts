@@ -7,6 +7,7 @@ import fs from "node:fs";
 import http from "node:http";
 import path from "node:path";
 import { page as uiPage, esc, heading, PAGE_CSP } from "./ui.js";
+import type { LocalAccounts } from "./localauth.js";
 
 export const ALL_TOOLS = [
   "ht_read", "ht_write", "ht_edit", "ht_glob", "ht_search", "ht_mkdir", "ht_move", "ht_trash",
@@ -181,6 +182,11 @@ export class UserSettingsStore {
     return `${body}.${sig}`;
   }
 
+  /** Bu ad bir kullanıcı kaydı olarak biliniyor mu? (Yerel hesapla çakışmayı engellemek için.) */
+  hasUser(name: string): boolean {
+    return this.users.has(name) || this.grants.has(name);
+  }
+
   userFromCookie(value: string | undefined): string | null {
     if (!value) return null;
     const parts = value.split(".");
@@ -203,6 +209,10 @@ export interface SettingsUIOptions {
   github?: { clientId: string; webBase?: string; apiBase?: string; allowAny?: boolean; allowedLogins?: string[]; allowedEmails?: string[] };
   origin?: (req: http.IncomingMessage) => string;
   audit?: (ev: Record<string, unknown>) => void;
+  /** Yerel hesaplar (GitHub olmadan giriş, GitHub bozulduğunda yedek yol). */
+  local?: LocalAccounts;
+  /** Bir ad GitHub login'i olarak biliniyor mu? (Yerel hesapla çakışmayı engeller.) */
+  reservedLogin?: (name: string) => boolean;
   /** /workspaces: hesabın kökleri ve eski kökü devralma. */
   workspaces?: {
     current: string;
@@ -250,7 +260,108 @@ export class SettingsUI {
     if (pathname === "/settings/save") return await this.save(req, res, origin), true;
     if (pathname === "/settings/logout") return await this.logout(req, res, origin), true;
     if (pathname === "/workspaces") return await this.workspacesPage(req, res, origin), true;
+    if (pathname === "/") return this.dashboard(req, res, origin), true;
+    if (pathname === "/local") return this.localPage(req, res, ""), true;
+    if (pathname === "/local/login") return await this.localLogin(req, res, origin), true;
+    if (pathname === "/local/register") return await this.localRegister(req, res, origin), true;
+    if (pathname === "/local/connector") return await this.localConnector(req, res, origin), true;
     return false;
+  }
+
+  /** Panel (/): çalışma alanları, ayarlar ve MCP adresi tek yerde; adresi kopyalama düğmesi. */
+  private dashboard(req: http.IncomingMessage, res: http.ServerResponse, origin: string) {
+    if (req.method !== "GET") return this.html(res, 405, uiPage({ title: "Panel", body: `<p class="e">Yalnız GET.</p>` }));
+    const user = this.cookieUser(req);
+    const localConnector = user && this.o.local?.has(user) ? this.o.local.get(user)?.connector ?? "" : "";
+    const mcpUrl = localConnector ? `${origin}/lc/${localConnector}` : `${origin}/mcp`;
+    const tiles = [
+      { href: "/workspaces", title: "Çalışma alanları", note: "Hesabın kökleri, eski sohbetlerin işi, devralma." },
+      { href: "/settings", title: "Ayarlar", note: "Araçlar, ağ, allowlist ve oturum." },
+      ...(user ? [{ href: "/settings", title: `Hesap: ${user}`, note: "Bu oturumun kimliği." }] : [{ href: "/local", title: "Yerel hesap", note: "GitHub olmadan giriş yap ya da hesap aç." }]),
+    ].map(t => `<a class="tile" href="${t.href}"><b>${esc(t.title)}</b><span>${esc(t.note)}</span></a>`).join("");
+    const body = `${heading("Panel", user ? `Giriş: ${user}` : "Bağlantı adresini kopyala, sayfalara göz at.")}
+<div class="card">
+<h2 style="margin-top:0">MCP adresi</h2>
+<p class="muted">Bu adresi Claude'da “Connector ekle” alanına yapıştır. Başkası da kopyalayıp kendi hesabıyla ekleyebilir;${localConnector ? " bu adres yalnızca senin yerel hesabına bağlıdır." : " giriş kendi hesabıyla yapılır."}</p>
+<div class="copybox"><input id="mcp" type="text" readonly value="${esc(mcpUrl)}"><button type="button" data-copy="#mcp">Kopyala</button></div>
+<p class="muted" style="margin-bottom:0">${localConnector ? 'Anahtar sızdıysa <a href="/local">yerel hesap sayfasından</a> yenileyebilirsin.' : `Sunucu: <code>${esc(origin)}</code>`}</p>
+</div>
+<h2>Sayfalar</h2>
+<div class="tiles">${tiles}</div>
+${user ? `<p class="muted"><a href="/settings/logout">çıkış yap</a></p>` : `<p class="muted"><a href="/settings">giriş yap</a> · <a href="/local">yerel hesap</a></p>`}`;
+    this.html(res, 200, uiPage({ title: "Panel", subtitle: "panel", body }));
+  }
+
+  /** /local — yerel hesap girişi ve (izinliyse) kayıt. */
+  private localPage(req: http.IncomingMessage, res: http.ServerResponse, notice = "") {
+    const la = this.o.local;
+    const canReg = Boolean(la?.canRegister());
+    const body = `${heading("Yerel hesap", "GitHub hesabın yoksa ya da GitHub girişi çalışmıyorsa buradan gir.")}
+${notice ? `<p class="${notice.startsWith("Hata") ? "e" : "ok"}">${esc(notice)}</p>` : ""}
+<div class="card">
+<h2 style="margin-top:0">Giriş</h2>
+<form method="post" action="/local/login" autocomplete="on">
+  <label for="lu">Kullanıcı adı</label>
+  <input id="lu" name="user" type="text" autocomplete="username" required>
+  <label for="lp">Parola</label>
+  <input id="lp" name="password" type="password" autocomplete="current-password" required>
+  <p><button class="primary" type="submit">Giriş yap</button></p>
+</form>
+</div>
+${canReg ? `<div class="card">
+<h2 style="margin-top:0">Hesap aç</h2>
+<p class="muted">${la?.count() === 0 ? "Bu sunucuda henüz yerel hesap yok: ilk hesabı sen açacaksın." : "Yeni yerel hesap aç."} Parola en az 10 karakter, iki tür karakter içermeli.</p>
+<form method="post" action="/local/register" autocomplete="off">
+  <label for="ru">Kullanıcı adı (3-32 karakter)</label>
+  <input id="ru" name="user" type="text" autocomplete="username" required>
+  <label for="rp">Parola</label>
+  <input id="rp" name="password" type="password" autocomplete="new-password" required>
+  <p><button type="submit">Hesap aç</button></p>
+</form>
+</div>` : `<p class="muted">Yeni hesap açma kapalı. Operatör yeni bir yerel hesap açabilir.</p>`}
+<p class="muted"><a href="/">panel</a> · <a href="/settings/login">GitHub ile giriş</a></p>`;
+    this.html(res, 200, uiPage({ title: "Yerel hesap", subtitle: "local", body }));
+  }
+
+  private async localLogin(req: http.IncomingMessage, res: http.ServerResponse, origin: string) {
+    if (req.method !== "POST") return this.localPage(req, res);
+    const la = this.o.local;
+    if (!la) return this.localPage(req, res, "Hata: bu sunucuda yerel hesaplar kapalı.");
+    const p = await this.body(req);
+    const user = (p?.get("user") ?? "").trim().toLowerCase();
+    const pw = p?.get("password") ?? "";
+    const r = la.verify(user, pw);
+    if (!r.ok) {
+      this.o.audit?.({ ev: "local_login_failed", user });
+      return this.localPage(req, res, `Hata: ${r.error}`);
+    }
+    this.o.audit?.({ ev: "local_login", user });
+    this.setCookie(res, this.o.store.cookieFor(user), origin.startsWith("https://"), 12 * 3600);
+    res.writeHead(303, { location: "/", "cache-control": "no-store" }); res.end();
+  }
+
+  private async localRegister(req: http.IncomingMessage, res: http.ServerResponse, origin: string) {
+    if (req.method !== "POST") return this.localPage(req, res);
+    const la = this.o.local;
+    if (!la || !la.canRegister()) return this.localPage(req, res, "Hata: yeni yerel hesap açma kapalı.");
+    const p = await this.body(req);
+    const user = (p?.get("user") ?? "").trim().toLowerCase();
+    const r = la.create(user, p?.get("password") ?? "", (n) => Boolean(this.o.reservedLogin?.(n)));
+    if (!r.ok) return this.localPage(req, res, `Hata: ${r.error}`);
+    this.o.audit?.({ ev: "local_account_created", user: r.account.user });
+    this.setCookie(res, this.o.store.cookieFor(r.account.user), origin.startsWith("https://"), 12 * 3600);
+    res.writeHead(303, { location: "/", "cache-control": "no-store" }); res.end();
+  }
+
+  /** Bağlantı anahtarını yenile (sızmışsa eski adres çalışmaz). */
+  private async localConnector(req: http.IncomingMessage, res: http.ServerResponse, _origin: string) {
+    if (req.method !== "POST") return this.localPage(req, res);
+    const user = this.cookieUser(req);
+    const la = this.o.local;
+    if (!user || !la?.has(user)) return this.localPage(req, res, "Hata: yerel hesap oturumu yok.");
+    la.rotateConnector(user);
+    this.o.audit?.({ ev: "local_connector_rotated", user });
+    res.writeHead(303, { location: "/", "cache-control": "no-store" }); res.end();
   }
 
   /** /workspaces — hangi hesap hangi kökte, ne kadar iş var, eski kökü devral. */
@@ -270,17 +381,17 @@ export class SettingsUI {
     const kb = (n: number) => n < 1024 ? `${n} B` : n < 1 << 20 ? `${(n / 1024).toFixed(1)} KB` : n < 1 << 30 ? `${(n / 1048576).toFixed(1)} MB` : `${(n / 1073741824).toFixed(2)} GB`;
     const body = `${heading("Çalışma alanları", "Hesabın kökleri ve eski sohbetlerin bıraktığı işler. Devral, dosyaları mevcut köke taşır; var olanın üzerine yazmaz.")}
 ${notice ? `<p class="ok">${esc(notice)}</p>` : ""}
-<div class="card"><table>
+<div class="card"><div class="tablewrap"><table>
 <thead><tr><th>Dizin</th><th>Tür</th><th>Dosya</th><th>Boyut</th><th>Son kullanım</th><th></th></tr></thead>
 <tbody>${rows.map(r => `<tr${r.current ? ' style="font-weight:600"' : ""}>
 <td><code>${esc(r.rel)}</code>${r.current ? ' <span class="pill">bu sohbet</span>' : ""}</td>
 <td>${r.kind === "account" ? "hesap" : "sohbet"}${r.user ? ` · ${esc(r.user)}` : ""}</td>
 <td>${r.files}</td><td>${kb(r.bytes)}</td><td>${new Date(r.lastUsed).toISOString().replace("T", " ").slice(0, 16)}</td>
 <td>${r.current ? "" : `<form method="post" action="/workspaces" style="margin:0"><input type="hidden" name="adopt" value="${esc(r.rel)}"><button type="submit" data-once>Devral</button></form>`}</td>
-</tr>`).join("") || `<tr><td colspan="6" class="muted">Kayıt yok.</td></tr>`}</tbody></table></div>
+</tr>`).join("") || `<tr><td colspan="6" class="muted">Kayıt yok.</td></tr>`}</tbody></table></div></div>
 <p class="muted">Aynı listeyi modelden de isteyebilirsin: <code>ht_workspace {"action":"list"}</code> · devam: <code>ht_workspace {"action":"adopt","dir":"u-…"}</code></p>
-<p class="muted"><a href="/settings">ayarlar</a> · <a href="/tools">araç kataloğu</a> · <a href="/status">durum</a></p>`;
-    this.html(res, 200, uiPage({ title: "Çalışma alanları", subtitle: "workspaces", body }));
+<p class="muted"><a href="/">panel</a> · <a href="/settings">ayarlar</a></p>`;
+    this.html(res, 200, uiPage({ title: "Çalışma alanları", subtitle: "workspaces", body, wide: true }));
   }
 
   private async body(req: http.IncomingMessage): Promise<URLSearchParams | null> {
@@ -298,6 +409,17 @@ ${error ? `<p class="e">${esc(error)}</p>` : ""}
 ${gh ? `<p class="muted">Claude'da bağlanırken kullandığın GitHub hesabıyla gir; ayarların o hesaba bağlanır.</p>
 <p><a class="btn" href="/settings/login" data-once>GitHub ile giriş yap</a></p>`
     : `<p class="muted">Bu sunucuda GitHub girişi yapılandırılmamış. Operatör token'ı ile gir.</p>`}
+</div>
+<div class="card">
+<h2 style="margin-top:0">GitHub hesabın yok mu?</h2>
+<p class="muted">Yerel hesapla girebilirsin. GitHub girişi bozulduğunda da bu yol çalışır.</p>
+<form method="post" action="/local/login" autocomplete="on">
+  <label for="lu">Kullanıcı adı</label>
+  <input id="lu" name="user" type="text" autocomplete="username" required>
+  <label for="lp">Parola</label>
+  <input id="lp" name="password" type="password" autocomplete="current-password" required>
+  <p class="row"><button class="primary" type="submit">Yerel hesapla gir</button><a class="btn" href="/local">Hesap aç</a></p>
+</form>
 </div>
 <div class="card">
 <h2 style="margin-top:0">Operatör girişi</h2>
@@ -323,6 +445,7 @@ ${gh ? `<p class="muted">Claude'da bağlanırken kullandığın GitHub hesabıyl
     const urlRows = s.allowedUrls.map(u => `<li><code>${esc(u)}</code><form method="post" action="/settings/save" style="margin:0"><input type="hidden" name="removeUrl" value="${esc(u)}"><button class="ghost" type="submit" data-once>Kaldır</button></form></li>`).join("");
 
     const body = `${heading("Ayarlar", `Kullanıcı: ${user}`)}
+<p class="muted"><a href="/">panel</a> · <a href="/workspaces">çalışma alanları</a></p>
 <form method="post" action="/settings/save" autocomplete="off">
 
 <div class="card">

@@ -21,6 +21,7 @@ import { page as uiPage, esc, PAGE_CSP } from "./ui.js";
 import { UndoJournal } from "./undo.js";
 import { StateFile } from "./persist.js";
 import { adoptInto, measure, scanWorkspaces, writeMarker } from "./workspaces.js";
+import { LocalAccounts } from "./localauth.js";
 import { ALL_TOOLS, SettingsUI, UserSettingsStore } from "./settings.js";
 import { VERSION } from "./version.js";
 import { probeWorkspaceHttps, probeWorkspaceShell } from "./workspace-shell.js";
@@ -172,6 +173,8 @@ async function main() {
   // Oturum bazlı çalışma alanı: her kimlik (OAuth oturumu, /c/<anahtar>, anonim) kendi /work kökünü alır.
   // Böylece bir oturumun klonladığı depo başka oturumlarda görünmez. HARDTOOLS_PER_SESSION_WORKSPACE=0
   // ile eski (tek, paylaşılan kök) davranışa dönülür.
+  // Yerel hesaplar: GitHub olmadan giriş (GitHub bozulduğunda da panel/MCP erişimi kalır).
+  const localAccounts = new LocalAccounts({ store: stateFile("local-accounts.json"), signup: process.env.HARDTOOLS_LOCAL_SIGNUP });
   const sharedInputs = new UserInputs(inputStore ? { store: inputStore } : {});
   const sharedShares = new Shares(Date.now, persistFile("shares.enc"));
   const sharedVars = new Variables(persistFile("vars.enc"));
@@ -349,7 +352,8 @@ async function main() {
       // Capability URL for ht_user_input: a random one-time id, answered by the user's browser
       // (so it must be checked before the browser-origin rejection below).
       // Ayar sayfası: tarayıcıdan açılır, bu yüzden browser-origin reddinden önce.
-      if (path === "/settings" || path.startsWith("/settings/") || path === "/workspaces") {
+      if (path === "/" || path === "/local" || path.startsWith("/local/") ||
+          path === "/settings" || path.startsWith("/settings/") || path === "/workspaces") {
         if (await settingsUI.handle(req, res, path)) return;
       }
       if (sharedInputs.handle(req, res, path, oauth.origin(req))) return;
@@ -376,13 +380,19 @@ async function main() {
       // OAuth discovery / registration / consent / invite / token routes are public by design.
 
       const keyPath = /^\/c\/([A-Za-z0-9_-]{16,128})(?:\/mcp)?$/.exec(path);
-      const isMcpPath = path === "/mcp" || keyPath !== null;
+      // Yerel hesap bağlantı adresi: /lc/<anahtar> — yalnız o hesabın çalışma alanına düşer.
+      const localPath = /^\/lc\/([A-Za-z0-9_-]{16,128})(?:\/mcp)?$/.exec(path);
+      const isMcpPath = path === "/mcp" || keyPath !== null || localPath !== null;
       if (!isMcpPath) return send(404, "not found");
 
       const m = /^Bearer (.+)$/.exec(String(req.headers.authorization ?? ""));
       // /mcp accepts an OAuth-issued access token, the run-specific static bearer, or — in
       // public mode — the connector URL itself.
       let owner: string | null = m ? (hasToken && equalSecret(m[1], token) ? "static" : oauth.accessScope(m[1])) : null;
+      if (!owner && localPath) {
+        const lu = localAccounts.userForConnector(localPath[1]);
+        if (lu) owner = "local:" + lu;
+      }
       if (!owner && loginFree) {
         if (keyPath && publicKey && equalSecret(keyPath[1], publicKey)) owner = publicOwner(true);
         else if (path === "/mcp" && publicMode !== "key") owner = publicOwner(false);
@@ -469,6 +479,8 @@ async function main() {
   /** Human page that shows the connector URL to paste into claude.ai (no login involved). */
   const settingsUI = new SettingsUI({
     store: settingsStore,
+    local: localAccounts,
+    reservedLogin: (n: string) => settingsStore.hasUser(n) && !localAccounts.has(n),
     operatorToken: hasToken ? token : undefined,
     github: github ? { clientId: github.clientId, webBase: github.webBase, apiBase: github.apiBase, allowAny: github.allowAny, allowedLogins: github.allowedLogins, allowedEmails: github.allowedEmails } : undefined,
     audit: (e) => audit.write(e),
@@ -491,6 +503,8 @@ async function main() {
 
   /** Sahip (owner) -> ayar kullanıcısı. Ayarlar hesap düzeyinde tutulur. */
   const userFor = (owner: string): string => {
+    const l = /^local:(.+)$/.exec(owner);
+    if (l) return l[1];
     if (owner === "static") return "operator";
     const g = /^grant:(.+)$/.exec(owner);
     if (g) return settingsStore.loginForGrant(g[1]) ?? "operator";

@@ -25,7 +25,20 @@ main{max-width:var(--w);margin:2.2rem auto 4rem;padding:0 1rem}
 h1{font-size:1.45rem;margin:0 0 1rem}
 h2{font-size:1.05rem;margin:1.8rem 0 .6rem;color:var(--fg)}
 p{margin:.6rem 0}
-.card{background:var(--panel);border:1px solid var(--line);border-radius:.8rem;padding:1rem 1.1rem;margin:1rem 0}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:.8rem;padding:1rem 1.1rem;margin:1rem 0;overflow-x:auto}
+main.wide{max-width:58rem}
+.tablewrap{overflow-x:auto;margin:0 -.2rem}
+td form,th form{margin:0}
+td button,th button{padding:.35rem .8rem;white-space:nowrap}
+table th:last-child,table td:last-child{text-align:right;white-space:nowrap}
+.copybox{display:flex;gap:.5rem;align-items:center;flex-wrap:wrap}
+.copybox input{flex:1 1 14rem;min-width:10rem;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:.92rem}
+.copybox .pill{min-width:5.2rem;text-align:center}
+.tiles{display:grid;grid-template-columns:repeat(auto-fill,minmax(14rem,1fr));gap:.7rem;margin:1rem 0}
+.tile{display:block;text-decoration:none;color:inherit;background:var(--panel);border:1px solid var(--line);border-radius:.8rem;padding:.9rem 1rem}
+.tile:hover{border-color:var(--accent)}
+.tile b{display:block;margin-bottom:.25rem}
+.tile span{color:var(--muted);font-size:.9rem}
 label{display:block;margin:.7rem 0 .3rem;font-size:.92rem;color:var(--muted)}
 input[type=text],input[type=password],input[type=number],textarea,select{width:100%;padding:.6rem .7rem;border-radius:.5rem;border:1px solid var(--line);background:var(--panel2);color:var(--fg);font:inherit}
 textarea{min-height:6rem;resize:vertical}
@@ -70,6 +83,28 @@ const THEME_JS = `
   document.addEventListener('click',function(e){
     var b=e.target.closest('[data-theme-set]');if(!b)return;
     var t=b.getAttribute('data-theme-set');apply(t);try{localStorage.setItem(KEY,t)}catch(err){}
+  });
+})();`;
+
+// Kopyalama: pano API'si yoksa gizli alan + execCommand ile devam eder (webview uyumlu).
+const COPY_JS = `
+(function(){
+  function flash(el,txt){var old=el.textContent;el.textContent=txt;setTimeout(function(){el.textContent=old;},1600);}
+  function copy(text){
+    if(navigator.clipboard&&navigator.clipboard.writeText)return navigator.clipboard.writeText(text);
+    return new Promise(function(res,rej){
+      try{var t=document.createElement('textarea');t.value=text;t.setAttribute('readonly','');t.style.position='fixed';t.style.opacity='0';
+        document.body.appendChild(t);t.select();var ok=document.execCommand('copy');document.body.removeChild(t);ok?res():rej(new Error('copy'));}
+      catch(e){rej(e);}
+    });
+  }
+  document.addEventListener('click',function(e){
+    var b=e.target.closest('[data-copy]');if(!b)return;
+    e.preventDefault();
+    var src=b.getAttribute('data-copy');
+    var el=src==='prev'?b.previousElementSibling:(src?document.querySelector(src):null);
+    var text=el?(el.value!==undefined?el.value:el.textContent):'';
+    copy(text).then(function(){flash(b,'Kopyalandı');}).catch(function(){flash(b,'Kopyalanamadı');});
   });
 })();`;
 
@@ -126,6 +161,8 @@ export interface PageOptions {
   subtitle?: string;
   /** Üst çubukta sağa eklenen HTML (ör. kullanıcı adı, çıkış). */
   actions?: string;
+  /** Tablo/panel sayfaları için daha geniş içerik alanı (34rem yerine 58rem). */
+  wide?: boolean;
 }
 
 export function page(o: PageOptions): string {
@@ -147,10 +184,11 @@ export function page(o: PageOptions): string {
   <button type="button" class="ghost" id="b-dark" data-theme-set="dark" title="Koyu tema">Koyu tema</button>
   <button type="button" class="ghost" id="b-light" data-theme-set="light" title="Açık tema: sıcak, aşırı beyaz olmayan kırık beyaz">Açık tema</button>
 </div>
-<main>${o.body}</main>
+<main${o.wide ? ' class="wide"' : ""}>${o.body}</main>
 <div class="foot">hardtools · sayfa verisi çerezde tutulmaz; kimlik bilgileri yalnızca sunucuda doğrulanır.</div>
 <script>${THEME_JS}</script>
 <script>${GUARD_JS}</script>
+<script>${COPY_JS}</script>
 ${o.script ? `<script>${o.script}</script>` : ""}
 </body>
 </html>`;
