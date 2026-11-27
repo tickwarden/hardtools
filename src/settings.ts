@@ -216,7 +216,7 @@ export interface SettingsUIOptions {
   /** /workspaces: hesabın kökleri ve eski kökü devralma. */
   workspaces?: {
     current: (user: string) => string;
-    list: (user: string) => { rel: string; kind: string; files: number; bytes: number; lastUsed: number; user?: string; current: boolean }[];
+    list: (user: string) => { rel: string; kind: string; files: number; bytes: number; scratchFiles?: number; scratchBytes?: number; lastUsed: number; user?: string; current: boolean }[];
     adopt: (user: string, rel: string) => string;
   };
 }
@@ -389,14 +389,14 @@ ${canReg ? `<div class="card">
     }
     const rows = ws.list(user);
     const kb = (n: number) => n < 1024 ? `${n} B` : n < 1 << 20 ? `${(n / 1024).toFixed(1)} KB` : n < 1 << 30 ? `${(n / 1048576).toFixed(1)} MB` : `${(n / 1073741824).toFixed(2)} GB`;
-    const body = `${heading("Çalışma alanları", "Hesabın kökleri ve eski sohbetlerin bıraktığı işler. Devral, seçilen dizinin dosyalarını <b>hesap köküne</b> taşır; var olanın üzerine yazmaz. Kabuk iskeleti (<code>.hardtools</code>) taşınmaz.")}
+    const body = `${heading("Çalışma alanları", "Hesabın kökleri ve eski sohbetlerin bıraktığı işler. Devral, seçilen dizinin dosyalarını hesap köküne taşır; var olanın üzerine yazmaz. Kabuk iskeleti (.hardtools) ve geri dönüşüm kutusu taşınmaz.")}
 ${notice ? `<p class="ok">${esc(notice)}</p>` : ""}
 <div class="card"><div class="tablewrap"><table>
 <thead><tr><th>Dizin</th><th>Tür</th><th>Dosya</th><th>Boyut</th><th>Son kullanım</th><th></th></tr></thead>
 <tbody>${rows.map(r => `<tr${r.current ? ' style="font-weight:600"' : ""}>
 <td><code>${esc(r.rel)}</code>${r.current ? ' <span class="pill">bu hesap</span>' : ""}${esc(r.rel) === path.basename(cur()) ? ' <span class="pill on">etkin</span>' : ""}</td>
 <td>${r.kind === "account" ? "hesap" : "sohbet"}${r.user ? ` · ${esc(r.user)}` : ""}</td>
-<td>${r.files}</td><td>${kb(r.bytes)}</td><td>${new Date(r.lastUsed).toISOString().replace("T", " ").slice(0, 16)}</td>
+<td>${r.files}${r.scratchFiles ? ` <span class="muted">(+${r.scratchFiles} iskelet)</span>` : ""}</td><td>${kb(r.bytes)}${r.scratchBytes ? ` <span class="muted">+ ${kb(r.scratchBytes)} iskelet</span>` : ""}</td><td>${new Date(r.lastUsed).toISOString().replace("T", " ").slice(0, 16)}</td>
 <td>${r.current ? "" : `<form method="post" action="/workspaces" style="margin:0"><input type="hidden" name="adopt" value="${esc(r.rel)}"><button type="submit" data-once>Devral</button></form>`}</td>
 </tr>`).join("") || `<tr><td colspan="6" class="muted">Kayıt yok.</td></tr>`}</tbody></table></div></div>
 <p class="muted">Aynı listeyi modelden de isteyebilirsin: <code>ht_workspace {"action":"list"}</code> · devam: <code>ht_workspace {"action":"adopt","dir":"u-…"}</code></p>

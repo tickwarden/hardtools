@@ -14,7 +14,10 @@ import { PolicyError, isInside } from "./guard.js";
 export interface WsEntry {
   rel: string; dir: string; kind: "account" | "session";
   owner?: string; user?: string;
-  files: number; bytes: number; lastUsed: number; current: boolean;
+  files: number; bytes: number;
+  /** Kabuk iskeleti (.hardtools): kullanıcı verisi değil, ama "0 B" görünmesin diye ayrı raporlanır. */
+  scratchFiles: number; scratchBytes: number;
+  lastUsed: number; current: boolean;
 }
 
 const MAX_DIRS = 200, MAX_COUNT_FILES = 50_000;
@@ -26,23 +29,26 @@ const SCRATCH = new Set([".hardtools", ".ht-trash", "node_modules", ".recycle"])
 const NEVER_MOVE = new Set([".hardtools", ".ht-trash", ".recycle", ".ht-owner", ".ht-adopted"]);
 
 /** Bir dizinin (sınırlı) dosya sayısı ve bayt toplamı. Symlink izlenmez. */
-export function measure(dir: string): { files: number; bytes: number } {
-  let files = 0, bytes = 0;
-  const walk = (d: string, depth: number) => {
+export function measure(dir: string): { files: number; bytes: number; scratchFiles: number; scratchBytes: number } {
+  let files = 0, bytes = 0, scratchFiles = 0, scratchBytes = 0;
+  // İskelet ayrı sayılır: bir kök yalnız iskelet içeriyorsa "0 dosya / 0 B" demek yanıltıcı olurdu.
+  const walk = (d: string, depth: number, inScratch = false) => {
     if (files >= MAX_COUNT_FILES || depth > 8) return;
     let names: string[]; try { names = fs.readdirSync(d); } catch { return; }
     for (const name of names) {
       if (files >= MAX_COUNT_FILES) return;
-      if (SCRATCH.has(name)) continue;
+      if (SCRATCH.has(name) && name !== ".hardtools") continue;
+      const scratch = inScratch || name === ".hardtools";
       const abs = path.join(d, name);
       let st; try { st = fs.lstatSync(abs); } catch { continue; }
       if (st.isSymbolicLink()) continue;
-      if (st.isDirectory()) walk(abs, depth + 1);
+      if (st.isDirectory()) walk(abs, depth + 1, scratch);
+      else if (scratch) { scratchFiles++; scratchBytes += st.size; }
       else { files++; bytes += st.size; }
     }
   };
   walk(dir, 0);
-  return { files, bytes };
+  return { files, bytes, scratchFiles, scratchBytes };
 }
 
 function readMarker(dir: string): { owner?: string; user?: string } {
@@ -64,8 +70,8 @@ export function scanWorkspaces(base: string, current: string, ownerFor?: (dir: s
     let st; try { st = fs.lstatSync(dir); } catch { continue; }
     if (!st.isDirectory()) continue;
     const m = readMarker(dir), owner = m.owner ?? ownerFor?.(dir);
-    const { files, bytes } = measure(dir);
-    out.push({ rel: name, dir, kind: name.startsWith("a-") ? "account" : "session", owner, user: m.user, files, bytes, lastUsed: st.mtimeMs, current: path.resolve(dir) === path.resolve(current) });
+    const { files, bytes, scratchFiles, scratchBytes } = measure(dir);
+    out.push({ rel: name, dir, kind: name.startsWith("a-") ? "account" : "session", owner, user: m.user, files, bytes, scratchFiles, scratchBytes, lastUsed: st.mtimeMs, current: path.resolve(dir) === path.resolve(current) });
   }
   return out.sort((a, b) => (b.current ? 1 : 0) - (a.current ? 1 : 0) || b.lastUsed - a.lastUsed);
 }
@@ -106,7 +112,7 @@ export function htWorkspace(ctx: WsContext, a: WsArgs): string {
     if (!mine.length) return `WORKSPACE: kök ${path.relative(ctx.base, ctx.current) || "."} (boş liste).`;
     const shown = [...mine].sort((x, y) => (y.current ? 1 : 0) - (x.current ? 1 : 0) || y.bytes - x.bytes || y.lastUsed - x.lastUsed);
     const LIMIT = 25, hidden = Math.max(0, shown.length - LIMIT);
-    const lines = shown.slice(0, LIMIT).map(e => `${e.current ? "*" : " "} ${e.rel}  ${e.kind === "account" ? "hesap" : "sohbet"}  ${String(e.files).padStart(6)} dosya  ${kb(e.bytes).padStart(9)}  son: ${when(e.lastUsed)}${e.user ? `  hesap: ${e.user}` : ""}`);
+    const lines = shown.slice(0, LIMIT).map(e => `${e.current ? "*" : " "} ${e.rel}  ${e.kind === "account" ? "hesap" : "sohbet"}  ${String(e.files).padStart(6)} dosya  ${(kb(e.bytes) + (e.scratchBytes ? ` +${kb(e.scratchBytes)} iskelet` : "")).padStart(9)}  son: ${when(e.lastUsed)}${e.user ? `  hesap: ${e.user}` : ""}`);
     return `WORKSPACE: mevcut kök ${path.relative(ctx.base, ctx.current) || "."} · ${mine.length} dizin ( * = bu sohbetin kökü )\n${lines.join("\n")}${hidden ? `\n… +${hidden} dizin daha (en büyük/en yeni ${LIMIT} tanesi gösterildi; tamamı /workspaces sayfasında)` : ""}\nDevam etmek için: ht_workspace {action:"adopt", dir:"<rel>"} — dosyalar mevcut köke kopyalanır, var olanın üzerine yazılmaz.`;
   }
   if (a.action === "adopt") {

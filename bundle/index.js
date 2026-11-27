@@ -26431,7 +26431,7 @@ function anyMatch(patterns, value) {
 }
 
 // src/version.ts
-var VERSION = "1.5.30";
+var VERSION = "1.5.31";
 
 // src/net.ts
 var blocked = new net.BlockList();
@@ -28938,8 +28938,8 @@ var MAX_COUNT_FILES = 5e4;
 var SCRATCH = /* @__PURE__ */ new Set([".hardtools", ".ht-trash", "node_modules", ".recycle"]);
 var NEVER_MOVE = /* @__PURE__ */ new Set([".hardtools", ".ht-trash", ".recycle", ".ht-owner", ".ht-adopted"]);
 function measure(dir) {
-  let files = 0, bytes = 0;
-  const walk = (d, depth) => {
+  let files = 0, bytes = 0, scratchFiles = 0, scratchBytes = 0;
+  const walk = (d, depth, inScratch = false) => {
     if (files >= MAX_COUNT_FILES || depth > 8) return;
     let names;
     try {
@@ -28949,7 +28949,8 @@ function measure(dir) {
     }
     for (const name of names) {
       if (files >= MAX_COUNT_FILES) return;
-      if (SCRATCH.has(name)) continue;
+      if (SCRATCH.has(name) && name !== ".hardtools") continue;
+      const scratch = inScratch || name === ".hardtools";
       const abs = path17.join(d, name);
       let st;
       try {
@@ -28958,15 +28959,18 @@ function measure(dir) {
         continue;
       }
       if (st.isSymbolicLink()) continue;
-      if (st.isDirectory()) walk(abs, depth + 1);
-      else {
+      if (st.isDirectory()) walk(abs, depth + 1, scratch);
+      else if (scratch) {
+        scratchFiles++;
+        scratchBytes += st.size;
+      } else {
         files++;
         bytes += st.size;
       }
     }
   };
   walk(dir, 0);
-  return { files, bytes };
+  return { files, bytes, scratchFiles, scratchBytes };
 }
 function readMarker(dir) {
   try {
@@ -29000,8 +29004,8 @@ function scanWorkspaces(base, current, ownerFor) {
     }
     if (!st.isDirectory()) continue;
     const m = readMarker(dir), owner = m.owner ?? ownerFor?.(dir);
-    const { files, bytes } = measure(dir);
-    out.push({ rel: name, dir, kind: name.startsWith("a-") ? "account" : "session", owner, user: m.user, files, bytes, lastUsed: st.mtimeMs, current: path17.resolve(dir) === path17.resolve(current) });
+    const { files, bytes, scratchFiles, scratchBytes } = measure(dir);
+    out.push({ rel: name, dir, kind: name.startsWith("a-") ? "account" : "session", owner, user: m.user, files, bytes, scratchFiles, scratchBytes, lastUsed: st.mtimeMs, current: path17.resolve(dir) === path17.resolve(current) });
   }
   return out.sort((a, b) => (b.current ? 1 : 0) - (a.current ? 1 : 0) || b.lastUsed - a.lastUsed);
 }
@@ -29040,7 +29044,7 @@ function htWorkspace(ctx, a) {
     if (!mine.length) return `WORKSPACE: k\xF6k ${path17.relative(ctx.base, ctx.current) || "."} (bo\u015F liste).`;
     const shown = [...mine].sort((x, y) => (y.current ? 1 : 0) - (x.current ? 1 : 0) || y.bytes - x.bytes || y.lastUsed - x.lastUsed);
     const LIMIT = 25, hidden = Math.max(0, shown.length - LIMIT);
-    const lines = shown.slice(0, LIMIT).map((e) => `${e.current ? "*" : " "} ${e.rel}  ${e.kind === "account" ? "hesap" : "sohbet"}  ${String(e.files).padStart(6)} dosya  ${kb(e.bytes).padStart(9)}  son: ${when(e.lastUsed)}${e.user ? `  hesap: ${e.user}` : ""}`);
+    const lines = shown.slice(0, LIMIT).map((e) => `${e.current ? "*" : " "} ${e.rel}  ${e.kind === "account" ? "hesap" : "sohbet"}  ${String(e.files).padStart(6)} dosya  ${(kb(e.bytes) + (e.scratchBytes ? ` +${kb(e.scratchBytes)} iskelet` : "")).padStart(9)}  son: ${when(e.lastUsed)}${e.user ? `  hesap: ${e.user}` : ""}`);
     return `WORKSPACE: mevcut k\xF6k ${path17.relative(ctx.base, ctx.current) || "."} \xB7 ${mine.length} dizin ( * = bu sohbetin k\xF6k\xFC )
 ${lines.join("\n")}${hidden ? `
 \u2026 +${hidden} dizin daha (en b\xFCy\xFCk/en yeni ${LIMIT} tanesi g\xF6sterildi; tamam\u0131 /workspaces sayfas\u0131nda)` : ""}
@@ -30214,14 +30218,14 @@ ${canReg ? `<div class="card">
     }
     const rows = ws.list(user);
     const kb2 = (n) => n < 1024 ? `${n} B` : n < 1 << 20 ? `${(n / 1024).toFixed(1)} KB` : n < 1 << 30 ? `${(n / 1048576).toFixed(1)} MB` : `${(n / 1073741824).toFixed(2)} GB`;
-    const body = `${heading("\xC7al\u0131\u015Fma alanlar\u0131", "Hesab\u0131n k\xF6kleri ve eski sohbetlerin b\u0131rakt\u0131\u011F\u0131 i\u015Fler. Devral, se\xE7ilen dizinin dosyalar\u0131n\u0131 <b>hesap k\xF6k\xFCne</b> ta\u015F\u0131r; var olan\u0131n \xFCzerine yazmaz. Kabuk iskeleti (<code>.hardtools</code>) ta\u015F\u0131nmaz.")}
+    const body = `${heading("\xC7al\u0131\u015Fma alanlar\u0131", "Hesab\u0131n k\xF6kleri ve eski sohbetlerin b\u0131rakt\u0131\u011F\u0131 i\u015Fler. Devral, se\xE7ilen dizinin dosyalar\u0131n\u0131 hesap k\xF6k\xFCne ta\u015F\u0131r; var olan\u0131n \xFCzerine yazmaz. Kabuk iskeleti (.hardtools) ve geri d\xF6n\xFC\u015F\xFCm kutusu ta\u015F\u0131nmaz.")}
 ${notice ? `<p class="ok">${esc2(notice)}</p>` : ""}
 <div class="card"><div class="tablewrap"><table>
 <thead><tr><th>Dizin</th><th>T\xFCr</th><th>Dosya</th><th>Boyut</th><th>Son kullan\u0131m</th><th></th></tr></thead>
 <tbody>${rows.map((r) => `<tr${r.current ? ' style="font-weight:600"' : ""}>
 <td><code>${esc2(r.rel)}</code>${r.current ? ' <span class="pill">bu hesap</span>' : ""}${esc2(r.rel) === path20.basename(cur()) ? ' <span class="pill on">etkin</span>' : ""}</td>
 <td>${r.kind === "account" ? "hesap" : "sohbet"}${r.user ? ` \xB7 ${esc2(r.user)}` : ""}</td>
-<td>${r.files}</td><td>${kb2(r.bytes)}</td><td>${new Date(r.lastUsed).toISOString().replace("T", " ").slice(0, 16)}</td>
+<td>${r.files}${r.scratchFiles ? ` <span class="muted">(+${r.scratchFiles} iskelet)</span>` : ""}</td><td>${kb2(r.bytes)}${r.scratchBytes ? ` <span class="muted">+ ${kb2(r.scratchBytes)} iskelet</span>` : ""}</td><td>${new Date(r.lastUsed).toISOString().replace("T", " ").slice(0, 16)}</td>
 <td>${r.current ? "" : `<form method="post" action="/workspaces" style="margin:0"><input type="hidden" name="adopt" value="${esc2(r.rel)}"><button type="submit" data-once>Devral</button></form>`}</td>
 </tr>`).join("") || `<tr><td colspan="6" class="muted">Kay\u0131t yok.</td></tr>`}</tbody></table></div></div>
 <p class="muted">Ayn\u0131 listeyi modelden de isteyebilirsin: <code>ht_workspace {"action":"list"}</code> \xB7 devam: <code>ht_workspace {"action":"adopt","dir":"u-\u2026"}</code></p>
