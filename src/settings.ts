@@ -215,7 +215,7 @@ export interface SettingsUIOptions {
   reservedLogin?: (name: string) => boolean;
   /** /workspaces: hesabın kökleri ve eski kökü devralma. */
   workspaces?: {
-    current: string;
+    current: (user: string) => string;
     list: (user: string) => { rel: string; kind: string; files: number; bytes: number; lastUsed: number; user?: string; current: boolean }[];
     adopt: (user: string, rel: string) => string;
   };
@@ -323,8 +323,16 @@ ${canReg ? `<div class="card">
     this.html(res, 200, uiPage({ title: "Yerel hesap", subtitle: "local", body }));
   }
 
+  /** Form gönderimi aynı origin'den mi? Origin yoksa/webview "null" ise kabul edilir. */
+  private sameOriginForm(req: http.IncomingMessage, origin: string): boolean {
+    const o = req.headers.origin;
+    if (!o || o === "null") return true;
+    try { return new URL(o).origin === new URL(origin).origin; } catch { return false; }
+  }
+
   private async localLogin(req: http.IncomingMessage, res: http.ServerResponse, origin: string) {
     if (req.method !== "POST") return this.localPage(req, res);
+    if (!this.sameOriginForm(req, origin)) return this.localPage(req, res, "Hata: form başka bir siteden gönderildi.");
     const la = this.o.local;
     if (!la) return this.localPage(req, res, "Hata: bu sunucuda yerel hesaplar kapalı.");
     const p = await this.body(req);
@@ -342,6 +350,7 @@ ${canReg ? `<div class="card">
 
   private async localRegister(req: http.IncomingMessage, res: http.ServerResponse, origin: string) {
     if (req.method !== "POST") return this.localPage(req, res);
+    if (!this.sameOriginForm(req, origin)) return this.localPage(req, res, "Hata: form başka bir siteden gönderildi.");
     const la = this.o.local;
     if (!la || !la.canRegister()) return this.localPage(req, res, "Hata: yeni yerel hesap açma kapalı.");
     const p = await this.body(req);
@@ -368,6 +377,7 @@ ${canReg ? `<div class="card">
   private async workspacesPage(req: http.IncomingMessage, res: http.ServerResponse, origin: string) {
     const user = this.cookieUser(req);
     if (!user) return this.loginPage(res, "Çalışma alanlarını görmek için giriş yap.");
+    const cur = () => this.o.workspaces?.current(user) ?? "";
     const ws = this.o.workspaces;
     if (!ws) return this.html(res, 404, uiPage({ title: "Çalışma alanları", body: `<p class="e">Bu sunucuda çalışma alanı listesi kapalı.</p>` }));
     let notice = "";
@@ -379,12 +389,12 @@ ${canReg ? `<div class="card">
     }
     const rows = ws.list(user);
     const kb = (n: number) => n < 1024 ? `${n} B` : n < 1 << 20 ? `${(n / 1024).toFixed(1)} KB` : n < 1 << 30 ? `${(n / 1048576).toFixed(1)} MB` : `${(n / 1073741824).toFixed(2)} GB`;
-    const body = `${heading("Çalışma alanları", "Hesabın kökleri ve eski sohbetlerin bıraktığı işler. Devral, dosyaları mevcut köke taşır; var olanın üzerine yazmaz.")}
+    const body = `${heading("Çalışma alanları", "Hesabın kökleri ve eski sohbetlerin bıraktığı işler. Devral, seçilen dizinin dosyalarını <b>hesap köküne</b> taşır; var olanın üzerine yazmaz. Kabuk iskeleti (<code>.hardtools</code>) taşınmaz.")}
 ${notice ? `<p class="ok">${esc(notice)}</p>` : ""}
 <div class="card"><div class="tablewrap"><table>
 <thead><tr><th>Dizin</th><th>Tür</th><th>Dosya</th><th>Boyut</th><th>Son kullanım</th><th></th></tr></thead>
 <tbody>${rows.map(r => `<tr${r.current ? ' style="font-weight:600"' : ""}>
-<td><code>${esc(r.rel)}</code>${r.current ? ' <span class="pill">bu sohbet</span>' : ""}</td>
+<td><code>${esc(r.rel)}</code>${r.current ? ' <span class="pill">bu hesap</span>' : ""}${esc(r.rel) === path.basename(cur()) ? ' <span class="pill on">etkin</span>' : ""}</td>
 <td>${r.kind === "account" ? "hesap" : "sohbet"}${r.user ? ` · ${esc(r.user)}` : ""}</td>
 <td>${r.files}</td><td>${kb(r.bytes)}</td><td>${new Date(r.lastUsed).toISOString().replace("T", " ").slice(0, 16)}</td>
 <td>${r.current ? "" : `<form method="post" action="/workspaces" style="margin:0"><input type="hidden" name="adopt" value="${esc(r.rel)}"><button type="submit" data-once>Devral</button></form>`}</td>

@@ -27,11 +27,18 @@ exec "$@"`;
 // kurulumları kaybolmaz. HARDTOOLS_SESSION_TMP=0 eski (uçucu tmpfs) davranışa döner.
 export interface Scratch { tmp: string; home: string; bin: string; root: string; aptLists: string; aptCache: string; aptConf: string | null }
 const scratchCache = new Map<string, Scratch | null>();
+/** İskeletin zorunlu dizinleri yerinde mi? (bwrap bunları kaynak olarak bağlar.) */
+function scratchIntact(s: Scratch): boolean {
+  try { return [s.tmp, s.home, s.bin, s.root, s.aptLists, s.aptCache].every(d => fs.statSync(d).isDirectory()); } catch { return false; }
+}
 function prepareScratch(p: Policy): Scratch | null {
   if ((process.env.HARDTOOLS_SESSION_TMP ?? "1").trim() === "0") return null;
   const base = path.join(p.roots[0], ".hardtools");
+  // Önbellek yalnızca dizinler hâlâ yerindeyse geçerli: dışarıdan silinen iskelet (devralma, temizlik)
+  // bwrap'ı "Can't find source path …/.hardtools/tmp" ile düşürüyordu. Eksikse yeniden kurulur.
   const cached = scratchCache.get(base);
-  if (cached !== undefined) return cached;
+  if (cached !== undefined && (cached === null || scratchIntact(cached))) return cached;
+  if (cached !== undefined) scratchCache.delete(base);
   const s: Scratch = {
     tmp: path.join(base, "tmp"), home: path.join(base, "home"),
     bin: path.join(base, "bin"), root: path.join(base, "root"),
