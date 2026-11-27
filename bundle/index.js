@@ -26181,6 +26181,7 @@ function updateTrashIndex(p, root, edit, move, undo) {
 
 // src/fs-extra.ts
 var SKIP_DIRS = /* @__PURE__ */ new Set([".git", "node_modules", ".venv", "venv", "__pycache__", ".gradle", ".idea", ".mypy_cache", ".pytest_cache", TRASH_DIR]);
+var SHELL_SKELETON = ".hardtools";
 var MAX_VISITED = 2e5;
 var MAX_COLLECT = 5e4;
 var relParts = (r) => path6.relative(r.root, r.abs).split(path6.sep).filter(Boolean);
@@ -26188,6 +26189,7 @@ function assertNotProtectedTree(policy, r, what) {
   if ([...policy.roots, ...policy.protectedDirs].some((d) => isInside(r.abs, d))) throw new PolicyError("is_root", `cannot ${what} an allowed root or the parent of a protected directory`);
   const parts = relParts(r);
   if (parts.includes(".git")) throw new PolicyError("vcs_protected", `paths inside .git are protected (${what})`);
+  if (parts[0] === SHELL_SKELETON) throw new PolicyError("protected_path", `${SHELL_SKELETON} is the shell skeleton and cannot be modified (${what})`);
   if (parts[0] === TRASH_DIR && parts.length === 1) throw new PolicyError("trash_protected", `the trash directory itself cannot be modified (${what})`);
 }
 function refuseSymlinkSource(policy, input) {
@@ -26429,7 +26431,7 @@ function anyMatch(patterns, value) {
 }
 
 // src/version.ts
-var VERSION = "1.5.29";
+var VERSION = "1.5.30";
 
 // src/net.ts
 var blocked = new net.BlockList();
@@ -26980,11 +26982,19 @@ p="http://127.0.0.1:$port"
 export HTTPS_PROXY="$p" https_proxy="$p" HTTP_PROXY="$p" http_proxy="$p" NO_PROXY='' no_proxy=''
 exec "$@"`;
 var scratchCache = /* @__PURE__ */ new Map();
+function scratchIntact(s) {
+  try {
+    return [s.tmp, s.home, s.bin, s.root, s.aptLists, s.aptCache].every((d) => fs8.statSync(d).isDirectory());
+  } catch {
+    return false;
+  }
+}
 function prepareScratch(p) {
   if ((process.env.HARDTOOLS_SESSION_TMP ?? "1").trim() === "0") return null;
   const base = path8.join(p.roots[0], ".hardtools");
   const cached2 = scratchCache.get(base);
-  if (cached2 !== void 0) return cached2;
+  if (cached2 !== void 0 && (cached2 === null || scratchIntact(cached2))) return cached2;
+  if (cached2 !== void 0) scratchCache.delete(base);
   const s = {
     tmp: path8.join(base, "tmp"),
     home: path8.join(base, "home"),
@@ -27798,6 +27808,7 @@ ${text}` }] : [{ type: "text", text }, { type: "resource", resource: resource(s)
 import fs10 from "node:fs";
 import path11 from "node:path";
 var ENV_PREFIX = "env-";
+var SCRATCH_ENTRY = /* @__PURE__ */ new Set([".hardtools", ".ht-trash", ".recycle"]);
 var KEEP_RECYCLED = 3;
 var LABEL = /^[a-z0-9][a-z0-9-]{0,23}$/;
 function envBase(policy) {
@@ -27841,6 +27852,7 @@ function recycleRoot(policy, base) {
   fs10.mkdirSync(dest, { recursive: true, mode: 448 });
   let moved = 0;
   for (const entry of entries) {
+    if (SCRATCH_ENTRY.has(entry)) continue;
     try {
       fs10.renameSync(path11.join(root, entry), path11.join(dest, entry));
       moved++;
@@ -27879,6 +27891,7 @@ function createEnv(policy, o = {}) {
         return [];
       }
     })()) {
+      if (SCRATCH_ENTRY.has(entry)) continue;
       try {
         fs10.renameSync(path11.join(current, entry), path11.join(root, entry));
         carriedFiles++;
@@ -28922,7 +28935,8 @@ import fs16 from "node:fs";
 import path17 from "node:path";
 var MAX_DIRS = 200;
 var MAX_COUNT_FILES = 5e4;
-var SCRATCH = /* @__PURE__ */ new Set([".hardtools", ".ht-trash", "node_modules"]);
+var SCRATCH = /* @__PURE__ */ new Set([".hardtools", ".ht-trash", "node_modules", ".recycle"]);
+var NEVER_MOVE = /* @__PURE__ */ new Set([".hardtools", ".ht-trash", ".recycle", ".ht-owner", ".ht-adopted"]);
 function measure(dir) {
   let files = 0, bytes = 0;
   const walk = (d, depth) => {
@@ -28998,7 +29012,7 @@ function adoptInto(from, to) {
   if (!fs16.existsSync(from)) throw new PolicyError("not_found", `dizin yok: ${from}`);
   let moved = 0, skipped = 0;
   for (const name of fs16.readdirSync(from)) {
-    if (name === ".ht-owner" || name === ".ht-adopted") continue;
+    if (NEVER_MOVE.has(name)) continue;
     const src = path17.join(from, name), dst = path17.join(to, name);
     if (fs16.existsSync(dst)) {
       skipped++;
@@ -30125,8 +30139,19 @@ ${canReg ? `<div class="card">
 <p class="muted"><a href="/">panel</a> \xB7 <a href="/settings/login">GitHub ile giri\u015F</a></p>`;
     this.html(res, 200, page({ title: "Yerel hesap", subtitle: "local", body }));
   }
+  /** Form gönderimi aynı origin'den mi? Origin yoksa/webview "null" ise kabul edilir. */
+  sameOriginForm(req, origin) {
+    const o = req.headers.origin;
+    if (!o || o === "null") return true;
+    try {
+      return new URL(o).origin === new URL(origin).origin;
+    } catch {
+      return false;
+    }
+  }
   async localLogin(req, res, origin) {
     if (req.method !== "POST") return this.localPage(req, res);
+    if (!this.sameOriginForm(req, origin)) return this.localPage(req, res, "Hata: form ba\u015Fka bir siteden g\xF6nderildi.");
     const la = this.o.local;
     if (!la) return this.localPage(req, res, "Hata: bu sunucuda yerel hesaplar kapal\u0131.");
     const p = await this.body(req);
@@ -30144,6 +30169,7 @@ ${canReg ? `<div class="card">
   }
   async localRegister(req, res, origin) {
     if (req.method !== "POST") return this.localPage(req, res);
+    if (!this.sameOriginForm(req, origin)) return this.localPage(req, res, "Hata: form ba\u015Fka bir siteden g\xF6nderildi.");
     const la = this.o.local;
     if (!la || !la.canRegister()) return this.localPage(req, res, "Hata: yeni yerel hesap a\xE7ma kapal\u0131.");
     const p = await this.body(req);
@@ -30170,6 +30196,7 @@ ${canReg ? `<div class="card">
   async workspacesPage(req, res, origin) {
     const user = this.cookieUser(req);
     if (!user) return this.loginPage(res, "\xC7al\u0131\u015Fma alanlar\u0131n\u0131 g\xF6rmek i\xE7in giri\u015F yap.");
+    const cur = () => this.o.workspaces?.current(user) ?? "";
     const ws = this.o.workspaces;
     if (!ws) return this.html(res, 404, page({ title: "\xC7al\u0131\u015Fma alanlar\u0131", body: `<p class="e">Bu sunucuda \xE7al\u0131\u015Fma alan\u0131 listesi kapal\u0131.</p>` }));
     let notice = "";
@@ -30187,12 +30214,12 @@ ${canReg ? `<div class="card">
     }
     const rows = ws.list(user);
     const kb2 = (n) => n < 1024 ? `${n} B` : n < 1 << 20 ? `${(n / 1024).toFixed(1)} KB` : n < 1 << 30 ? `${(n / 1048576).toFixed(1)} MB` : `${(n / 1073741824).toFixed(2)} GB`;
-    const body = `${heading("\xC7al\u0131\u015Fma alanlar\u0131", "Hesab\u0131n k\xF6kleri ve eski sohbetlerin b\u0131rakt\u0131\u011F\u0131 i\u015Fler. Devral, dosyalar\u0131 mevcut k\xF6ke ta\u015F\u0131r; var olan\u0131n \xFCzerine yazmaz.")}
+    const body = `${heading("\xC7al\u0131\u015Fma alanlar\u0131", "Hesab\u0131n k\xF6kleri ve eski sohbetlerin b\u0131rakt\u0131\u011F\u0131 i\u015Fler. Devral, se\xE7ilen dizinin dosyalar\u0131n\u0131 <b>hesap k\xF6k\xFCne</b> ta\u015F\u0131r; var olan\u0131n \xFCzerine yazmaz. Kabuk iskeleti (<code>.hardtools</code>) ta\u015F\u0131nmaz.")}
 ${notice ? `<p class="ok">${esc2(notice)}</p>` : ""}
 <div class="card"><div class="tablewrap"><table>
 <thead><tr><th>Dizin</th><th>T\xFCr</th><th>Dosya</th><th>Boyut</th><th>Son kullan\u0131m</th><th></th></tr></thead>
 <tbody>${rows.map((r) => `<tr${r.current ? ' style="font-weight:600"' : ""}>
-<td><code>${esc2(r.rel)}</code>${r.current ? ' <span class="pill">bu sohbet</span>' : ""}</td>
+<td><code>${esc2(r.rel)}</code>${r.current ? ' <span class="pill">bu hesap</span>' : ""}${esc2(r.rel) === path20.basename(cur()) ? ' <span class="pill on">etkin</span>' : ""}</td>
 <td>${r.kind === "account" ? "hesap" : "sohbet"}${r.user ? ` \xB7 ${esc2(r.user)}` : ""}</td>
 <td>${r.files}</td><td>${kb2(r.bytes)}</td><td>${new Date(r.lastUsed).toISOString().replace("T", " ").slice(0, 16)}</td>
 <td>${r.current ? "" : `<form method="post" action="/workspaces" style="margin:0"><input type="hidden" name="adopt" value="${esc2(r.rel)}"><button type="submit" data-once>Devral</button></form>`}</td>
@@ -30701,7 +30728,7 @@ async function main() {
       const m = measure(from);
       if (!m.files || m.files > 2e3 || m.bytes > 64 * 1024 * 1024) return;
       for (const name of fs19.readdirSync(from)) {
-        if (name === ".ht-owner" || name === ".hardtools") continue;
+        if (name === ".ht-owner" || name === ".hardtools" || name === ".ht-trash" || name === ".recycle") continue;
         const src = path21.join(from, name), dst = path21.join(dir, name);
         if (fs19.existsSync(dst)) continue;
         try {
@@ -30909,8 +30936,9 @@ async function main() {
     origin: (r) => oauth.origin(r),
     ...baseRoot && !baseIsFsRoot ? {
       workspaces: {
-        current: baseRoot,
-        list: (user) => scanWorkspaces(baseRoot, baseRoot, (dir) => [...sessMap.values()].find((r) => r.dir === dir)?.owner).filter((e) => e.user === user || e.user === void 0),
+        // Tarayıcıdan gelen istekte MCP oturumu yok: etkin kök = hesabın kökü.
+        current: (user) => accountRootForUser(user),
+        list: (user) => scanWorkspaces(baseRoot, accountRootForUser(user), (dir) => [...sessMap.values()].find((r) => r.dir === dir)?.owner).filter((e) => e.user === user || e.user === void 0),
         adopt: (user, rel2) => {
           if (!/^(a|u)-[0-9a-f]{16}$/.test(rel2)) throw new Error("ge\xE7ersiz dizin");
           const target = accountRootForUser(user);

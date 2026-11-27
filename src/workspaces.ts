@@ -19,7 +19,11 @@ export interface WsEntry {
 
 const MAX_DIRS = 200, MAX_COUNT_FILES = 50_000;
 // Kabuk iskeleti (.hardtools) kullanıcı verisi değildir; ölçüme ve listeye girmez.
-const SCRATCH = new Set([".hardtools", ".ht-trash", "node_modules"]);
+const SCRATCH = new Set([".hardtools", ".ht-trash", "node_modules", ".recycle"]);
+/** Devralmada asla taşınmayan öğeler: kabuk iskeleti (.hardtools), geri dönüşüm kutusu, atık indeksi.
+ *  Bunlar kullanıcı verisi değil; taşınırsa kaynak kökün bwrap bağları kırılır
+ *  ("bwrap: Can't find source path …/.hardtools/tmp"). */
+const NEVER_MOVE = new Set([".hardtools", ".ht-trash", ".recycle", ".ht-owner", ".ht-adopted"]);
 
 /** Bir dizinin (sınırlı) dosya sayısı ve bayt toplamı. Symlink izlenmez. */
 export function measure(dir: string): { files: number; bytes: number } {
@@ -75,7 +79,7 @@ export function adoptInto(from: string, to: string): { moved: number; skipped: n
   if (!fs.existsSync(from)) throw new PolicyError("not_found", `dizin yok: ${from}`);
   let moved = 0, skipped = 0;
   for (const name of fs.readdirSync(from)) {
-    if (name === ".ht-owner" || name === ".ht-adopted") continue;
+    if (NEVER_MOVE.has(name)) continue;
     const src = path.join(from, name), dst = path.join(to, name);
     if (fs.existsSync(dst)) { skipped++; continue; }                       // var olanın üzerine yazma
     try { fs.renameSync(src, dst); moved++; }

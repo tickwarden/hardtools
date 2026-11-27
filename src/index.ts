@@ -290,7 +290,7 @@ async function main() {
       const m = measure(from);
       if (!m.files || m.files > 2000 || m.bytes > 64 * 1024 * 1024) return;   // büyük kökler sessizce atlanır
       for (const name of fs.readdirSync(from)) {
-        if (name === ".ht-owner" || name === ".hardtools") continue;
+        if (name === ".ht-owner" || name === ".hardtools" || name === ".ht-trash" || name === ".recycle") continue;
         const src = path.join(from, name), dst = path.join(dir, name);
         if (fs.existsSync(dst)) continue;
         try { fs.cpSync(src, dst, { recursive: true, errorOnExist: false, force: false }); } catch { /* tek öğe atlanır */ }
@@ -487,8 +487,9 @@ async function main() {
     origin: (r) => oauth.origin(r),
     ...(baseRoot && !baseIsFsRoot ? {
       workspaces: {
-        current: baseRoot,
-        list: (user: string) => scanWorkspaces(baseRoot, baseRoot, (dir) => [...sessMap.values()].find(r => r.dir === dir)?.owner)
+        // Tarayıcıdan gelen istekte MCP oturumu yok: etkin kök = hesabın kökü.
+        current: (user: string) => accountRootForUser(user),
+        list: (user: string) => scanWorkspaces(baseRoot, accountRootForUser(user), (dir) => [...sessMap.values()].find(r => r.dir === dir)?.owner)
           .filter(e => e.user === user || e.user === undefined),
         adopt: (user: string, rel: string) => {
           if (!/^(a|u)-[0-9a-f]{16}$/.test(rel)) throw new Error("geçersiz dizin");

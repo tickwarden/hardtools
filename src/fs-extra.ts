@@ -9,6 +9,8 @@ import { PolicyError, globToRegExp, isDeniedRead, isDeniedWrite, isInside, resol
 import { INDEX, TRASH_DIR, readTrashIndex, updateTrashIndex, withTrashLock } from "./trash-index.js";
 export { TRASH_DIR };
 const SKIP_DIRS = new Set([".git", "node_modules", ".venv", "venv", "__pycache__", ".gradle", ".idea", ".mypy_cache", ".pytest_cache", TRASH_DIR]);
+/** Kabuk iskeleti: taşınır/silinirse bwrap bağları kırılır (ht_shell çalışmaz). */
+const SHELL_SKELETON = ".hardtools";
 const MAX_VISITED = 200_000;
 const MAX_COLLECT = 50_000;
 
@@ -19,6 +21,7 @@ function assertNotProtectedTree(policy: Policy, r: Resolved, what: string): void
   if ([...policy.roots, ...policy.protectedDirs].some(d => isInside(r.abs, d))) throw new PolicyError("is_root", `cannot ${what} an allowed root or the parent of a protected directory`);
   const parts = relParts(r);
   if (parts.includes(".git")) throw new PolicyError("vcs_protected", `paths inside .git are protected (${what})`);
+  if (parts[0] === SHELL_SKELETON) throw new PolicyError("protected_path", `${SHELL_SKELETON} is the shell skeleton and cannot be modified (${what})`);
   if (parts[0] === TRASH_DIR && parts.length === 1) throw new PolicyError("trash_protected", `the trash directory itself cannot be modified (${what})`);
 }
 

@@ -7,6 +7,8 @@ import type { Policy } from "./config.js";
 import { isInside, PolicyError } from "./guard.js";
 
 const ENV_PREFIX = "env-";
+/** Kök değişirken taşınmaması gereken yerel iskelet/atık dizinleri. */
+const SCRATCH_ENTRY = new Set([".hardtools", ".ht-trash", ".recycle"]);
 const KEEP_RECYCLED = 3;
 const LABEL = /^[a-z0-9][a-z0-9-]{0,23}$/;
 
@@ -54,6 +56,7 @@ function recycleRoot(policy: Policy, base: string): { recycled?: string; files: 
   fs.mkdirSync(dest, { recursive: true, mode: 0o700 });
   let moved = 0;
   for (const entry of entries) {
+    if (SCRATCH_ENTRY.has(entry)) continue;                    // kabuk iskeleti geri dönüşüme gitmez
     try { fs.renameSync(path.join(root, entry), path.join(dest, entry)); moved++; }
     catch { /* a busy entry stays in place rather than being lost */ }
   }
@@ -87,6 +90,7 @@ export function createEnv(policy: Policy, o: { label?: string; rotate?: boolean 
   else {
     // Tasima: eski agac yeni koke gecer (geri donusum kutusuna gitmez).
     for (const entry of (() => { try { return fs.readdirSync(current); } catch { return [] as string[]; } })()) {
+      if (SCRATCH_ENTRY.has(entry)) continue;                  // taşınan ağaç kabuk iskeletini kopyalamaz
       try { fs.renameSync(path.join(current, entry), path.join(root, entry)); carriedFiles++; } catch { /* kalan kalir */ }
     }
   }
