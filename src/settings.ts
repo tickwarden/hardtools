@@ -8,6 +8,7 @@ import http from "node:http";
 import path from "node:path";
 import { page as uiPage, esc, heading, PAGE_CSP } from "./ui.js";
 import type { LocalAccounts } from "./localauth.js";
+import { randomPassword } from "./local-cli.js";
 
 export const ALL_TOOLS = [
   "ht_read", "ht_write", "ht_edit", "ht_glob", "ht_search", "ht_mkdir", "ht_move", "ht_trash",
@@ -253,6 +254,12 @@ export interface SettingsUIOptions {
   audit?: (ev: Record<string, unknown>) => void;
   /** Yerel hesaplar (GitHub olmadan giriş, GitHub bozulduğunda yedek yol). */
   local?: LocalAccounts;
+  /**
+   * Yönetici paneli (/operator): tarayıcıdan davet kodu üretme, hesap açma, parola sıfırlama,
+   * hesap silme. `token` = HARDTOOLS_OPERATOR_TOKEN (en az 16 karakter). MCP bearer'ından
+   * AYRI tutulur: tarayıcıda oturum açan biri MCP anahtarını ele geçirmemeli.
+   */
+  operatorPanel?: { token?: string };
   /** Bir ad GitHub login'i olarak biliniyor mu? (Yerel hesapla çakışmayı engeller.) */
   reservedLogin?: (name: string) => boolean;
   /** /workspaces: hesabın kökleri ve eski kökü devralma. */
@@ -322,6 +329,14 @@ export class SettingsUI {
     if (pathname === "/local/register") return await this.localRegister(req, res, origin), true;
     if (pathname === "/local/connector") return await this.localConnector(req, res, origin), true;
     if (pathname === "/local/password") return await this.localPassword(req, res, origin), true;
+    if (pathname === "/operator") return this.operatorPage(req, res), true;
+    if (pathname === "/operator/login") return await this.operatorLogin(req, res, origin), true;
+    if (pathname === "/operator/invite") return await this.operatorInvite(req, res, origin), true;
+    if (pathname === "/operator/add") return await this.operatorAdd(req, res, origin), true;
+    if (pathname === "/operator/passwd") return await this.operatorPasswd(req, res, origin), true;
+    if (pathname === "/operator/unlock") return await this.operatorUnlock(req, res, origin), true;
+    if (pathname === "/operator/del") return await this.operatorDel(req, res, origin), true;
+    if (pathname === "/operator/logout") return await this.operatorLogout(req, res, origin), true;
     return false;
   }
 
@@ -399,7 +414,7 @@ ${mine ? `<div class="card">
   <input id="lp" name="password" type="password" autocomplete="current-password" required>
   <p><button class="primary" type="submit">Giriş yap</button></p>
 </form>
-<p class="muted" style="margin-bottom:0">Parolanı unuttuysan yönetici sıfırlar (<code>node dist/index.js --local-user passwd &lt;ad&gt;</code>). Hesabın hiç yoksa aşağıdan aç.</p>`}
+<p class="muted" style="margin-bottom:0">Parolanı unuttuysan <a href="/operator">yönetici paneli</a> yenisini üretir; hesabın hiç yoksa aşağıdan aç.</p>`}
 </div>
 ${mine ? "" : canReg ? `<div class="card">
 <h2 style="margin-top:0">Hesap aç</h2>
@@ -425,7 +440,7 @@ ${mine ? "" : canReg ? `<div class="card">
   <input id="rp" name="password" type="password" autocomplete="new-password" required>
   <p><button type="submit">Hesap aç</button></p>
 </form>
-<p class="muted" style="margin-bottom:0">Kod yoksa yöneticiden iste: <code>node dist/index.js --local-user invite</code></p>
+<p class="muted" style="margin-bottom:0">Kod yoksa <a href="/operator">yönetici panelinden</a> üret (tarayıcıdan; terminal gerekmez).</p>
 </div>`}
 ${mine ? `<div class="card">
 <h2 style="margin-top:0">Parola değiştir</h2>
@@ -437,7 +452,7 @@ ${mine ? `<div class="card">
   <p><button type="submit">Parolayı değiştir</button></p>
 </form>
 </div>` : ""}
-<p class="muted"><a href="/">panel</a> · <a href="/settings/login">GitHub ile giriş</a></p>`;
+<p class="muted"><a href="/">panel</a> · <a href="/settings/login">GitHub ile giriş</a> · <a href="/operator">yönetici paneli</a></p>`;
     this.html(res, 200, uiPage({ title: "Yerel hesap", subtitle: "local", body }));
   }
 
@@ -554,6 +569,295 @@ ${notice ? `<p class="${notice.startsWith("Hata") ? "e" : "ok"}">${esc(notice)}<
 <p class="muted">Aynı listeyi modelden de isteyebilirsin: <code>ht_workspace {"action":"list"}</code> · devam: <code>ht_workspace {"action":"adopt","dir":"u-…"}</code></p>
 <p class="muted"><a href="/">panel</a> · <a href="/settings">ayarlar</a></p>`;
     this.html(res, 200, uiPage({ title: "Çalışma alanları", subtitle: "workspaces", body, wide: true }));
+  }
+
+  // ---- Yönetici (operatör) paneli ---------------------------------------------------------
+  //
+  // Neden var: davet kodu, parola sıfırlama ve hesap açma yalnızca CLI ile yapılabiliyordu.
+  // Fly.io panosunda web terminal yok (kaldırıldı), yani yalnızca tarayıcısı olan biri kod
+  // üretemiyordu. Panel HARDTOOLS_OPERATOR_TOKEN ile korunur; MCP bearer'ından AYRIDIR:
+  // tarayıcıda oturum açan biri MCP anahtarını ele geçirmemeli.
+
+  private opReveals = new Map<string, { text: string; note: string; exp: number }>();
+  private opFails = new Map<string, { n: number; until: number }>();
+  /** Çıkış yapılan panel oturumları: çerez kopyalanmış olsa da süresi dolana kadar geçersiz kalır. */
+  private opRevoked = new Map<string, number>();
+  private static readonly OP_MAX_FAILS = 6;
+
+  private opSecret(): string { return (this.o.operatorPanel?.token ?? "").trim(); }
+  /** Panel yalnız gerçek bir anahtar tanımlıysa açılır (kısa/boş değer paneli kilitlemez, kapatır). */
+  private opEnabled(): boolean { return this.opSecret().length >= 16; }
+
+  /** Çerez imzası anahtarı = operatör anahtarının özeti → anahtar değişince tüm panel oturumları düşer. */
+  private opMac(exp: string, jti: string): string {
+    return crypto.createHmac("sha256", crypto.createHash("sha256").update(this.opSecret()).digest())
+      .update(`ht_op|${exp}|${jti}`).digest("base64url");
+  }
+
+  /** Çerezden (exp, jti) çiftini okur; imza ve süre geçerliyse döner. */
+  private opCookieParts(req: http.IncomingMessage): { exp: string; jti: string } | null {
+    if (!this.opEnabled()) return null;
+    const m = /(?:^|;\s*)ht_op=([^;]+)/.exec(String(req.headers.cookie ?? ""));
+    const [exp, jti, mac] = (m?.[1] ?? "").split(".");
+    if (!exp || !jti || !mac) return null;
+    if (!/^\d{1,16}$/.test(exp) || Number(exp) <= Date.now()) return null;
+    const now = Date.now();
+    for (const [k, v] of this.opRevoked) if (v < now) this.opRevoked.delete(k);
+    if (this.opRevoked.has(jti)) return null;
+    const want = Buffer.from(this.opMac(exp, jti)), got = Buffer.from(mac);
+    if (want.length !== got.length || !crypto.timingSafeEqual(want, got)) return null;
+    return { exp, jti };
+  }
+
+  private opAuthed(req: http.IncomingMessage): boolean { return this.opCookieParts(req) !== null; }
+
+  private opSetCookie(res: http.ServerResponse, origin: string) {
+    const exp = String(Date.now() + 3600_000);
+    const jti = crypto.randomBytes(9).toString("base64url");
+    res.setHeader("set-cookie", `ht_op=${exp}.${jti}.${this.opMac(exp, jti)}; Path=/; HttpOnly; SameSite=Lax; Max-Age=3600${origin.startsWith("https://") ? "; Secure" : ""}`);
+  }
+
+  /**
+   * Üretilen kod/parola POST yanıtında değil, kısa ömürlü bir kimlikle gösterilir:
+   * sayfa yenilendiğinde form yeniden gönderilmez (ikinci hesap/kod üretilmez).
+   */
+  private opReveal(text: string, note: string): string {
+    const now = Date.now();
+    for (const [k, v] of this.opReveals) if (v.exp < now) this.opReveals.delete(k);
+    if (this.opReveals.size > 50) this.opReveals.clear();
+    const id = crypto.randomBytes(9).toString("base64url");
+    this.opReveals.set(id, { text, note, exp: now + 180_000 });
+    return id;
+  }
+
+  private opThrottled(ip: string): boolean {
+    const f = this.opFails.get(ip);
+    return Boolean(f && f.n >= SettingsUI.OP_MAX_FAILS && f.until > Date.now());
+  }
+
+  private opFail(ip: string) {
+    const now = Date.now();
+    const f = this.opFails.get(ip);
+    if (!f || f.until <= now) this.opFails.set(ip, { n: 1, until: now + 10 * 60_000 });
+    else { f.n += 1; f.until = now + 10 * 60_000; }
+    if (this.opFails.size > 512) this.opFails.clear();
+  }
+
+  private opDisabledPage(req: http.IncomingMessage, res: http.ServerResponse) {
+    const body = `${heading("Yönetici paneli kapalı", "Davet kodu ve hesap işlemleri için bir yönetici anahtarı tanımla.")}
+<div class="card">
+<p>Sunucuda <code>HARDTOOLS_OPERATOR_TOKEN</code> tanımlı değil (en az 16 karakter). Yalnızca tarayıcın varsa:</p>
+<ol>
+<li>Fly.io panosunda uygulamayı aç → <b>Secrets</b> → <b>Add secret</b>.</li>
+<li>Ad: <code>HARDTOOLS_OPERATOR_TOKEN</code> · Değer: en az 16 karakter rastgele bir metin.</li>
+<li>Kaydet → makine yeniden başlar (<b>Machines</b> → <b>Restart</b> de yeter).</li>
+<li>Bu sayfayı yenile ve anahtarı gir.</li>
+</ol>
+<p class="muted" style="margin-bottom:0">Terminalin varsa: <code>flyctl secrets set HARDTOOLS_OPERATOR_TOKEN="$(openssl rand -hex 24)" -a &lt;uygulama&gt;</code></p>
+</div>
+<p class="muted"><a href="/local">yerel hesap</a> · <a href="/">panel</a></p>`;
+    this.html(res, 200, uiPage({ title: "Yönetici paneli", subtitle: "operator", body }));
+  }
+
+  private operatorPage(req: http.IncomingMessage, res: http.ServerResponse, notice = "", kind: "ok" | "err" = "ok") {
+    if (!this.opEnabled()) return this.opDisabledPage(req, res);
+    const origin = this.origin(req);
+    const authed = this.opAuthed(req);
+    const noticeHtml = notice ? `<p class="${kind === "err" ? "e" : "ok"}">${esc(notice)}</p>` : "";
+    const revealId = new URL(req.url ?? "/", "http://x").searchParams.get("reveal");
+    const rev = revealId ? this.opReveals.get(revealId) : undefined;
+    const revealHtml = rev
+      ? `<div class="card"><p class="muted" style="margin-top:0">${esc(rev.note)} — bu değer 3 dakika boyunca görünür, sonra bir daha gösterilmez.</p>
+<div class="copybox"><input id="rev" type="text" readonly value="${esc(rev.text)}"><button type="button" data-copy="#rev">Kopyala</button></div></div>`
+      : "";
+
+    if (!authed) {
+      const body = `${heading("Yönetici girişi", "Davet kodu üretmek ve hesapları yönetmek için yönetici anahtarını gir.")}
+${noticeHtml}
+<div class="card">
+<form method="post" action="/operator/login" autocomplete="off">
+  <label for="opt">Yönetici anahtarı (<code>HARDTOOLS_OPERATOR_TOKEN</code>)</label>
+  <input id="opt" name="token" type="password" autocomplete="off" required autofocus>
+  <p class="row" style="margin-bottom:0"><button class="primary" type="submit">Giriş</button><a class="btn" href="/local">yerel hesap</a></p>
+</form>
+</div>
+<p class="muted">Anahtar sunucuda <code>HARDTOOLS_OPERATOR_TOKEN</code> olarak tanımlıdır (Fly.io → Secrets). Kaybettiysen panodan yeni bir değer gir; makine yeniden başlarken eski oturumlar da düşer.</p>`;
+      return this.html(res, 200, uiPage({ title: "Yönetici girişi", subtitle: "operator", body }));
+    }
+
+    const la = this.o.local;
+    const accounts = la ? la.list().map((u) => la.get(u)!).filter(Boolean) : [];
+    const when = (t: number) => (t ? new Date(t).toISOString().replace("T", " ").slice(0, 16) : "—");
+    const rows = accounts.map((a) => `<tr>
+<td><code>${esc(a.user)}</code></td>
+<td>${when(a.createdAt)}</td>
+<td>${when(a.lastLogin)}</td>
+<td>${la && la.isLocked(a.user) ? '<span class="pill off">kilitli</span>' : '<span class="pill on">açık</span>'}</td>
+<td>
+<form method="post" action="/operator/passwd" style="margin:0" onsubmit="return confirm('${esc(a.user)} için yeni bir parola üretilsin mi? Eski parola ve açık oturumlar geçersiz olur.')"><input type="hidden" name="user" value="${esc(a.user)}"><button type="submit" data-once>Parola sıfırla</button></form>
+<form method="post" action="/operator/unlock" style="margin:0"><input type="hidden" name="user" value="${esc(a.user)}"><button type="submit" data-once>Kilidi aç</button></form>
+<form method="post" action="/operator/del" style="margin:0" onsubmit="return confirm('${esc(a.user)} hesabı silinsin mi? MCP adresi çalışmayı bırakır; dosyaları diskte kalır.')"><input type="hidden" name="user" value="${esc(a.user)}"><button type="submit" data-once>Sil</button></form>
+</td></tr>`).join("");
+
+    const body = `${heading("Yönetici paneli", "Davet kodu, hesap ve parola işlemleri. Bu sayfa MCP anahtarıyla değil, ayrı bir yönetici anahtarıyla korunur.")}
+${noticeHtml}${revealHtml}
+<div class="card">
+<h2 style="margin-top:0">Davet kodu üret</h2>
+<p class="muted">Tek kullanımlıktır; kod yalnızca bir kez gösterilir ve süresi dolunca geçersiz olur. Kullanıcı kodu <a href="/local">/local</a> sayfasındaki <b>Hesap aç</b> bölümüne yazar.</p>
+<form method="post" action="/operator/invite">
+  <label for="ttl">Geçerlilik</label>
+  <select id="ttl" name="ttl">
+    <option value="30">30 dakika</option>
+    <option value="1440" selected>24 saat</option>
+    <option value="10080">7 gün</option>
+    <option value="43200">30 gün</option>
+  </select>
+  <p style="margin-bottom:0"><button class="primary" type="submit" data-once>Kod üret</button></p>
+</form>
+<p class="muted" style="margin-bottom:0">Bekleyen kod: <b>${la ? la.inviteCount() : 0}</b> · Hesap: <b>${accounts.length}</b></p>
+</div>
+<div class="card">
+<h2 style="margin-top:0">Hesap aç (kodsuz)</h2>
+<form method="post" action="/operator/add" autocomplete="off">
+  <label for="nu">Kullanıcı adı</label>
+  <input id="nu" name="user" type="text" required placeholder="kucuk-harf-ve-rakam">
+  <label for="np">Parola <span class="muted">(boş bırakırsan güçlü parola üretilir)</span></label>
+  <input id="np" name="password" type="password" autocomplete="new-password" placeholder="boş = üret">
+  <p style="margin-bottom:0"><button class="primary" type="submit" data-once>Hesabı aç</button></p>
+</form>
+</div>
+<div class="card">
+<h2 style="margin-top:0">Hesaplar</h2>
+<div class="tablewrap"><table>
+<thead><tr><th>Hesap</th><th>Oluşturma</th><th>Son giriş</th><th>Durum</th><th></th></tr></thead>
+<tbody>${rows || `<tr><td colspan="5" class="muted">Hesap yok.</td></tr>`}</tbody></table></div>
+<p class="muted" style="margin-bottom:0">"Parola sıfırla" güçlü bir parola üretir ve bir kez gösterir; parola hiçbir yerde saklanmaz (yalnızca scrypt özeti).</p>
+</div>
+<form method="post" action="/operator/logout" style="margin:0"><p class="muted" style="margin:0"><button class="ghost" type="submit">yönetici çıkışı</button></p></form>
+<p class="muted"><a href="/">panel</a> · <a href="/local">yerel hesap</a> · <a href="/workspaces">çalışma alanları</a></p>`;
+    this.html(res, 200, uiPage({ title: "Yönetici paneli", subtitle: "operator", body, wide: true }));
+    void origin;
+  }
+
+  private async operatorLogin(req: http.IncomingMessage, res: http.ServerResponse, origin: string) {
+    if (req.method !== "POST" || !this.opEnabled()) return this.operatorPage(req, res);
+    if (!this.sameOriginForm(req, origin)) return this.operatorPage(req, res, "Hata: form başka bir siteden gönderildi.", "err");
+    const ip = req.socket.remoteAddress ?? "?";
+    if (this.opThrottled(ip)) {
+      this.o.audit?.({ ev: "operator_login_throttled", ip });
+      return this.operatorPage(req, res, "Hata: çok fazla hatalı deneme; 10 dakika sonra tekrar dene.", "err");
+    }
+    const p = await this.body(req);
+    const given = Buffer.from((p?.get("token") ?? "").trim());
+    const want = Buffer.from(this.opSecret());
+    if (given.length !== want.length || !crypto.timingSafeEqual(given, want)) {
+      this.opFail(ip);
+      this.o.audit?.({ ev: "operator_login_failed", ip });
+      return this.operatorPage(req, res, "Hata: anahtar yanlış.", "err");
+    }
+    this.opFails.delete(ip);
+    this.o.audit?.({ ev: "operator_login", ip });
+    this.opSetCookie(res, origin);
+    res.writeHead(303, { location: "/operator", "cache-control": "no-store" }); res.end();
+  }
+
+  /** POST + yetki denetimi ortak ön adımı. */
+  private async opGuard(req: http.IncomingMessage, res: http.ServerResponse, origin: string): Promise<URLSearchParams | null | false> {
+    if (!this.opAuthed(req)) { this.operatorPage(req, res, "Hata: yönetici oturumu yok.", "err"); return false; }
+    if (req.method !== "POST") { this.operatorPage(req, res); return false; }
+    if (!this.sameOriginForm(req, origin)) { this.operatorPage(req, res, "Hata: form başka bir siteden gönderildi.", "err"); return false; }
+    return await this.body(req);
+  }
+
+  private opRedirect(res: http.ServerResponse, path: string) {
+    res.writeHead(303, { location: path, "cache-control": "no-store" }); res.end();
+  }
+
+  private async operatorInvite(req: http.IncomingMessage, res: http.ServerResponse, origin: string) {
+    const p = await this.opGuard(req, res, origin);
+    if (p === false) return;
+    const la = this.o.local;
+    if (!la) return this.operatorPage(req, res, "Hata: bu sunucuda yerel hesaplar kapalı.", "err");
+    const mins = Math.min(43200, Math.max(5, Math.round(Number(p?.get("ttl")) || 1440)));
+    const code = la.createInvite(mins * 60_000);
+    this.o.audit?.({ ev: "operator_invite_created", ttl_min: mins });
+    return this.opRedirect(res, `/operator?reveal=${this.opReveal(code, `Tek kullanımlık kayıt kodu (${mins} dakika) — /local → Hesap aç`)}`);
+  }
+
+  private async operatorAdd(req: http.IncomingMessage, res: http.ServerResponse, origin: string) {
+    const p = await this.opGuard(req, res, origin);
+    if (p === false) return;
+    const la = this.o.local;
+    if (!la) return this.operatorPage(req, res, "Hata: bu sunucuda yerel hesaplar kapalı.", "err");
+    const user = (p?.get("user") ?? "").trim().toLowerCase();
+    const given = (p?.get("password") ?? "").trim();
+    const reserved = this.o.reservedLogin ?? (() => false);
+    let last = "";
+    for (let i = 0; i < (given ? 1 : 4); i++) {
+      const pw = given || randomPassword(20);
+      const r = la.create(user, pw, reserved);
+      if (r.ok) {
+        this.o.audit?.({ ev: "operator_account_created", user });
+        return this.opRedirect(res, `/operator?reveal=${this.opReveal(`${user} / ${pw}`, "Yeni hesap: kullanıcı adı / parola")}`);
+      }
+      last = r.error;
+      // Üretilen parola kullanıcı adını içerebilir: politikaya takılırsa yenisini dene.
+      if (given) break;
+    }
+    return this.operatorPage(req, res, `Hata: ${last}`, "err");
+  }
+
+  private async operatorPasswd(req: http.IncomingMessage, res: http.ServerResponse, origin: string) {
+    const p = await this.opGuard(req, res, origin);
+    if (p === false) return;
+    const la = this.o.local;
+    const user = (p?.get("user") ?? "").trim().toLowerCase();
+    if (!la || !la.has(user)) return this.operatorPage(req, res, "Hata: böyle bir hesap yok.", "err");
+    const pw = (p?.get("password") ?? "").trim() || randomPassword(20);
+    const r = la.adminSetPassword(user, pw);
+    if (!r.ok) return this.operatorPage(req, res, `Hata: ${r.error}`, "err");
+    this.o.audit?.({ ev: "operator_password_reset", user });
+    return this.opRedirect(res, `/operator?reveal=${this.opReveal(`${user} / ${pw}`, "Yeni parola — eski parola ve açık oturumlar geçersiz")}`);
+  }
+
+  private async operatorUnlock(req: http.IncomingMessage, res: http.ServerResponse, origin: string) {
+    const p = await this.opGuard(req, res, origin);
+    if (p === false) return;
+    const la = this.o.local;
+    const user = (p?.get("user") ?? "").trim().toLowerCase();
+    if (!la || !la.has(user)) return this.operatorPage(req, res, "Hata: böyle bir hesap yok.", "err");
+    la.unlock(user);
+    this.o.audit?.({ ev: "operator_unlock", user });
+    return this.operatorPage(req, res, `Kilidi açıldı: ${user}`);
+  }
+
+  private async operatorDel(req: http.IncomingMessage, res: http.ServerResponse, origin: string) {
+    const p = await this.opGuard(req, res, origin);
+    if (p === false) return;
+    const la = this.o.local;
+    const user = (p?.get("user") ?? "").trim().toLowerCase();
+    if (!la || !la.has(user)) return this.operatorPage(req, res, "Hata: böyle bir hesap yok.", "err");
+    la.remove(user);
+    this.o.audit?.({ ev: "operator_account_deleted", user });
+    return this.operatorPage(req, res, `${user} silindi. Disk üzerindeki dosyaları silinmedi (çalışma alanı kökü elle silinebilir).`);
+  }
+
+  private async operatorLogout(req: http.IncomingMessage, res: http.ServerResponse, origin: string) {
+    if (req.method !== "POST") return this.operatorPage(req, res);
+    if (!this.sameOriginForm(req, origin)) return this.operatorPage(req, res, "Hata: form başka bir siteden gönderildi.", "err");
+    // Sunucu tarafında da iptal: çerez kopyalanmışsa çıkış onu da düşürür.
+    const parts = this.opCookieParts(req);
+    if (parts) {
+      this.opRevoked.set(parts.jti, Number(parts.exp));
+      if (this.opRevoked.size > 256) this.opRevoked.clear();
+    }
+    this.o.audit?.({ ev: "operator_logout" });
+    this.opClearCookie(res);
+    return this.opRedirect(res, "/operator");
+  }
+
+  private opClearCookie(res: http.ServerResponse) {
+    res.setHeader("set-cookie", "ht_op=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0");
   }
 
   private async body(req: http.IncomingMessage): Promise<URLSearchParams | null> {

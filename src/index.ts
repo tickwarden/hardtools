@@ -369,7 +369,8 @@ async function main() {
       // (so it must be checked before the browser-origin rejection below).
       // Ayar sayfası: tarayıcıdan açılır, bu yüzden browser-origin reddinden önce.
       if (path === "/" || path === "/local" || path.startsWith("/local/") ||
-          path === "/settings" || path.startsWith("/settings/") || path === "/workspaces") {
+          path === "/settings" || path.startsWith("/settings/") || path === "/workspaces" ||
+          path === "/operator" || path.startsWith("/operator/")) {
         if (await settingsUI.handle(req, res, path)) return;
       }
       if (sharedInputs.handle(req, res, path, oauth.origin(req))) return;
@@ -510,6 +511,8 @@ async function main() {
     local: localAccounts,
     reservedLogin: (n: string) => settingsStore.hasUser(n) && !localAccounts.has(n),
     operatorToken: hasToken ? token : undefined,
+    // Yönetici paneli (/operator): davet kodu, hesap açma, parola sıfırlama — tarayıcıdan.
+    operatorPanel: { token: process.env.HARDTOOLS_OPERATOR_TOKEN ?? "" },
     github: github ? { clientId: github.clientId, webBase: github.webBase, apiBase: github.apiBase, allowAny: github.allowAny, allowedLogins: github.allowedLogins, allowedEmails: github.allowedEmails } : undefined,
     audit: (e) => audit.write(e),
     origin: (r) => oauth.origin(r),

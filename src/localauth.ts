@@ -233,6 +233,12 @@ export class LocalAccounts {
     return ok;
   }
 
+  /** Hesap hatalı denemeler yüzünden kilitli mi? (Panelde gösterilir.) */
+  isLocked(user: string): boolean {
+    const f = this.fails.get(normUser(user));
+    return Boolean(f && f.n >= MAX_FAILS && f.until > Date.now());
+  }
+
   /** Kilitliyse aç (hatalı deneme sayacı bellektedir; yeniden başlatma da temizler). */
   unlock(user: string): boolean {
     return this.fails.delete(normUser(user));
