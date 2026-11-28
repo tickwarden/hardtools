@@ -17066,7 +17066,7 @@ function page(o) {
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<meta name="referrer" content="no-referrer">
+<meta name="referrer" content="${o.referrer ?? "no-referrer"}">
 <meta name="color-scheme" content="dark light">
 <title>${esc2(o.title)} \xB7 hardtools</title>
 <style>${CSS}${o.css ?? ""}</style>
@@ -17616,11 +17616,14 @@ ${note ? `<p class="muted">${esc4(note)}</p>` : ""}
     if (!client) return this.page(res, 400, "Unknown or expired client. Remove the connector and add it again.", null);
     if (!q.redirect_uri || !Array.isArray(client.ru) || !client.ru.includes(q.redirect_uri))
       return this.page(res, 400, "redirect_uri does not match the registered client.", null);
+    const fromForm = req.method === "POST";
     const back = (params) => {
       const u = new URL(q.redirect_uri);
       for (const [k, v] of Object.entries(params)) u.searchParams.set(k, v);
       if (q.state) u.searchParams.set("state", q.state);
-      res.writeHead(302, { location: u.toString(), "cache-control": "no-store" });
+      const loc = u.toString();
+      if (fromForm && /text\/html/i.test(String(req.headers.accept ?? ""))) return this.continueTo(res, loc);
+      res.writeHead(302, { location: loc, "cache-control": "no-store" });
       res.end();
     };
     if (q.response_type !== "code") return back({ error: "unsupported_response_type" });
@@ -17662,6 +17665,29 @@ ${note ? `<p class="muted">${esc4(note)}</p>` : ""}
     this.o.audit?.({ ev: "oauth_authorize", ok: true, via: "direct_token" });
     back({ code });
   }
+  /** Form gönderiminden sonra istemciye geçiş: CSP form-action yönlendirmeyi kesmesin diye
+   *  gezinmeyle (meta refresh + JS + bağlantı) devam edilir. */
+  continueTo(res, to) {
+    const body = `${heading("Ba\u011Flant\u0131 tamamlan\u0131yor")}
+<p class="muted">\u0130stemciye d\xF6n\xFCl\xFCyor; bu pencere kendili\u011Finden devam eder.</p>
+<div class="card"><p><a class="btn" href="${esc2(to)}" data-once>Devam et</a></p>
+<p class="muted" style="margin-bottom:0"><code>${esc2(to)}</code></p></div>
+<meta http-equiv="refresh" content="0;url=${esc2(to)}">`;
+    res.writeHead(200, {
+      "content-type": "text/html; charset=utf-8",
+      "cache-control": "no-store",
+      "x-frame-options": "DENY",
+      "referrer-policy": "same-origin",
+      "content-security-policy": PAGE_CSP
+    });
+    res.end(page({
+      title: "Ba\u011Flant\u0131 tamamlan\u0131yor",
+      subtitle: "oauth",
+      referrer: "same-origin",
+      body,
+      script: `try{location.replace(${JSON.stringify(to)});}catch(e){}`
+    }));
+  }
   page(res, code, error2, q) {
     const esc4 = (s) => s.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
     const keep = ["response_type", "client_id", "redirect_uri", "state", "code_challenge", "code_challenge_method", "scope", "resource"];
@@ -17676,7 +17702,7 @@ ${note ? `<p class="muted">${esc4(note)}</p>` : ""}
       "referrer-policy": "same-origin",
       "content-security-policy": PAGE_CSP
     });
-    res.end(page({ title: "hardtools \xB7 giri\u015F", subtitle: "OAuth", body: `${heading("Ba\u011Flant\u0131 izni")}${error2 ? `<p class="e">${esc4(error2)}</p>` : ""}${form}` }));
+    res.end(page({ title: "hardtools \xB7 giri\u015F", subtitle: "OAuth", referrer: "same-origin", body: `${heading("Ba\u011Flant\u0131 izni")}${error2 ? `<p class="e">${esc4(error2)}</p>` : ""}${form}` }));
   }
   // ---- RFC 8628 cihaz yetkilendirme -----------------------------------------------------------
   /** POST /device/authorize — istemci (MCP) kendi cihaz kodunu alır, kullanıcı koduyla onaylatır. */
@@ -17753,7 +17779,7 @@ ${msg ? `<p class="${cls}">${escH(msg)}</p>` : ""}
 <p class="muted" style="margin-bottom:0">Yerel hesapla girdikten sonra paneldeki ki\u015Fisel ba\u011Flant\u0131 adresini (<code>/lc/\u2026</code>) Claude'a ekle.</p>
 </div>`;
     res.writeHead(200, { "content-type": "text/html; charset=utf-8", "cache-control": "no-store", "x-frame-options": "DENY", "referrer-policy": "same-origin", "content-security-policy": PAGE_CSP });
-    res.end(page({ title: "hardtools \xB7 cihaz onay\u0131", subtitle: "OAuth device", body }));
+    res.end(page({ title: "hardtools \xB7 cihaz onay\u0131", subtitle: "OAuth device", referrer: "same-origin", body }));
   }
   // ---- token endpoint ---------------------------------------------------------------------
   async tokenEndpoint(req, res) {
@@ -26459,7 +26485,7 @@ function anyMatch(patterns, value) {
 }
 
 // src/version.ts
-var VERSION = "1.5.34";
+var VERSION = "1.5.35";
 
 // src/net.ts
 var blocked = new net.BlockList();
@@ -29911,6 +29937,7 @@ var defaultSettings = () => ({
   allowedUrls: [],
   updatedAt: 0
 });
+var browserForm = (req) => /text\/html/i.test(String(req.headers.accept ?? ""));
 function safeNext(v) {
   const s = String(v ?? "").trim();
   if (!s || s.length > 2048) return "";
@@ -30130,6 +30157,24 @@ var SettingsUI = class {
     if (pathname === "/local/connector") return await this.localConnector(req, res, origin), true;
     return false;
   }
+  /**
+   * Form gönderiminden sonra çapraz origin'e devam edilecekse 303 kullanılmaz: CSP form-action
+   * yönlendirme zincirini de denetlediği için OAuth akışı (… → claude.ai) tarayıcıda kesiliyordu.
+   * Bunun yerine kısa bir "devam ediliyor" sayfası döner; gezinme CSP form-action kuralına girmez.
+   */
+  continuePage(res, to, note) {
+    const body = `${heading("Devam ediliyor")}
+<p class="muted">${esc2(note)}</p>
+<div class="card"><p><a class="btn" href="${esc2(to)}" data-once>Devam et</a></p>
+<p class="muted" style="margin-bottom:0"><code>${esc2(to)}</code></p></div>
+<meta http-equiv="refresh" content="0;url=${esc2(to)}">`;
+    this.html(res, 200, page({
+      title: "Devam ediliyor",
+      subtitle: "devam",
+      body,
+      script: `try{location.replace(${JSON.stringify(to)});}catch(e){}`
+    }));
+  }
   /** Panel (/): çalışma alanları, ayarlar ve MCP adresi tek yerde; adresi kopyalama düğmesi. */
   dashboard(req, res, origin) {
     if (req.method !== "GET") return this.html(res, 405, page({ title: "Panel", body: `<p class="e">Yaln\u0131z GET.</p>` }));
@@ -30211,8 +30256,9 @@ ${canReg ? `<div class="card">
     }
     this.o.audit?.({ ev: "local_login", user });
     this.setCookie(res, this.o.store.cookieFor(user), origin.startsWith("https://"), 12 * 3600);
-    const to = safeNext(p?.get("next") ?? "") || "/";
-    res.writeHead(303, { location: to, "cache-control": "no-store" });
+    const to = safeNext(p?.get("next") ?? "");
+    if (to && browserForm(req)) return this.continuePage(res, to, "Giri\u015F tamam. Ba\u011Flant\u0131 ak\u0131\u015F\u0131na d\xF6n\xFCl\xFCyor\u2026");
+    res.writeHead(303, { location: to || "/", "cache-control": "no-store" });
     res.end();
   }
   async localRegister(req, res, origin) {
@@ -30226,8 +30272,9 @@ ${canReg ? `<div class="card">
     if (!r.ok) return this.localPage(req, res, `Hata: ${r.error}`);
     this.o.audit?.({ ev: "local_account_created", user: r.account.user });
     this.setCookie(res, this.o.store.cookieFor(r.account.user), origin.startsWith("https://"), 12 * 3600);
-    const to = safeNext(p?.get("next") ?? "") || "/";
-    res.writeHead(303, { location: to, "cache-control": "no-store" });
+    const to = safeNext(p?.get("next") ?? "");
+    if (to && browserForm(req)) return this.continuePage(res, to, "Hesap a\xE7\u0131ld\u0131. Ba\u011Flant\u0131 ak\u0131\u015F\u0131na d\xF6n\xFCl\xFCyor\u2026");
+    res.writeHead(303, { location: to || "/", "cache-control": "no-store" });
     res.end();
   }
   /** Bağlantı anahtarını yenile (sızmışsa eski adres çalışmaz). */

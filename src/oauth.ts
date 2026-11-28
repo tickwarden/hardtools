@@ -537,10 +537,18 @@ ${note ? `<p class="muted">${esc(note)}</p>` : ""}
     if (!client) return this.page(res, 400, "Unknown or expired client. Remove the connector and add it again.", null);
     if (!q.redirect_uri || !Array.isArray(client.ru) || !client.ru.includes(q.redirect_uri))
       return this.page(res, 400, "redirect_uri does not match the registered client.", null);
+    const fromForm = req.method === "POST";
     const back = (params: Record<string, string>) => {
       const u = new URL(q.redirect_uri); for (const [k, v] of Object.entries(params)) u.searchParams.set(k, v);
       if (q.state) u.searchParams.set("state", q.state);
-      res.writeHead(302, { location: u.toString(), "cache-control": "no-store" }); res.end();
+      const loc = u.toString();
+      // Form POST'undan sonra 302 ile istemciye (başka origin) dönmek CSP form-action tarafından
+      // engelleniyordu: tarayıcı "Sending form data to … violates form-action 'self'" diyor ve
+      // gönderimi kesiyor. Bu yüzden devam sayfası (gezinme) döndürülür.
+      // Yalnızca tarayıcı formu devam sayfasına ihtiyaç duyar (CSP form-action yönlendirmeyi keser).
+      // Programatik istemciler (Accept: */*) 302 sözleşmesini korur.
+      if (fromForm && /text\/html/i.test(String(req.headers.accept ?? ""))) return this.continueTo(res, loc);
+      res.writeHead(302, { location: loc, "cache-control": "no-store" }); res.end();
     };
     if (q.response_type !== "code") return back({ error: "unsupported_response_type" });
     if (q.code_challenge_method !== "S256" || !/^[A-Za-z0-9_-]{43}$/.test(q.code_challenge ?? ""))
@@ -587,6 +595,20 @@ ${note ? `<p class="muted">${esc(note)}</p>` : ""}
     back({ code });
   }
 
+  /** Form gönderiminden sonra istemciye geçiş: CSP form-action yönlendirmeyi kesmesin diye
+   *  gezinmeyle (meta refresh + JS + bağlantı) devam edilir. */
+  private continueTo(res: http.ServerResponse, to: string) {
+    const body = `${heading("Bağlantı tamamlanıyor")}
+<p class="muted">İstemciye dönülüyor; bu pencere kendiliğinden devam eder.</p>
+<div class="card"><p><a class="btn" href="${uiEsc(to)}" data-once>Devam et</a></p>
+<p class="muted" style="margin-bottom:0"><code>${uiEsc(to)}</code></p></div>
+<meta http-equiv="refresh" content="0;url=${uiEsc(to)}">`;
+    res.writeHead(200, { "content-type": "text/html; charset=utf-8", "cache-control": "no-store",
+      "x-frame-options": "DENY", "referrer-policy": "same-origin", "content-security-policy": PAGE_CSP });
+    res.end(uiPage({ title: "Bağlantı tamamlanıyor", subtitle: "oauth", referrer: "same-origin", body,
+      script: `try{location.replace(${JSON.stringify(to)});}catch(e){}` }));
+  }
+
   private page(res: http.ServerResponse, code: number, error: string, q: Record<string, string> | null) {
     const esc = (s: string) => s.replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]!));
     const keep = ["response_type", "client_id", "redirect_uri", "state", "code_challenge", "code_challenge_method", "scope", "resource"];
@@ -599,7 +621,7 @@ ${note ? `<p class="muted">${esc(note)}</p>` : ""}
       "referrer-policy": "same-origin",
       "content-security-policy": PAGE_CSP,
     });
-    res.end(uiPage({ title: "hardtools · giriş", subtitle: "OAuth", body: `${heading("Bağlantı izni")}${error ? `<p class="e">${esc(error)}</p>` : ""}${form}` }));
+    res.end(uiPage({ title: "hardtools · giriş", subtitle: "OAuth", referrer: "same-origin", body: `${heading("Bağlantı izni")}${error ? `<p class="e">${esc(error)}</p>` : ""}${form}` }));
   }
 
   // ---- RFC 8628 cihaz yetkilendirme -----------------------------------------------------------
@@ -669,7 +691,7 @@ ${msg ? `<p class="${cls}">${escH(msg)}</p>` : ""}
 <p class="muted" style="margin-bottom:0">Yerel hesapla girdikten sonra paneldeki kişisel bağlantı adresini (<code>/lc/…</code>) Claude'a ekle.</p>
 </div>`;
     res.writeHead(200, { "content-type": "text/html; charset=utf-8", "cache-control": "no-store", "x-frame-options": "DENY", "referrer-policy": "same-origin", "content-security-policy": PAGE_CSP });
-    res.end(uiPage({ title: "hardtools · cihaz onayı", subtitle: "OAuth device", body }));
+    res.end(uiPage({ title: "hardtools · cihaz onayı", subtitle: "OAuth device", referrer: "same-origin", body }));
   }
 
   // ---- token endpoint ---------------------------------------------------------------------

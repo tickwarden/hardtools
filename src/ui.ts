@@ -163,6 +163,9 @@ export interface PageOptions {
   actions?: string;
   /** Tablo/panel sayfaları için daha geniş içerik alanı (34rem yerine 58rem). */
   wide?: boolean;
+  /** <meta name="referrer"> değeri. Form gönderen OAuth sayfaları "same-origin" kullanır:
+   *  "no-referrer" tarayıcıda form POST'una `Origin: null` yazdırır ve sunucu bunu reddeder. */
+  referrer?: "no-referrer" | "same-origin";
 }
 
 export function page(o: PageOptions): string {
@@ -171,7 +174,7 @@ export function page(o: PageOptions): string {
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<meta name="referrer" content="no-referrer">
+<meta name="referrer" content="${o.referrer ?? "no-referrer"}">
 <meta name="color-scheme" content="dark light">
 <title>${esc(o.title)} · hardtools</title>
 <style>${CSS}${o.css ?? ""}</style>
