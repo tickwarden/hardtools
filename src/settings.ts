@@ -64,6 +64,8 @@ export class UserSettingsStore {
   private users = new Map<string, UserSettings>();
   private grants = new Map<string, string>();  // grant id -> login
   private revoked = new Set<string>();          // çıkış yapılan grant'lar
+  /** Çıkış zamanı (ms): bundan önce verilmiş oturum çerezleri geçersizdir. */
+  private signedOut = new Map<string, number>();
   private store?: string;
   private keyPath?: string;
   private key?: Buffer;
@@ -79,7 +81,8 @@ export class UserSettingsStore {
   private load() {
     try {
       if (this.store && fs.existsSync(this.store)) {
-        const d = JSON.parse(fs.readFileSync(this.store, "utf8")) as { users?: Record<string, UserSettings>; grants?: Record<string, string>; revoked?: string[] };
+        const d = JSON.parse(fs.readFileSync(this.store, "utf8")) as { users?: Record<string, UserSettings>; grants?: Record<string, string>; revoked?: string[]; signedOut?: Record<string, number> };
+        for (const [u, at] of Object.entries(d.signedOut ?? {})) this.signedOut.set(u, Number(at) || 0);
         for (const [u, s] of Object.entries(d.users ?? {})) this.users.set(u, { ...defaultSettings(), ...s });
         for (const [g, u] of Object.entries(d.grants ?? {})) this.grants.set(g, u);
         for (const g of d.revoked ?? []) this.revoked.add(g);
@@ -94,7 +97,8 @@ export class UserSettingsStore {
       const items = Object.fromEntries(this.users);
       const grants = Object.fromEntries(this.grants);
       const tmp = this.store + ".tmp";
-      fs.writeFileSync(tmp, JSON.stringify({ v: 1, users: items, grants, revoked: [...this.revoked] }), { mode: 0o600 });
+      const signedOut = Object.fromEntries(this.signedOut);
+      fs.writeFileSync(tmp, JSON.stringify({ v: 1, users: items, grants, revoked: [...this.revoked], ...(Object.keys(signedOut).length ? { signedOut } : {}) }), { mode: 0o600 });
       fs.renameSync(tmp, this.store);
     } catch { /* disk hatası akışı düşürmesin */ }
   }
@@ -169,6 +173,18 @@ export class UserSettingsStore {
     return n;
   }
 
+  /** Çıkış: bu kullanıcıya ait, şu ana kadar verilmiş tüm oturum çerezleri geçersiz olur. */
+  signOut(user: string): void {
+    this.signedOut.set(user, Date.now());
+    this.save();
+  }
+
+  /** Çerez, kullanıcının son çıkışından önce mi verilmiş? (`at` milisaniye) */
+  isSignedOutBefore(user: string, atMs: number): boolean {
+    const t = this.signedOut.get(user);
+    return Boolean(t) && atMs < t!;
+  }
+
   // ---- imzalı çerez -----------------------------------------------------------------------
   private signingKey(): Buffer {
     if (this.key) return this.key;
@@ -187,11 +203,33 @@ export class UserSettingsStore {
     return this.key;
   }
 
-  cookieFor(user: string, ttlS = 12 * 3600): string {
-    const exp = Math.floor(Date.now() / 1000) + ttlS;
-    const body = `${Buffer.from(user).toString("base64url")}.${exp}`;
+  /**
+   * İmzalı oturum çerezi. Sürüm 2: veriliş zamanı (`iat`) ve kimlik türü (`k`) imzaya dahildir.
+   * - `iat`, yerel hesapta parola değişimi/silme sonrası eski oturumların düşmesini sağlar.
+   * - `k` = "l" yerel hesap, "g" GitHub, "t" statik token: silinen yerel hesabın çerezi geçersiz olur.
+   */
+  cookieFor(user: string, ttlS = 12 * 3600, kind: "l" | "g" | "t" = "g"): string {
+    const iat = Date.now(), exp = Math.floor(iat / 1000) + ttlS;
+    const body = `2.${Buffer.from(user).toString("base64url")}.${exp}.${iat}.${kind}`;
     const sig = crypto.createHmac("sha256", this.signingKey()).update(body).digest("base64url");
     return `${body}.${sig}`;
+  }
+
+  /** Çerezden kimlik ve veriliş zamanı (saniye). Geçersiz/imzalı bozuksa null. */
+  sessionFromCookie(value: string | undefined): { user: string; at: number; kind: "l" | "g" | "t" } | null {  // at = ms
+    if (!value) return null;
+    const parts = value.split(".");
+    if (parts.length !== 6 || parts[0] !== "2") return null;
+    const [ver, b64, exp, iat, kind, sig] = parts;
+    const body = `${ver}.${b64}.${exp}.${iat}.${kind}`;
+    const want = crypto.createHmac("sha256", this.signingKey()).update(body).digest("base64url");
+    if (sig.length !== want.length || !crypto.timingSafeEqual(Buffer.from(sig), Buffer.from(want))) return null;
+    if (Number(exp) * 1000 < Date.now()) return null;
+    try {
+      const user = Buffer.from(b64, "base64url").toString("utf8");
+      if (!user) return null;
+      return { user, at: Number(iat) || 0, kind: kind === "l" ? "l" : kind === "t" ? "t" : "g" };
+    } catch { return null; }
   }
 
   /** Bu ad bir kullanıcı kaydı olarak biliniyor mu? (Yerel hesapla çakışmayı engellemek için.) */
@@ -200,15 +238,7 @@ export class UserSettingsStore {
   }
 
   userFromCookie(value: string | undefined): string | null {
-    if (!value) return null;
-    const parts = value.split(".");
-    if (parts.length !== 3) return null;
-    const [b64, exp, sig] = parts;
-    const body = `${b64}.${exp}`;
-    const want = crypto.createHmac("sha256", this.signingKey()).update(body).digest("base64url");
-    if (sig.length !== want.length || !crypto.timingSafeEqual(Buffer.from(sig), Buffer.from(want))) return null;
-    if (Number(exp) * 1000 < Date.now()) return null;
-    try { return Buffer.from(b64, "base64url").toString("utf8") || null; } catch { return null; }
+    return this.sessionFromCookie(value)?.user ?? null;
   }
 }
 
@@ -256,7 +286,18 @@ export class SettingsUI {
   private cookieUser(req: http.IncomingMessage): string | null {
     const raw = String(req.headers.cookie ?? "");
     const m = /(?:^|;\s*)ht_s=([^;]+)/.exec(raw);
-    return this.o.store.userFromCookie(m?.[1]);
+    const s = this.o.store.sessionFromCookie(m?.[1]);
+    if (!s) return null;
+    // Çıkış yapıldıysa o andan önce verilmiş çerez (çalınmış olsa bile) artık çalışmaz.
+    if (this.o.store.isSignedOutBefore(s.user, s.at)) return null;
+    if (s.kind === "l") {
+      const a = this.o.local?.get(s.user);
+      // Silinen hesabın çerezi ya da parola değişiminden önce verilmiş çerez geçersizdir.
+      if (!a) return null;
+      // Milisaniye çözünürlüğü: parola değişiminden önce verilen çerez düşer, sonrası geçerli.
+      if (a.pvAt && s.at < a.pvAt) return null;
+    }
+    return s.user;
   }
 
   private setCookie(res: http.ServerResponse, value: string, secure: boolean, maxAgeS: number) {
@@ -280,6 +321,7 @@ export class SettingsUI {
     if (pathname === "/local/login") return await this.localLogin(req, res, origin), true;
     if (pathname === "/local/register") return await this.localRegister(req, res, origin), true;
     if (pathname === "/local/connector") return await this.localConnector(req, res, origin), true;
+    if (pathname === "/local/password") return await this.localPassword(req, res, origin), true;
     return false;
   }
 
@@ -314,24 +356,40 @@ export class SettingsUI {
     const body = `${heading("Panel", user ? `Giriş: ${user}` : "Bağlantı adresini kopyala, sayfalara göz at.")}
 <div class="card">
 <h2 style="margin-top:0">MCP adresi</h2>
-<p class="muted">Bu adresi Claude'da “Connector ekle” alanına yapıştır. Başkası da kopyalayıp kendi hesabıyla ekleyebilir;${localConnector ? " bu adres yalnızca senin yerel hesabına bağlıdır." : " giriş kendi hesabıyla yapılır."}</p>
+<p class="muted">Bu adresi Claude'da “Connector ekle” alanına yapıştır. Başkası da kopyalayıp kendi hesabıyla ekleyebilir;${localConnector ? " bu adres yalnızca senin yerel hesabına bağlıdır." : " giriş kendi hesabıyla yapılır."} Bu hesaba bağlı <strong>tüm sohbetler aynı çalışma alanını</strong> görür; başka hesabın dosyaları görünmez.</p>
 <div class="copybox"><input id="mcp" type="text" readonly value="${esc(mcpUrl)}"><button type="button" data-copy="#mcp">Kopyala</button></div>
 <p class="muted" style="margin-bottom:0">${localConnector ? 'Anahtar sızdıysa <a href="/local">yerel hesap sayfasından</a> yenileyebilirsin.' : `Sunucu: <code>${esc(origin)}</code>`}</p>
 </div>
 <h2>Sayfalar</h2>
 <div class="tiles">${tiles}</div>
-${user ? `<p class="muted"><a href="/settings/logout">çıkış yap</a></p>` : `<p class="muted"><a href="/settings">giriş yap</a> · <a href="/local">yerel hesap</a></p>`}`;
+${user ? `<form method="post" action="/settings/logout" style="margin:0"><p class="muted" style="margin:0"><button class="ghost" type="submit">çıkış yap</button></p></form>` : `<p class="muted"><a href="/settings">giriş yap</a> · <a href="/local">yerel hesap</a></p>`}`;
     this.html(res, 200, uiPage({ title: "Panel", subtitle: "panel", body }));
   }
 
   /** /local — yerel hesap girişi ve (izinliyse) kayıt. */
+  /** Form gövdesi ya da adres çubuğundan gelen `next` (yalnız aynı origin yolu kabul edilir). */
+  private formNext(req: http.IncomingMessage, body?: URLSearchParams | null): string {
+    const fromBody = body?.get("next");
+    if (fromBody) return safeNext(fromBody);
+    const q = new URL(req.url ?? "/", "http://x").searchParams.get("next");
+    return q ? safeNext(q) : "";
+  }
+
   private localPage(req: http.IncomingMessage, res: http.ServerResponse, notice = "", next = "") {
     const la = this.o.local;
     const canReg = Boolean(la?.canRegister());
     const keep = safeNext(next);
+    const me = this.cookieUser(req);
+    const mine = me && la?.has(me) ? la.get(me) : undefined;
     const body = `${heading("Yerel hesap", "GitHub hesabın yoksa ya da GitHub girişi çalışmıyorsa buradan gir.")}
 ${notice ? `<p class="${notice.startsWith("Hata") ? "e" : "ok"}">${esc(notice)}</p>` : ""}
-<div class="card">
+${mine ? `<div class="card">
+<h2 style="margin-top:0">Giriş: ${esc(mine.user)}</h2>
+<p class="muted">Bu tarayıcı ${esc(mine.user)} hesabıyla giriş yapmış. Bağlantı adresin:</p>
+<div class="copybox"><input id="lc" type="text" readonly value="${esc(this.origin(req) + "/lc/" + mine.connector)}"><button type="button" data-copy="#lc">Kopyala</button></div>
+<form method="post" action="/local/connector"><p><button type="submit" data-once>Bağlantı anahtarını yenile</button></p></form>
+<p class="muted" style="margin-bottom:0"><form method="post" action="/settings/logout" style="display:inline"><button class="ghost" type="submit">çıkış yap</button></form> · <a href="/">panel</a></p>
+</div>` : `<div class="card">
 <h2 style="margin-top:0">Giriş</h2>
 <form method="post" action="/local/login" autocomplete="on">
   ${keep ? `<input type="hidden" name="next" value="${esc(keep)}">` : ""}
@@ -341,8 +399,9 @@ ${notice ? `<p class="${notice.startsWith("Hata") ? "e" : "ok"}">${esc(notice)}<
   <input id="lp" name="password" type="password" autocomplete="current-password" required>
   <p><button class="primary" type="submit">Giriş yap</button></p>
 </form>
+<p class="muted" style="margin-bottom:0">Parolanı unuttuysan yönetici sıfırlar (<code>node dist/index.js --local-user passwd &lt;ad&gt;</code>). Hesabın hiç yoksa aşağıdan aç.</p>`}
 </div>
-${canReg ? `<div class="card">
+${mine ? "" : canReg ? `<div class="card">
 <h2 style="margin-top:0">Hesap aç</h2>
 <p class="muted">${la?.count() === 0 ? "Bu sunucuda henüz yerel hesap yok: ilk hesabı sen açacaksın." : "Yeni yerel hesap aç."} Parola en az 10 karakter, iki tür karakter içermeli.</p>
 <form method="post" action="/local/register" autocomplete="off">
@@ -353,7 +412,31 @@ ${canReg ? `<div class="card">
   <input id="rp" name="password" type="password" autocomplete="new-password" required>
   <p><button type="submit">Hesap aç</button></p>
 </form>
-</div>` : `<p class="muted">Yeni hesap açma kapalı. Operatör yeni bir yerel hesap açabilir.</p>`}
+</div>` : `<div class="card">
+<h2 style="margin-top:0">Hesap aç</h2>
+<p class="muted">Bu sunucuda kayıt <strong>davet koduna</strong> bağlı (${la?.count() ?? 0} yerel hesap var). Kodu yönetici üretir; sen yalnızca bir kez kullanabilirsin.</p>
+<form method="post" action="/local/register" autocomplete="off">
+  ${keep ? `<input type="hidden" name="next" value="${esc(keep)}">` : ""}
+  <label for="rc">Davet kodu</label>
+  <input id="rc" name="code" type="text" placeholder="XXXX-XXXX" autocomplete="off" required>
+  <label for="ru">Kullanıcı adı (3-32 karakter)</label>
+  <input id="ru" name="user" type="text" autocomplete="username" required>
+  <label for="rp">Parola</label>
+  <input id="rp" name="password" type="password" autocomplete="new-password" required>
+  <p><button type="submit">Hesap aç</button></p>
+</form>
+<p class="muted" style="margin-bottom:0">Kod yoksa yöneticiden iste: <code>node dist/index.js --local-user invite</code></p>
+</div>`}
+${mine ? `<div class="card">
+<h2 style="margin-top:0">Parola değiştir</h2>
+<form method="post" action="/local/password" autocomplete="off">
+  <label for="cp">Mevcut parola</label>
+  <input id="cp" name="current" type="password" autocomplete="current-password" required>
+  <label for="np">Yeni parola</label>
+  <input id="np" name="next" type="password" autocomplete="new-password" required>
+  <p><button type="submit">Parolayı değiştir</button></p>
+</form>
+</div>` : ""}
 <p class="muted"><a href="/">panel</a> · <a href="/settings/login">GitHub ile giriş</a></p>`;
     this.html(res, 200, uiPage({ title: "Yerel hesap", subtitle: "local", body }));
   }
@@ -367,38 +450,64 @@ ${canReg ? `<div class="card">
 
   private async localLogin(req: http.IncomingMessage, res: http.ServerResponse, origin: string) {
     if (req.method !== "POST") return this.localPage(req, res);
-    if (!this.sameOriginForm(req, origin)) return this.localPage(req, res, "Hata: form başka bir siteden gönderildi.");
+    if (!this.sameOriginForm(req, origin)) return this.localPage(req, res, "Hata: form başka bir siteden gönderildi.", this.formNext(req));
     const la = this.o.local;
-    if (!la) return this.localPage(req, res, "Hata: bu sunucuda yerel hesaplar kapalı.");
+    if (!la) return this.localPage(req, res, "Hata: bu sunucuda yerel hesaplar kapalı.", this.formNext(req));
     const p = await this.body(req);
+    const keep = this.formNext(req, p);
     const user = (p?.get("user") ?? "").trim().toLowerCase();
     const pw = p?.get("password") ?? "";
     const r = la.verify(user, pw);
     if (!r.ok) {
       this.o.audit?.({ ev: "local_login_failed", user });
-      return this.localPage(req, res, `Hata: ${r.error}`);
+      // Hata sayfası `next`i korur: OAuth akışındaki kullanıcı yazım hatası yüzünden akışı kaybetmez.
+      return this.localPage(req, res, `Hata: ${r.error}`, keep);
     }
     this.o.audit?.({ ev: "local_login", user });
-    this.setCookie(res, this.o.store.cookieFor(user), origin.startsWith("https://"), 12 * 3600);
-    const to = safeNext(p?.get("next") ?? "");
+    this.setCookie(res, this.o.store.cookieFor(user, 12 * 3600, "l"), origin.startsWith("https://"), 12 * 3600);
+    const to = keep;
     if (to && browserForm(req)) return this.continuePage(res, to, "Giriş tamam. Bağlantı akışına dönülüyor…");
     res.writeHead(303, { location: to || "/", "cache-control": "no-store" }); res.end();
   }
 
   private async localRegister(req: http.IncomingMessage, res: http.ServerResponse, origin: string) {
     if (req.method !== "POST") return this.localPage(req, res);
-    if (!this.sameOriginForm(req, origin)) return this.localPage(req, res, "Hata: form başka bir siteden gönderildi.");
+    if (!this.sameOriginForm(req, origin)) return this.localPage(req, res, "Hata: form başka bir siteden gönderildi.", this.formNext(req));
     const la = this.o.local;
-    if (!la || !la.canRegister()) return this.localPage(req, res, "Hata: yeni yerel hesap açma kapalı.");
+    if (!la) return this.localPage(req, res, "Hata: bu sunucuda yerel hesaplar kapalı.", this.formNext(req));
+    const openReg = la.canRegister();
     const p = await this.body(req);
+    const keep = this.formNext(req, p);
     const user = (p?.get("user") ?? "").trim().toLowerCase();
+    // Kayıt "first" modunda kapalıysa tek kullanımlık davet kodu gerekir: kullanıcı
+    // "Kullanıcı adı veya parola yanlış" hatasında kilitli kalmasın.
+    if (!openReg) {
+      const code = p?.get("code") ?? "";
+      if (!code.trim()) return this.localPage(req, res, "Hata: kayıt davet koduna bağlı; kodu yaz.", keep);
+      if (!la.redeemInvite(code)) return this.localPage(req, res, "Hata: davet kodu geçersiz ya da süresi dolmuş.", keep);
+    }
     const r = la.create(user, p?.get("password") ?? "", (n) => Boolean(this.o.reservedLogin?.(n)));
-    if (!r.ok) return this.localPage(req, res, `Hata: ${r.error}`);
+    if (!r.ok) return this.localPage(req, res, `Hata: ${r.error}`, keep);
     this.o.audit?.({ ev: "local_account_created", user: r.account.user });
-    this.setCookie(res, this.o.store.cookieFor(r.account.user), origin.startsWith("https://"), 12 * 3600);
-    const to = safeNext(p?.get("next") ?? "");
+    this.setCookie(res, this.o.store.cookieFor(r.account.user, 12 * 3600, "l"), origin.startsWith("https://"), 12 * 3600);
+    const to = keep;
     if (to && browserForm(req)) return this.continuePage(res, to, "Hesap açıldı. Bağlantı akışına dönülüyor…");
     res.writeHead(303, { location: to || "/", "cache-control": "no-store" }); res.end();
+  }
+
+  /** Oturum sahibi kendi parolasını değiştirir (mevcut parola doğrulanır). */
+  private async localPassword(req: http.IncomingMessage, res: http.ServerResponse, origin: string) {
+    if (req.method !== "POST") return this.localPage(req, res);
+    if (!this.sameOriginForm(req, origin)) return this.localPage(req, res, "Hata: form başka bir siteden gönderildi.");
+    const user = this.cookieUser(req);
+    const la = this.o.local;
+    if (!user || !la?.has(user)) return this.localPage(req, res, "Hata: parola değiştirmek için giriş yap.");
+    const p = await this.body(req);
+    const r = la.changePassword(user, p?.get("current") ?? "", p?.get("next") ?? "");
+    if (!r.ok) return this.localPage(req, res, `Hata: ${r.error}`);
+    this.o.audit?.({ ev: "local_password_changed", user });
+    this.setCookie(res, this.o.store.cookieFor(user, 12 * 3600, "l"), origin.startsWith("https://"), 12 * 3600);
+    return this.localPage(req, res, "Parola değişti.");
   }
 
   /** Bağlantı anahtarını yenile (sızmışsa eski adres çalışmaz). */
@@ -421,22 +530,26 @@ ${canReg ? `<div class="card">
     if (!ws) return this.html(res, 404, uiPage({ title: "Çalışma alanları", body: `<p class="e">Bu sunucuda çalışma alanı listesi kapalı.</p>` }));
     let notice = "";
     if (req.method === "POST") {
-      const p = await this.body(req);
-      const dir = p?.get("adopt");
-      if (!dir) notice = "Devralınacak dizin seçilmedi.";
-      else { try { notice = ws.adopt(user, dir); } catch (e) { notice = `Hata: ${(e as Error).message}`; } }
+      // Oturum çerezi SameSite=Lax olsa da kendi origin dışından gelen formu reddet (derinlemesine savunma).
+      if (!this.sameOriginForm(req, origin)) notice = "Hata: form başka bir siteden gönderildi.";
+      else {
+        const p = await this.body(req);
+        const dir = p?.get("adopt");
+        if (!dir) notice = "Hata: devralınacak dizin seçilmedi.";
+        else { try { notice = ws.adopt(user, dir); } catch (e) { notice = `Hata: ${(e as Error).message}`; } }
+      }
     }
     const rows = ws.list(user);
     const kb = (n: number) => n < 1024 ? `${n} B` : n < 1 << 20 ? `${(n / 1024).toFixed(1)} KB` : n < 1 << 30 ? `${(n / 1048576).toFixed(1)} MB` : `${(n / 1073741824).toFixed(2)} GB`;
-    const body = `${heading("Çalışma alanları", "Hesabın kökleri ve eski sohbetlerin bıraktığı işler. Devral, seçilen dizinin dosyalarını hesap köküne taşır; var olanın üzerine yazmaz. Kabuk iskeleti (.hardtools) ve geri dönüşüm kutusu taşınmaz.")}
-${notice ? `<p class="ok">${esc(notice)}</p>` : ""}
+    const body = `${heading("Çalışma alanları", "Bu hesaba bağlı tüm Claude sohbetleri aynı çalışma alanını görür (hesabında tek kök). Aşağıdaki eski dizinler önceki sürümlerden kalan işlerdir: Devral, seçilen dizinin dosyalarını hesap köküne taşır; var olanın üzerine yazmaz. Kabuk iskeleti (.hardtools) ve geri dönüşüm kutusu taşınmaz.")}
+${notice ? `<p class="${notice.startsWith("Hata") ? "e" : "ok"}">${esc(notice)}</p>` : ""}
 <div class="card"><div class="tablewrap"><table>
 <thead><tr><th>Dizin</th><th>Tür</th><th>Dosya</th><th>Boyut</th><th>Son kullanım</th><th></th></tr></thead>
 <tbody>${rows.map(r => `<tr${r.current ? ' style="font-weight:600"' : ""}>
 <td><code>${esc(r.rel)}</code>${r.current ? ' <span class="pill">bu hesap</span>' : ""}${esc(r.rel) === path.basename(cur()) ? ' <span class="pill on">etkin</span>' : ""}</td>
 <td>${r.kind === "account" ? "hesap" : "sohbet"}${r.user ? ` · ${esc(r.user)}` : ""}</td>
 <td>${r.files}${r.scratchFiles ? ` <span class="muted">(+${r.scratchFiles} iskelet)</span>` : ""}</td><td>${kb(r.bytes)}${r.scratchBytes ? ` <span class="muted">+ ${kb(r.scratchBytes)} iskelet</span>` : ""}</td><td>${new Date(r.lastUsed).toISOString().replace("T", " ").slice(0, 16)}</td>
-<td>${r.current ? "" : `<form method="post" action="/workspaces" style="margin:0"><input type="hidden" name="adopt" value="${esc(r.rel)}"><button type="submit" data-once>Devral</button></form>`}</td>
+<td>${r.current ? "" : `<form method="post" action="/workspaces" style="margin:0" onsubmit="return confirm('${esc(r.rel)} dizinindeki dosyalar hesap köküne taşınacak. Var olan dosyalar korunur. Devam?')"><input type="hidden" name="adopt" value="${esc(r.rel)}"><button type="submit" data-once>Devral</button></form>`}</td>
 </tr>`).join("") || `<tr><td colspan="6" class="muted">Kayıt yok.</td></tr>`}</tbody></table></div></div>
 <p class="muted">Aynı listeyi modelden de isteyebilirsin: <code>ht_workspace {"action":"list"}</code> · devam: <code>ht_workspace {"action":"adopt","dir":"u-…"}</code></p>
 <p class="muted"><a href="/">panel</a> · <a href="/settings">ayarlar</a></p>`;
@@ -602,10 +715,14 @@ ${gh ? `<p class="muted">Claude'da bağlanırken kullandığın GitHub hesabıyl
   }
 
   private async logout(req: http.IncomingMessage, res: http.ServerResponse, origin: string) {
-    if (req.method !== "POST") return this.html(res, 405, uiPage({ title: "Ayarlar", body: `<p class="e">Yalnız POST.</p>` }));
+    // Bağlantıyla gelindiğinde 405 göstermek çıkmaz sokaktı: onay düğmesi olan bir sayfa dön.
+    if (req.method !== "POST") return this.html(res, 200, uiPage({ title: "Çıkış", subtitle: "settings", body: `${heading("Çıkış yap")}
+<div class="card"><p class="muted">Bu tarayıcıdaki oturum kapatılacak. Oturumu kapatmak için düğmeye bas.</p>
+<form method="post" action="/settings/logout"><p><button class="primary" type="submit">Çıkış yap</button></p></form>
+<p class="muted" style="margin-bottom:0"><a href="${esc(origin)}/">panel</a></p></div>` }));
     const user = this.cookieUser(req);
     let revoked = 0;
-    if (user) revoked = this.o.store.revokeUser(user);
+    if (user) { revoked = this.o.store.revokeUser(user); this.o.store.signOut(user); }
     this.o.audit?.({ ev: "settings_logout", user: user ?? "-", revoked });
     res.setHeader("set-cookie", "ht_s=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0");
     const body = `${heading("Çıkış yapıldı")}
@@ -625,7 +742,7 @@ ${gh ? `<p class="muted">Claude'da bağlanırken kullandığın GitHub hesabıyl
     if (!want || given.length !== want.length || !crypto.timingSafeEqual(Buffer.from(given), Buffer.from(want)))
       return this.loginPage(res, "Token yanlış.");
     const user = "operator";
-    this.setCookie(res, this.o.store.cookieFor(user), origin.startsWith("https://"), 12 * 3600);
+    this.setCookie(res, this.o.store.cookieFor(user, 12 * 3600, "t"), origin.startsWith("https://"), 12 * 3600);
     this.o.audit?.({ ev: "settings_login", user, via: "token" });
     return this.redirect(res, origin);
   }

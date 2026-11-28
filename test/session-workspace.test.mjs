@@ -38,6 +38,7 @@ const init = (port, target) => rpc(port, target, { jsonrpc: "2.0", id: 1, method
 async function start(t, env = {}) {
   const root = tmp("ht-sess-root-");
   const audit = tmp("ht-sess-audit-");
+  const stateDir = path.join(audit, "state");
   const cfg = path.join(audit, "config.json");
   fs.writeFileSync(cfg, JSON.stringify({ audit: { dir: audit, failClosed: false }, fs: { writeEnabled: true }, shell: { enabled: false } }));
   // Boş port bul: rastgele seçim paralel testlerle çakışabiliyor (flaky).
@@ -54,33 +55,46 @@ async function start(t, env = {}) {
   for (let i = 0; i < 80; i++) { if (/listening/.test(err) || child.exitCode !== null) break; await new Promise((r) => setTimeout(r, 100)); }
   t.after(() => child.kill("SIGKILL"));
   assert.match(err, /listening/, err);
-  return { port, root };
+  return { port, root, stateDir };
 }
 
-test("iki ayrı sohbet (initialize) ayrı kök alır; aynı sohbet aynı kökte kalır", async (t) => {
-  const { port } = await start(t);
+test("varsayılan: bir hesabın tüm sohbetleri aynı hesap kökünü paylaşır", async (t) => {
+  const { port, root } = await start(t);
   const target = `/c/${KEY}`;
 
   const a = await init(port, target);
   const sidA = a.headers["mcp-session-id"];
-  assert.ok(sidA, "initialize bir oturum kimliği döndürmeli: " + JSON.stringify(a.headers));
   await tool(port, target, "ht_write", { path: "sohbet-a.txt", content: "A" }, sidA);
 
   const b = await init(port, target);
   const sidB = b.headers["mcp-session-id"];
-  assert.ok(sidB && sidB !== sidA, "her sohbet ayrı oturum kimliği: " + sidB);
 
+  // 1.5.37: yeni sohbet aynı hesap kökünde çalışır → önceki sohbetin dosyasını görür.
   const seenByB = JSON.stringify(await tool(port, target, "ht_read", { path: "sohbet-a.txt" }, sidB));
-  assert.match(seenByB, /isError|not found|ENOENT|yok/i, "B sohbeti A'nın dosyasını görmemeli: " + seenByB.slice(0, 160));
+  assert.match(seenByB, /sohbet-a\.txt/, "B sohbeti A'nın dosyasını görmeli: " + seenByB.slice(0, 160));
 
-  const stillA = JSON.stringify(await tool(port, target, "ht_read", { path: "sohbet-a.txt" }, sidA));
-  assert.match(stillA, /sohbet-a\.txt/, "A kendi dosyasını görmeli: " + stillA.slice(0, 160));
+  // Dosya taban kökte değil, hesap kökünde (a-…) olmalı: hesaplar ayrı kalır.
+  assert.equal(fs.existsSync(path.join(root, "sohbet-a.txt")), false, "taban kökte dosya olmamalı");
+  const acc = fs.readdirSync(root).filter((d) => d.startsWith("a-"));
+  assert.equal(acc.length, 1, "tek hesap kökü: " + fs.readdirSync(root).join(","));
+  assert.equal(fs.existsSync(path.join(root, acc[0], "sohbet-a.txt")), true, "dosya hesap kökünde olmalı");
 
   const statusOf = async (sid) => JSON.parse((await tool(port, target, "ht_status", {}, sid)).result.content[0].text);
   const stA = await statusOf(sidA), stB = await statusOf(sidB);
-  assert.match(stA.session, /^s-/, "ht_status oturum kimliğini göstermeli");
-  assert.notEqual(stA.session, stB.session, "iki sohbet iki ayrı oturum olmalı");
-  assert.notEqual(stA.roots[0], stB.roots[0], "iki sohbet iki ayrı kök olmalı");
+  assert.equal(stA.roots[0], stB.roots[0], "iki sohbet aynı kökü kullanmalı");
+  assert.match(stA.roots[0], /a-[0-9a-f]{16}$/, "kök hesap kökü olmalı: " + stA.roots[0]);
+});
+
+test("HARDTOOLS_PER_SESSION_WORKSPACE=1 ile sohbet başına ayrı kök (katı izolasyon)", async (t) => {
+  const { port } = await start(t, { HARDTOOLS_PER_SESSION_WORKSPACE: "1" });
+  const target = `/c/${KEY}`;
+  const a = await init(port, target);
+  const sidA = a.headers["mcp-session-id"];
+  await tool(port, target, "ht_write", { path: "sohbet-a.txt", content: "A" }, sidA);
+  const b = await init(port, target);
+  const sidB = b.headers["mcp-session-id"];
+  const seenByB = JSON.stringify(await tool(port, target, "ht_read", { path: "sohbet-a.txt" }, sidB));
+  assert.match(seenByB, /isError|not found|ENOENT|yok/i, "katı modda B, A'nın dosyasını görmemeli: " + seenByB.slice(0, 160));
 });
 
 test("oturum kimliği yoksa hesap köküne düşer (geriye dönük uyum)", async (t) => {
@@ -92,10 +106,25 @@ test("oturum kimliği yoksa hesap köküne düşer (geriye dönük uyum)", async
   assert.equal(fs.existsSync(path.join(root, dirs[0], "kimliksiz.txt")), true);
 });
 
-test("HARDTOOLS_PER_SESSION_WORKSPACE=0 ile eski paylaşılan kök korunur", async (t) => {
-  const { port, root } = await start(t, { HARDTOOLS_PER_SESSION_WORKSPACE: "0" });
-  const target = `/c/${KEY}`;
-  const a = await init(port, target);
-  await tool(port, target, "ht_write", { path: "ortak.txt", content: "herkes" }, a.headers["mcp-session-id"]);
-  assert.equal(fs.existsSync(path.join(root, "ortak.txt")), true, "paylaşılan kökte olmalı");
+test("hesaplar birbirinden ayrı: iki yerel hesap aynı dosyayı görmez", async (t) => {
+  const { port, root, stateDir } = await start(t, { HARDTOOLS_LOCAL_SIGNUP: "open" });
+  const reg = async (user) => {
+    const r = await request(port, { method: "POST", target: "/local/register",
+      headers: { "content-type": "application/x-www-form-urlencoded" }, body: `user=${user}&password=${"Guclu-Parola-77y"}` });
+    return r.status;
+  };
+  assert.equal(await reg("ali"), 303);
+  assert.equal(await reg("veli"), 303);
+  const accounts = JSON.parse(fs.readFileSync(path.join(stateDir, "local-accounts.json"), "utf8")).items;
+  const key = (u) => accounts.find((a) => a.user === u).connector;
+
+  const ali = await init(port, `/lc/${key("ali")}`);
+  await tool(port, `/lc/${key("ali")}`, "ht_write", { path: "ali.txt", content: "ali" }, ali.headers["mcp-session-id"]);
+  const veli = await init(port, `/lc/${key("veli")}`);
+  const seen = JSON.stringify(await tool(port, `/lc/${key("veli")}`, "ht_read", { path: "ali.txt" }, veli.headers["mcp-session-id"]));
+  assert.match(seen, /isError|not found|ENOENT|yok/i, "veli, ali'nin dosyasını görmemeli: " + seen.slice(0, 200));
+  const aliAgain = JSON.stringify(await tool(port, `/lc/${key("ali")}`, "ht_read", { path: "ali.txt" }, ali.headers["mcp-session-id"]));
+  assert.match(aliAgain, /ali\.txt/, "ali kendi dosyasını görmeli: " + aliAgain.slice(0, 200));
+  const dirs = fs.readdirSync(root).filter((d) => d.startsWith("a-"));
+  assert.equal(dirs.length, 2, "iki hesap iki kök: " + fs.readdirSync(root).join(","));
 });

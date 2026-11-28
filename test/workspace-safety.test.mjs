@@ -62,7 +62,7 @@ const init = (rpc) => rpc({ jsonrpc: "2.0", id: 1, method: "initialize", params:
 const call = (rpc, name, args, sid) => rpc({ jsonrpc: "2.0", id: 2, method: "tools/call", params: { name, arguments: args } }, sid);
 const textOf = (r) => JSON.stringify(r.json?.result?.content?.[0]?.text ?? r.json);
 
-test("hesap kökü kalıcı: yeni sohbet kökü hesap köküyle tohumlanır, sohbetler yine izole", async (t) => {
+test("hesap kökü kalıcı: aynı hesabın sohbetleri ortak kökü paylaşır (1.5.37 varsayılanı)", async (t) => {
   const { port, root } = await start(t);
   const rpc = rpcFactory(port);
   // Oturum kimliği yok → hesap kökü (kalıcı alan).
@@ -72,15 +72,17 @@ test("hesap kökü kalıcı: yeni sohbet kökü hesap köküyle tohumlanır, soh
   assert.ok(fs.existsSync(path.join(root, accDirs[0], "kalici.txt")), "yazma hesap köküne düşmeli");
   // Yeni sohbet: kendi u- kökünü alır ama hesap kökündeki iş tohumlanır (yeniden başlatma sonrası devam).
   const a = await init(rpc);
-  const sidA = a.headers["mcp-session-id"];
-  assert.ok(sidA, "oturum kimliği üretilmeli");
+  const sidA = a.headers["mcp-session-id"];   // ortak modda oturum kimliği verilmez (stateless)
   assert.match(textOf(await call(rpc, "ht_read", { path: "kalici.txt" }, sidA)), /oncesi/, "tohumlanan dosya görünmeli");
-  // Sohbet A'nın kendi yazdığı, sohbet B'de görünmez (izolasyon korunur).
+  // Varsayılan (1.5.37): aynı hesabın sohbetleri ortak kökü paylaşır → B, A'nın yazdığını görür.
   await call(rpc, "ht_write", { path: "sadece-a.txt", content: "A" }, sidA);
   const b = await init(rpc);
   const sidB = b.headers["mcp-session-id"];
-  assert.match(textOf(await call(rpc, "ht_read", { path: "sadece-a.txt" }, sidB)), /ENOENT|not found|isError|yok/i, "B, A'nın dosyasını görmemeli");
+  assert.match(textOf(await call(rpc, "ht_read", { path: "sadece-a.txt" }, sidB)), /sadece-a\.txt/, "B, A'nın dosyasını görmeli");
   assert.match(textOf(await call(rpc, "ht_read", { path: "sadece-a.txt" }, sidA)), /sadece-a\.txt/, "A kendi dosyasını görmeli");
+  const acc = fs.readdirSync(root).filter((d) => d.startsWith("a-"));
+  assert.equal(acc.length, 1, "tek hesap kökü: " + fs.readdirSync(root).join(","));
+  assert.ok(fs.existsSync(path.join(root, acc[0], "sadece-a.txt")), "dosya hesap kökünde olmalı");
 });
 
 test("ht_workspace: başka hesabın dizini görünmez/devralınamaz; sahipsiz dizini yalnız operatör devralır", async (t) => {
@@ -137,8 +139,9 @@ test("ht_shell: silinen kabuk iskeleti kendini onarır", { skip: spawnSync("bash
   const sid = a.headers["mcp-session-id"];
   const first = await call(rpc, "ht_shell", { command: "echo ilk" }, sid);
   assert.match(textOf(first), /ilk/, "kabuk çalışmalı: " + textOf(first).slice(0, 200));
-  const roots = fs.readdirSync(root).filter((d) => d.startsWith("u-"));
-  assert.equal(roots.length, 1, "tek sohbet kökü");
+  // 1.5.37 varsayılanı: sohbet kökü = hesap kökü (a-…). Kabuk iskeleti orada yaşar.
+  const roots = fs.readdirSync(root).filter((d) => d.startsWith("a-"));
+  assert.equal(roots.length, 1, "tek hesap kökü: " + fs.readdirSync(root).join(","));
   // İskeleti dışarıdan sil (devralma/temizlik sonrası durum).
   fs.rmSync(path.join(root, roots[0], ".hardtools"), { recursive: true, force: true });
   const second = await call(rpc, "ht_shell", { command: "echo ikinci" }, sid);

@@ -278,6 +278,36 @@ Her kimlik **kendi `/work` kökünü** alır; bir oturumda klonlanan depo başka
 - `HARDTOOLS_PER_SESSION_WORKSPACE=0` eski tek-paylaşılan-kök davranışına döner.
 - Oturum kökleri hacimde birikir; `ht_status` hangi kökte olduğunuzu gösterir.
 
+### 1.5.38 — çalışma alanı: hesap başına TEK kök (varsayılan)
+
+Bir hesaba bağlı **tüm Claude sohbetleri aynı dosyaları görür**: kök `<HARDTOOLS_ROOTS[0]>/a-<sha256(hesap)[:16]>`.
+Böylece "her yeni sohbet boş geldi, dosyalarım kayboldu" durumu biter. Hesaplar birbirinden tamamen ayrıdır;
+bir hesabın kökü başka hesaba ne listelenir ne devralınabilir.
+
+- Katı sohbet izolasyonu isteyen kurulum: `HARDTOOLS_PER_SESSION_WORKSPACE=1` (her sohbet ayrı `u-<hash>`).
+- Eski sürümlerden kalan `u-…` dizinleri `/workspaces` sayfasında görünür; **Devral** dosyaları hesap köküne taşır
+  (var olanın üzerine yazmaz, `.hardtools`/geri dönüşüm kutusu taşınmaz).
+- `/workspaces` "Devral" işlemi model aracıyla **aynı sahiplik doğrulamasını** kullanır; başka hesabın dizini reddedilir.
+- Operatör bearer'ı (`static`) taban kökte kalır.
+
+### Yerel hesap yönetimi (1.5.36)
+
+Kayıt varsayılan olarak `first` (yalnız ilk hesap). Sonraki hesaplar ve unutulan parolalar için operatör komutları
+(sunucu başlatmadan çalışır, `flyctl ssh console -a <app> -C "node /app/bundle/index.js …"`):
+
+```bash
+node bundle/index.js --local-user list
+node bundle/index.js --local-user invite --ttl 1440      # tek kullanımlık kayıt kodu
+node bundle/index.js --local-user add <ad> --password-stdin
+node bundle/index.js --local-user passwd <ad> --password-stdin
+node bundle/index.js --local-user del <ad>
+```
+
+- Kayıt kapalıyken `/local` sayfası **davet kodu** alanı gösterir; kod tek kullanımlıktır ve sürelidir.
+- Oturum içinden **parola değiştirme** (`/local`) ve **bağlantı anahtarını yenileme** var.
+- Oturum çerezi imzalıdır (kimlik + veriliş zamanı + tür); parola değişimi, hesap silme ve çıkış o çerezleri anında düşürür.
+- CLI değişiklikleri çalışan sunucuda **anında** geçerlidir (dosya damgası izlenir); hatalı deneme kilidi de açılır.
+
 ### Sohbet bazlı çalışma alanı (0.5.9)
 
 0.5.8'de kök **hesap** başına ayrıldı; aynı hesabın iki sohbeti hâlâ aynı `/work`'ü görüyordu. 0.5.9 kökü **MCP oturumu** (sohbet) başına ayırır:

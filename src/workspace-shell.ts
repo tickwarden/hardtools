@@ -7,7 +7,8 @@ import { isInside, PolicyError } from "./guard.js";
 import { openWorkspaceEgress, type EgressLease } from "./workspace-egress.js";
 
 // The launcher is chosen by the operator's OS, never by an MCP argument or a workspace PATH.
-const launcher = "/usr/bin/bwrap";
+// Dağıtımdan dağıtıma değişebilir (NixOS, /usr/local/bin): HARDTOOLS_BWRAP ile geçersiz kılınır.
+const launcher = (process.env.HARDTOOLS_BWRAP ?? "").trim() || "/usr/bin/bwrap";
 // Runs INSIDE the namespace. The FIFO is in a fresh guest tmpfs and carries only
 // the relay's readiness/port. The requested argv follows the fixed script; it
 // is never inserted into it. exec preserves normal command exit/signal semantics.
@@ -125,7 +126,7 @@ function workspaceArgs(p: Policy, cwd: string, program: string, args: string[], 
   const root = p.roots[0];
   if (root === path.parse(root).root || root === os.homedir() || !isInside(root, cwd) || p.protectedDirs.some(d => isInside(root, d) || isInside(d, root)))
     throw new PolicyError("worker_root", "choose a dedicated workspace separate from audit, home and configuration");
-  try { fs.accessSync(launcher, fs.constants.X_OK); } catch { throw new PolicyError("worker_unavailable", "bubblewrap is not installed at /usr/bin/bwrap; no host-shell fallback"); }
+  try { fs.accessSync(launcher, fs.constants.X_OK); } catch { throw new PolicyError("worker_unavailable", `bubblewrap is not installed at ${launcher}; no host-shell fallback (HARDTOOLS_BWRAP ile yol verilebilir)`); }
 
   const childCwd = path.posix.join("/work", path.relative(root, cwd));
   return [
