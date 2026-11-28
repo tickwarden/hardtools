@@ -1,0 +1,203 @@
+// 1.5.31: son turlarda canlıda kırılan üç sınıf hata için kalıcı koruma testleri.
+//   1) Sayfa metinlerine HTML etiketi sızması (heading() esc'liyor, çağıran etiket geçmişti).
+//   2) İç bağlantıların 404 vermesi (/settings → /connect).
+//   3) Kök taşıma işlemlerinin kabuk iskeletini (.hardtools) taşıyıp bwrap'ı kırması.
+// Ayrıca yerel hesap akışı (kayıt → çerez → /lc/<anahtar> ile MCP) uçtan uca doğrulanır.
+import test from "node:test";
+import assert from "node:assert/strict";
+import fs from "node:fs";
+import http from "node:http";
+import os from "node:os";
+import path from "node:path";
+import { spawn } from "node:child_process";
+
+const entry = path.resolve(process.env.HT_ENTRY ?? "dist/index.js");
+const TOKEN = "s".repeat(4) + "0123456789abcdef0123456789abcdef";
+const tmp = (p) => fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), p)));
+
+function request(port, { method = "GET", target = "/", headers = {}, body = null } = {}) {
+  return new Promise((resolve, reject) => {
+    const req = http.request({ host: "127.0.0.1", port, path: target, method, headers }, (res) => {
+      let data = ""; res.on("data", (c) => { data += c; }); res.on("end", () => resolve({ status: res.statusCode, headers: res.headers, body: data }));
+    });
+    req.on("error", reject);
+    if (body !== null) req.write(body);
+    req.end();
+  });
+}
+
+async function start(t, env = {}) {
+  const root = tmp("ht-pages-root-");
+  const state = tmp("ht-pages-state-");
+  const audit = tmp("ht-pages-audit-");
+  const cfg = path.join(audit, "config.json");
+  fs.writeFileSync(cfg, JSON.stringify({ audit: { dir: audit, failClosed: false }, fs: { writeEnabled: true }, shell: { enabled: false } }));
+  const probe = http.createServer();
+  await new Promise((r) => probe.listen(0, "127.0.0.1", r));
+  const port = probe.address().port;
+  await new Promise((r) => probe.close(r));
+  const child = spawn(process.execPath, [entry, "--http", "--port", String(port), "--profile", "balanced"], {
+    env: { ...process.env, HARDTOOLS_ROOTS: root, HARDTOOLS_CONFIG: cfg, HARDTOOLS_STATE: state,
+      HARDTOOLS_HTTP_TOKEN: TOKEN, HARDTOOLS_ALLOWED_HOSTS: `127.0.0.1:${port}`, HARDTOOLS_HTTP_ALLOW_LOCAL_TOOLS: "1", ...env },
+    stdio: ["ignore", "ignore", "pipe"],
+  });
+  let err = ""; child.stderr.on("data", (d) => { err += d; });
+  for (let i = 0; i < 100; i++) { if (/listening/.test(err) || child.exitCode !== null) break; await new Promise((r) => setTimeout(r, 100)); }
+  t.after(() => child.kill("SIGKILL"));
+  assert.match(err, /listening/, err);
+  return { port, root, state, audit };
+}
+
+/** Statik token ile sayfa çerezi al. */
+async function pageCookie(port) {
+  const r = await request(port, { method: "POST", target: "/settings/token",
+    headers: { "content-type": "application/x-www-form-urlencoded" }, body: "token=" + TOKEN });
+  assert.ok(r.headers["set-cookie"], "çerez verilmeli: " + JSON.stringify(r.headers));
+  return r.headers["set-cookie"][0].split(";")[0];
+}
+
+const PAGES = ["/", "/settings", "/local", "/workspaces"];
+
+test("sayfa metinlerine HTML etiketi sızmaz, dahili bağlantılar 404 vermez", async (t) => {
+  const { port } = await start(t);
+  const cookie = await pageCookie(port);
+  const links = new Set();
+  for (const target of PAGES) {
+    const r = await request(port, { target, headers: { cookie } });
+    assert.equal(r.status, 200, `${target} → ${r.status}`);
+    // Kaçış hatası: yazılan metinde etiket görünüyorsa burada &lt;b&gt; / &lt;code&gt; olarak yakalanır.
+    assert.doesNotMatch(r.body, /&lt;(b|code|strong|em)&gt;/, `${target}: kaçışlı etiket sızmış`);
+    // Kopyalama düğmesi ve pano betiği her sayfada hazır olmalı (webview yedeğiyle).
+    assert.match(r.body, /data-copy|navigator\.clipboard|execCommand/, `${target}: kopyalama betiği yok`);
+    for (const m of r.body.matchAll(/href="(\/[^"#?]*)"/g)) links.add(m[1]);
+  }
+  assert.ok(links.size > 0, "hiç dahili bağlantı bulunamadı");
+  for (const href of links) {
+    // /settings/logout yalnızca POST kabul eder; GET 405 döner (kırık bağlantı değil).
+    if (/logout$/.test(href)) continue;
+    const r = await request(port, { target: href, headers: { cookie } });
+    assert.ok(r.status < 400, `dahili bağlantı kırık: ${href} → ${r.status}`);
+  }
+  // Bildirilen somut kırık: /connect sayfası giriş zorunlu modda da açılmalı.
+  const connect = await request(port, { target: "/connect", headers: { cookie } });
+  assert.equal(connect.status, 200, "/connect giriş zorunlu modda 404 vermemeli");
+  assert.match(connect.body, /\/mcp/, "/connect MCP adresini göstermeli");
+});
+
+test("panel MCP adresini kopyalanabilir verir; giriş sayfası yerel hesap sunar", async (t) => {
+  const { port } = await start(t);
+  const panel = await request(port, { target: "/" });
+  assert.equal(panel.status, 200);
+  assert.match(panel.body, /value="http:\/\/127\.0\.0\.1:\d+\/mcp"/, "panel MCP adresini göstermeli");
+  assert.match(panel.body, /data-copy="#mcp"/, "kopyalama düğmesi olmalı");
+  const login = await request(port, { target: "/settings" });
+  assert.match(login.body, /GitHub ile giriş/, "GitHub girişi korunmalı");
+  assert.match(login.body, /action="\/local\/login"/, "giriş sayfasında yerel hesap formu olmalı");
+});
+
+test("yerel hesap: kayıt → çerez → /lc/<anahtar> ile MCP", async (t) => {
+  const { port } = await start(t);
+  const reg = await request(port, { method: "POST", target: "/local/register",
+    headers: { "content-type": "application/x-www-form-urlencoded", origin: `http://127.0.0.1:${port}` },
+    body: "user=testci&password=Guclu-Parola-42x" });
+  assert.equal(reg.status, 303, `kayıt yönlendirmeli: ${reg.body.slice(0, 200)}`);
+  const cookie = reg.headers["set-cookie"][0].split(";")[0];
+  const panel = await request(port, { target: "/", headers: { cookie } });
+  const m = /value="http:\/\/127\.0\.0\.1:\d+(\/lc\/[A-Za-z0-9_-]{16,})"/.exec(panel.body);
+  assert.ok(m, "panelde kişisel bağlantı adresi olmalı");
+  const rpc = async (payload) => {
+    const r = await request(port, { method: "POST", target: m[1],
+      headers: { "content-type": "application/json", accept: "application/json, text/event-stream" }, body: JSON.stringify(payload) });
+    const line = r.body.split("\n").find((l) => l.startsWith("data: "));
+    return { status: r.status, json: JSON.parse(line ? line.slice(6) : r.body) };
+  };
+  const init = await rpc({ jsonrpc: "2.0", id: 1, method: "initialize", params: { protocolVersion: "2025-06-18", capabilities: {}, clientInfo: { name: "t", version: "1" } } });
+  assert.equal(init.status, 200, JSON.stringify(init.json).slice(0, 200));
+  const write = await rpc({ jsonrpc: "2.0", id: 2, method: "tools/call", params: { name: "ht_write", arguments: { path: "yerel.txt", content: "x" } } });
+  assert.match(JSON.stringify(write.json), /yerel\.txt/, "yerel hesapla yazma çalışmalı");
+  // Aynı origin olmayan form reddedilir (login CSRF).
+  const cross = await request(port, { method: "POST", target: "/local/login",
+    headers: { "content-type": "application/x-www-form-urlencoded", origin: "https://kotu.example" }, body: "user=testci&password=Guclu-Parola-42x" });
+  assert.match(cross.body, /başka bir siteden/, "yabancı origin reddedilmeli");
+  // İkinci hesap: varsayılan modda kapalı (first).
+  const second = await request(port, { method: "POST", target: "/local/register",
+    headers: { "content-type": "application/x-www-form-urlencoded", origin: `http://127.0.0.1:${port}` }, body: "user=ikinci&password=Baska-Parola-7k" });
+  assert.match(second.body, /kapalı/, "varsayılan modda yalnızca ilk hesap açılır");
+});
+
+test("adoptInto kabuk iskeletini ve atık dizinlerini taşımaz", async () => {
+  const { adoptInto, measure } = await import(path.resolve("dist/workspaces.js"));
+  const base = tmp("ht-adopt-");
+  const src = path.join(base, "u-0123456789abcdef"), dst = path.join(base, "a-fedcba9876543210");
+  fs.mkdirSync(path.join(src, ".hardtools", "tmp"), { recursive: true });
+  fs.mkdirSync(path.join(src, ".ht-trash"), { recursive: true });
+  fs.mkdirSync(path.join(src, ".recycle"), { recursive: true });
+  fs.mkdirSync(path.join(src, "proje"), { recursive: true });
+  fs.writeFileSync(path.join(src, "proje", "a.txt"), "x");
+  fs.writeFileSync(path.join(src, "notlar.txt"), "y");
+  fs.mkdirSync(dst, { recursive: true });
+  const r = adoptInto(src, dst);
+  assert.equal(r.moved, 2, JSON.stringify(r));
+  assert.ok(fs.existsSync(path.join(src, ".hardtools", "tmp")), "kaynakta iskelet kalmalı (bwrap bağları)");
+  assert.ok(!fs.existsSync(path.join(dst, ".hardtools")), "hedefe iskelet taşınmamalı");
+  assert.ok(!fs.existsSync(path.join(dst, ".ht-trash")), "atık dizini taşınmamalı");
+  assert.ok(!fs.existsSync(path.join(dst, ".recycle")), "geri dönüşüm kutusu taşınmamalı");
+  assert.ok(fs.existsSync(path.join(dst, "proje", "a.txt")), "kullanıcı dosyası taşınmalı");
+  // Ölçüm: iskelet kullanıcı verisi sayılmaz ama ayrı raporlanır (yanıltıcı "0 B" olmasın).
+  fs.mkdirSync(path.join(dst, ".hardtools", "tmp"), { recursive: true });
+  fs.writeFileSync(path.join(dst, ".hardtools", "tmp", "buyuk.bin"), Buffer.alloc(4096));
+  const m = measure(dst);
+  assert.equal(m.files, 2, JSON.stringify(m));
+  assert.ok(m.scratchBytes >= 4096, "iskelet ayrı sayılmalı: " + JSON.stringify(m));
+  fs.rmSync(base, { recursive: true, force: true });
+});
+
+test("ht_new_shell_env iskeleti geri dönüşüm kutusuna taşımaz", async () => {
+  const { loadPolicy } = await import(path.resolve("dist/config.js"));
+  const { createEnv } = await import(path.resolve("dist/envs.js"));
+  const root = tmp("ht-env-root-");
+  const envsDir = tmp("ht-env-dir-");
+  process.env.HARDTOOLS_ENVS_DIR = envsDir;
+  try {
+    fs.mkdirSync(path.join(root, ".hardtools", "tmp"), { recursive: true });
+    fs.writeFileSync(path.join(root, "eski.txt"), "eski");
+    const policy = loadPolicy({ profile: "balanced", roots: [root], configPath: null, override: {} });
+    policy.shellWorker = undefined;
+    const info = createEnv(policy, { rotate: true });
+    assert.ok(fs.existsSync(path.join(root, ".hardtools", "tmp")), "eski kökte iskelet kalmalı");
+    const recycled = info.recycled ?? "";
+    assert.ok(!recycled || !fs.existsSync(path.join(recycled, ".hardtools")), "geri dönüşüm kutusunda iskelet olmamalı");
+  } finally {
+    delete process.env.HARDTOOLS_ENVS_DIR;
+    fs.rmSync(root, { recursive: true, force: true });
+    fs.rmSync(envsDir, { recursive: true, force: true });
+  }
+});
+
+test("yerel hesaplar: parola politikası, doğrulama, kilit ve anahtar yenileme", async () => {
+  const { LocalAccounts, passwordProblem } = await import(path.resolve("dist/localauth.js"));
+  const dir = tmp("ht-local-accounts-");
+  const store = path.join(dir, "local-accounts.json");
+  const la = new LocalAccounts({ store });
+  assert.match(passwordProblem("ali", "ali-parola") ?? "", /kullanıcı adını içermemeli/);
+  assert.match(passwordProblem("ali", "kisa") ?? "", /en az/);
+  assert.equal(passwordProblem("ali", "Guclu-Parola-42x"), null);
+  assert.equal(la.canRegister(), true, "ilk hesap açılabilmeli");
+  const created = la.create("ali", "Guclu-Parola-42x");
+  assert.equal(created.ok, true, JSON.stringify(created));
+  assert.equal(la.canRegister(), false, "varsayılan modda ikinci hesap kapalı");
+  assert.equal(la.verify("ali", "yanlis-parola-1A").ok, false);
+  assert.equal(la.verify("ali", "Guclu-Parola-42x").ok, true);
+  const conn = la.connectorFor("ali");
+  assert.equal(la.userForConnector(conn), "ali");
+  const rotated = la.rotateConnector("ali");
+  assert.notEqual(rotated, conn, "anahtar yenilenince eski adres çalışmamalı");
+  assert.equal(la.userForConnector(conn), null);
+  // Disk kalıcılığı: yeniden açıldığında hesap ve parola korunur.
+  const again = new LocalAccounts({ store });
+  assert.equal(again.verify("ali", "Guclu-Parola-42x").ok, true);
+  // Kilit: 8 hatalı denemeden sonra doğru parola bile bekletilir.
+  for (let i = 0; i < 8; i++) again.verify("ali", "yanlis-parola-" + i + "A");
+  assert.match(again.verify("ali", "Guclu-Parola-42x").error ?? "", /Çok fazla hatalı deneme/);
+  fs.rmSync(dir, { recursive: true, force: true });
+});
