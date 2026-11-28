@@ -9,12 +9,13 @@ import path from "node:path";
 import { page as uiPage, esc, heading, PAGE_CSP } from "./ui.js";
 import type { LocalAccounts } from "./localauth.js";
 import { randomPassword } from "./local-cli.js";
+import type { OperatorHost, OperatorAccount } from "./operator-tool.js";
 
 export const ALL_TOOLS = [
   "ht_read", "ht_write", "ht_edit", "ht_glob", "ht_search", "ht_mkdir", "ht_move", "ht_trash",
   "ht_empty_trash", "ht_shell", "ht_fetch", "ht_image_search", "ht_share", "ht_transfer_file",
   "ht_status", "ht_stop", "ht_new_shell_env", "ht_add_var", "ht_list_vars", "ht_delete_var",
-  "ht_user_input", "ht_ask", "ht_undo", "ht_schedule", "ht_memory", "ht_workspace", "ht_list_all_tools", "ht_manage_tool",
+  "ht_user_input", "ht_ask", "ht_undo", "ht_schedule", "ht_memory", "ht_workspace", "ht_operator", "ht_list_all_tools", "ht_manage_tool",
 ] as const;
 
 export interface UserSettings {
@@ -335,8 +336,13 @@ export class SettingsUI {
     if (pathname === "/operator/add") return await this.operatorAdd(req, res, origin), true;
     if (pathname === "/operator/passwd") return await this.operatorPasswd(req, res, origin), true;
     if (pathname === "/operator/unlock") return await this.operatorUnlock(req, res, origin), true;
+    if (pathname === "/operator/signup") return await this.operatorSignup(req, res, origin), true;
     if (pathname === "/operator/del") return await this.operatorDel(req, res, origin), true;
     if (pathname === "/operator/logout") return await this.operatorLogout(req, res, origin), true;
+    const linkMatch = /^\/operator\/link\/([A-Za-z0-9_-]{8,64})$/.exec(pathname);
+    if (linkMatch) return await this.operatorLoginLinkPage(req, res, origin, linkMatch[1]), true;
+    const revealMatch = /^\/operator\/r\/([A-Za-z0-9_-]{8,64})$/.exec(pathname);
+    if (revealMatch) return this.operatorRevealLinkPage(req, res, revealMatch[1]), true;
     return false;
   }
 
@@ -582,6 +588,12 @@ ${notice ? `<p class="${notice.startsWith("Hata") ? "e" : "ok"}">${esc(notice)}<
   private opFails = new Map<string, { n: number; until: number }>();
   /** Çıkış yapılan panel oturumları: çerez kopyalanmış olsa da süresi dolana kadar geçersiz kalır. */
   private opRevoked = new Map<string, number>();
+  /** ht_operator için tarayıcıda onaylanmış "araç oturumu" (grant). */
+  private opGrantExp = 0;
+  /** Tek kullanımlık giriş bağlantıları (id → son kullanma). */
+  private opLoginLinks = new Map<string, number>();
+  /** Tek seferlik gösterim bağlantıları (parola/kod): panel oturumu gerektirmez. */
+  private opRevealLinks = new Map<string, { text: string; note: string; exp: number }>();
   private static readonly OP_MAX_FAILS = 6;
 
   private opSecret(): string { return (this.o.operatorPanel?.token ?? "").trim(); }
@@ -643,6 +655,94 @@ ${notice ? `<p class="${notice.startsWith("Hata") ? "e" : "ok"}">${esc(notice)}<
     if (this.opFails.size > 512) this.opFails.clear();
   }
 
+  // ---- ht_operator köprüsü: panelin yaptığı her şey, sohbetten ----------------------------
+
+  private opGrantActive(): boolean { return this.opEnabled() && this.opGrantExp > Date.now(); }
+  private opGrantLeftS(): number { return Math.max(0, Math.round((this.opGrantExp - Date.now()) / 1000)); }
+  private opGrantOpen(seconds = 1800) { this.opGrantExp = Date.now() + seconds * 1000; }
+
+  private opLoginLink(origin: string): { url: string; minutes: number } {
+    const now = Date.now();
+    for (const [k, v] of this.opLoginLinks) if (v < now) this.opLoginLinks.delete(k);
+    if (this.opLoginLinks.size > 20) this.opLoginLinks.clear();
+    const id = crypto.randomBytes(12).toString("base64url");
+    const minutes = 15;
+    this.opLoginLinks.set(id, now + minutes * 60_000);
+    return { url: `${origin}/operator/link/${id}`, minutes };
+  }
+
+  private opRevealLink(origin: string, text: string, note: string): { url: string; minutes: number } {
+    const now = Date.now();
+    for (const [k, v] of this.opRevealLinks) if (v.exp < now) this.opRevealLinks.delete(k);
+    if (this.opRevealLinks.size > 50) this.opRevealLinks.clear();
+    const id = crypto.randomBytes(12).toString("base64url");
+    const minutes = 5;
+    this.opRevealLinks.set(id, { text, note, exp: now + minutes * 60_000 });
+    return { url: `${origin}/operator/r/${id}`, minutes };
+  }
+
+  private accountsAsRows(): OperatorAccount[] {
+    const la = this.o.local;
+    if (!la) return [];
+    return la.list().map((u) => {
+      const a = la.get(u)!;
+      return { user: a.user, createdAt: a.createdAt, lastLogin: a.lastLogin, locked: la.isLocked(u), connector: a.connector };
+    });
+  }
+
+  /** ht_operator aracının gördüğü yüzey: panelin TÜM işlevleri buradan geçer. */
+  operatorHost(): OperatorHost {
+    const la = () => this.o.local;
+    const reserved = this.o.reservedLogin ?? (() => false);
+    return {
+      enabled: () => this.opEnabled(),
+      checkToken: (t: string) => {
+        if (!this.opEnabled()) return false;
+        const want = Buffer.from(this.opSecret()), got = Buffer.from(String(t ?? "").trim());
+        return want.length === got.length && crypto.timingSafeEqual(want, got);
+      },
+      grantActive: () => this.opGrantActive(),
+      grantLeftS: () => this.opGrantLeftS(),
+      loginLink: (origin: string) => this.opLoginLink(origin),
+      revealLink: (origin: string, text: string, note: string) => this.opRevealLink(origin, text, note),
+      accounts: () => this.accountsAsRows(),
+      account: (u: string) => this.accountsAsRows().find((a) => a.user === u.trim().toLowerCase()),
+      upsertAccount: (user: string, password: string) => {
+        const store = la();
+        if (!store) return { ok: false as const, error: "bu sunucuda yerel hesaplar kapalı" };
+        const u = user.trim().toLowerCase();
+        const exists = store.has(u);
+        let last = "";
+        // Üretilen parola kullanıcı adını içerebilir: politikaya takılırsa yenisini dene.
+        for (let i = 0; i < 5; i++) {
+          const pw = password || randomPassword(20);
+          const r = exists ? store.adminSetPassword(u, pw) : store.create(u, pw, reserved);
+          if (r.ok) return { ok: true as const, created: !exists, password: pw };
+          last = r.error ?? "işlem başarısız";
+          if (password) break;
+        }
+        return { ok: false as const, error: last };
+      },
+      removeAccount: (u: string) => Boolean(la()?.remove(u)),
+      unlockAccount: (u: string) => Boolean(la()?.unlock(u)),
+      rotateConnector: (u: string) => la()?.rotateConnector(u) ?? null,
+      createInvite: (ttlMin: number) => {
+        const store = la();
+        if (!store) throw new Error("yerel hesaplar kapalı");
+        return store.createInvite(Math.max(5, ttlMin) * 60_000);
+      },
+      inviteCount: () => la()?.inviteCount() ?? 0,
+      signupInfo: () => la()?.signupInfo() ?? { mode: "kapalı", source: "env" },
+      setSignup: (mode) => {
+        const store = la();
+        if (!store) throw new Error("yerel hesaplar kapalı");
+        return store.setSignup(mode);
+      },
+      logout: () => { this.opGrantExp = 0; this.opRevoked.clear(); },
+      audit: (ev: Record<string, unknown>) => this.o.audit?.(ev),
+    };
+  }
+
   private opDisabledPage(req: http.IncomingMessage, res: http.ServerResponse) {
     const body = `${heading("Yönetici paneli kapalı", "Davet kodu ve hesap işlemleri için bir yönetici anahtarı tanımla.")}
 <div class="card">
@@ -699,8 +799,12 @@ ${noticeHtml}
 <form method="post" action="/operator/del" style="margin:0" onsubmit="return confirm('${esc(a.user)} hesabı silinsin mi? MCP adresi çalışmayı bırakır; dosyaları diskte kalır.')"><input type="hidden" name="user" value="${esc(a.user)}"><button type="submit" data-once>Sil</button></form>
 </td></tr>`).join("");
 
+    const viaTool = new URL(req.url ?? "/", "http://x").searchParams.get("tool") === "1";
+    const toolHtml = viaTool
+      ? `<p class="ok">Yönetici oturumu açıldı. <code>ht_operator</code> aracı 30 dakika boyunca anahtarsız çalışır.</p>` : "";
+    const signup = la?.signupInfo();
     const body = `${heading("Yönetici paneli", "Davet kodu, hesap ve parola işlemleri. Bu sayfa MCP anahtarıyla değil, ayrı bir yönetici anahtarıyla korunur.")}
-${noticeHtml}${revealHtml}
+${noticeHtml}${toolHtml}${revealHtml}
 <div class="card">
 <h2 style="margin-top:0">Davet kodu üret</h2>
 <p class="muted">Tek kullanımlıktır; kod yalnızca bir kez gösterilir ve süresi dolunca geçersiz olur. Kullanıcı kodu <a href="/local">/local</a> sayfasındaki <b>Hesap aç</b> bölümüne yazar.</p>
@@ -714,7 +818,7 @@ ${noticeHtml}${revealHtml}
   </select>
   <p style="margin-bottom:0"><button class="primary" type="submit" data-once>Kod üret</button></p>
 </form>
-<p class="muted" style="margin-bottom:0">Bekleyen kod: <b>${la ? la.inviteCount() : 0}</b> · Hesap: <b>${accounts.length}</b></p>
+<p class="muted" style="margin-bottom:0">Bekleyen kod: <b>${la ? la.inviteCount() : 0}</b> · Hesap: <b>${accounts.length}</b> · Araç oturumu: <b>${this.opGrantActive() ? this.opGrantLeftS() + " sn" : "yok"}</b></p>
 </div>
 <div class="card">
 <h2 style="margin-top:0">Hesap aç (kodsuz)</h2>
@@ -724,6 +828,20 @@ ${noticeHtml}${revealHtml}
   <label for="np">Parola <span class="muted">(boş bırakırsan güçlü parola üretilir)</span></label>
   <input id="np" name="password" type="password" autocomplete="new-password" placeholder="boş = üret">
   <p style="margin-bottom:0"><button class="primary" type="submit" data-once>Hesabı aç</button></p>
+</form>
+</div>
+<div class="card">
+<h2 style="margin-top:0">Kayıt modu</h2>
+<p class="muted">Şu an: <b>${esc(signup?.mode ?? "—")}</b> (${signup?.source === "operator" ? "operatör seçimi" : "ortam değişkeni"}). <code>first</code> = yalnızca hiç hesap yokken kayıt; <code>open</code> = herkese açık; <code>off</code> = kayıt kapalı (yalnızca panel/araç hesap açar).</p>
+<form method="post" action="/operator/signup">
+  <label for="sg">Yeni mod</label>
+  <select id="sg" name="signup">
+    <option value="first"${signup?.mode === "first" ? " selected" : ""}>first — ilk hesap</option>
+    <option value="open"${signup?.mode === "open" ? " selected" : ""}>open — herkese açık</option>
+    <option value="off"${signup?.mode === "off" ? " selected" : ""}>off — kapalı</option>
+    <option value="env">ortam değişkenine dön</option>
+  </select>
+  <p style="margin-bottom:0"><button type="submit" data-once>Kaydet</button></p>
 </form>
 </div>
 <div class="card">
@@ -737,6 +855,67 @@ ${noticeHtml}${revealHtml}
 <p class="muted"><a href="/">panel</a> · <a href="/local">yerel hesap</a> · <a href="/workspaces">çalışma alanları</a></p>`;
     this.html(res, 200, uiPage({ title: "Yönetici paneli", subtitle: "operator", body, wide: true }));
     void origin;
+  }
+
+  /**
+   * ht_operator "login" bağlantısı: tek kullanımlık, 15 dakika. Kullanıcı tarayıcıda anahtarı
+   * yazınca 30 dakikalık araç oturumu (grant) + panel çerezi açılır.
+   */
+  private async operatorLoginLinkPage(req: http.IncomingMessage, res: http.ServerResponse, origin: string, id: string) {
+    if (!this.opEnabled()) return this.opDisabledPage(req, res);
+    const exp = this.opLoginLinks.get(id);
+    const valid = typeof exp === "number" && exp > Date.now();
+    const notice = (msg: string, kind: "ok" | "err" = "ok") => {
+      const body = `${heading(valid ? "Yönetici girişi" : "Bağlantının süresi doldu", valid ? "Bu bağlantı tek kullanımlıktır ve 15 dakika geçerlidir." : "Yeni bir bağlantı üretmek için sohbetten ht_operator {\"action\":\"login\"} çalıştır.")}
+<p class="${kind === "err" ? "e" : "ok"}">${esc(msg)}</p>
+${valid ? `<div class="card">
+<form method="post" action="/operator/link/${esc(id)}" autocomplete="off">
+  <label for="opt">Yönetici anahtarı (<code>HARDTOOLS_OPERATOR_TOKEN</code>)</label>
+  <input id="opt" name="token" type="password" autocomplete="off" required autofocus>
+  <p class="row" style="margin-bottom:0"><button class="primary" type="submit">Giriş yap</button><a class="btn" href="/operator">panele git</a></p>
+</form></div>` : ""}
+<p class="muted"><a href="/operator">yönetici paneli</a> · <a href="/local">yerel hesap</a></p>`;
+      this.html(res, valid ? 200 : 410, uiPage({ title: "Yönetici girişi", subtitle: "operator", body }));
+    };
+
+    if (req.method !== "POST") return notice("");
+    if (!valid) return notice("Bu bağlantı kullanılamaz.", "err");
+    if (!this.sameOriginForm(req, origin)) return notice("Form başka bir siteden gönderildi.", "err");
+    const ip = req.socket.remoteAddress ?? "?";
+    if (this.opThrottled(ip)) {
+      this.o.audit?.({ ev: "operator_login_throttled", ip, via: "tool_link" });
+      return notice("Çok fazla hatalı deneme; 10 dakika sonra tekrar dene.", "err");
+    }
+    const p = await this.body(req);
+    const given = Buffer.from((p?.get("token") ?? "").trim());
+    const want = Buffer.from(this.opSecret());
+    if (given.length !== want.length || !crypto.timingSafeEqual(given, want)) {
+      this.opFail(ip);
+      this.o.audit?.({ ev: "operator_login_failed", ip, via: "tool_link" });
+      return notice("Anahtar yanlış.", "err");
+    }
+    this.opFails.delete(ip);
+    this.opLoginLinks.delete(id);          // tek kullanımlık
+    this.opGrantOpen(1800);                // araç oturumu: 30 dakika
+    this.o.audit?.({ ev: "operator_login", ip, via: "tool_link" });
+    this.opSetCookie(res, origin);
+    res.writeHead(303, { location: "/operator?tool=1", "cache-control": "no-store" }); res.end();
+  }
+
+  /** Tek seferlik gösterim bağlantısı: parola ya da davet kodunun tamamı burada görünür. */
+  private operatorRevealLinkPage(req: http.IncomingMessage, res: http.ServerResponse, id: string) {
+    const now = Date.now();
+    for (const [k, v] of this.opRevealLinks) if (v.exp < now) this.opRevealLinks.delete(k);
+    const r = this.opRevealLinks.get(id);
+    const body = r
+      ? `${heading("Tek seferlik bilgi", "Bu sayfa yalnızca kısa bir süre açıktır; bağlantıyı kimseyle paylaşma.")}
+<div class="card"><p class="muted" style="margin-top:0">${esc(r.note)}</p>
+<div class="copybox"><input id="rv" type="text" readonly value="${esc(r.text)}"><button type="button" data-copy="#rv">Kopyala</button></div>
+<p class="muted" style="margin-bottom:0">Kalan süre: ${Math.max(0, Math.round((r.exp - now) / 1000))} sn · <a href="/operator">yönetici paneli</a></p></div>`
+      : `${heading("Bağlantı geçersiz", "Süresi dolmuş ya da daha önce kullanılmış olabilir.")}
+<p class="muted">Yeni bir bağlantı için sohbetten ilgili ht_operator çağrısını yeniden çalıştır.</p>
+<p class="muted"><a href="/operator">yönetici paneli</a></p>`;
+    this.html(res, r ? 200 : 410, uiPage({ title: "Tek seferlik bilgi", subtitle: "operator", body }));
   }
 
   private async operatorLogin(req: http.IncomingMessage, res: http.ServerResponse, origin: string) {
@@ -820,6 +999,18 @@ ${noticeHtml}${revealHtml}
     return this.opRedirect(res, `/operator?reveal=${this.opReveal(`${user} / ${pw}`, "Yeni parola — eski parola ve açık oturumlar geçersiz")}`);
   }
 
+  private async operatorSignup(req: http.IncomingMessage, res: http.ServerResponse, origin: string) {
+    const p = await this.opGuard(req, res, origin);
+    if (p === false) return;
+    const la = this.o.local;
+    if (!la) return this.operatorPage(req, res, "Hata: bu sunucuda yerel hesaplar kapalı.", "err");
+    const v = String(p?.get("signup") ?? "").trim().toLowerCase();
+    if (!["first", "open", "off", "env"].includes(v)) return this.operatorPage(req, res, "Hata: geçersiz kayıt modu.", "err");
+    const r = la.setSignup(v === "env" ? null : (v as "first" | "open" | "off"));
+    this.o.audit?.({ ev: "operator_signup_mode", mode: r.mode, source: r.source });
+    return this.operatorPage(req, res, `Kayıt modu: ${r.mode} (${r.source === "operator" ? "operatör" : "ortam"})`);
+  }
+
   private async operatorUnlock(req: http.IncomingMessage, res: http.ServerResponse, origin: string) {
     const p = await this.opGuard(req, res, origin);
     if (p === false) return;
@@ -851,6 +1042,8 @@ ${noticeHtml}${revealHtml}
       this.opRevoked.set(parts.jti, Number(parts.exp));
       if (this.opRevoked.size > 256) this.opRevoked.clear();
     }
+    // Panelden çıkış yönetici araç oturumunu da kapatır (aynı operatör kimliği).
+    this.opGrantExp = 0;
     this.o.audit?.({ ev: "operator_logout" });
     this.opClearCookie(res);
     return this.opRedirect(res, "/operator");

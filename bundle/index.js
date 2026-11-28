@@ -26485,7 +26485,7 @@ function anyMatch(patterns, value) {
 }
 
 // src/version.ts
-var VERSION = "1.5.39";
+var VERSION = "1.5.40";
 
 // src/net.ts
 var blocked = new net.BlockList();
@@ -29120,6 +29120,162 @@ Devam etmek i\xE7in: ht_workspace {action:"adopt", dir:"<rel>"} \u2014 dosyalar 
   throw new PolicyError("bad_input", "action: list|adopt");
 }
 
+// src/operator-tool.ts
+function censor(v, head = 4, tail = 2) {
+  const s = String(v ?? "");
+  if (s.length <= head + tail + 2) return "\u2022".repeat(Math.max(4, s.length));
+  const t = tail > 0 ? s.slice(-tail) : "";
+  return `${s.slice(0, head)}${"\u2022".repeat(6)}${t}`;
+}
+var iso = (t) => t ? new Date(t).toISOString().replace("T", " ").slice(0, 16) : "\u2014";
+var NOT_CONFIGURED = `HARDTOOLS_OPERATOR_TOKEN tan\u0131ml\u0131 de\u011Fil: ht_operator \xE7al\u0131\u015Fmaz.
+Tan\u0131mlamak i\xE7in (taray\u0131c\u0131dan): Fly.io panosu \u2192 uygulama \u2192 Secrets \u2192 Add secret \u2192
+ad: HARDTOOLS_OPERATOR_TOKEN, de\u011Fer: en az 16 karakter \u2192 kaydet (makine yeniden ba\u015Flar).
+Terminal varsa: flyctl secrets set HARDTOOLS_OPERATOR_TOKEN="$(openssl rand -hex 24)" -a <uygulama>`;
+var NEED_LOGIN = `Bu i\u015Flem i\xE7in y\xF6netici oturumu gerekli.
+Yap\u0131lacak: ht_operator {"action":"login"} \u2192 d\xF6nen ba\u011Flant\u0131y\u0131 taray\u0131c\u0131da a\xE7 \u2192 operat\xF6r anahtar\u0131n\u0131 yaz.
+Alternatif: \xE7a\u011Fr\u0131ya "token" alan\u0131n\u0131 ekle (anahtar HARDTOOLS_OPERATOR_TOKEN).`;
+function htOperator(host, a, ctx) {
+  const action = a.action ?? "get";
+  if (!host.enabled()) {
+    host.audit({ ev: "operator_tool_denied", reason: "not_configured", action });
+    return NOT_CONFIGURED;
+  }
+  if (action === "login") {
+    if (host.grantActive()) {
+      return `Zaten a\xE7\u0131k bir y\xF6netici oturumu var (${host.grantLeftS()} sn kald\u0131). \u0130\u015Flemlere ge\xE7ebilirsin.
+Oturumu kapatmak i\xE7in: ht_operator {"action":"logout","confirm":"logout"}`;
+    }
+    const link2 = host.loginLink(ctx.origin);
+    host.audit({ ev: "operator_tool_login_link" });
+    return `Y\xF6netici giri\u015Fi i\xE7in ba\u011Flant\u0131 (${link2.minutes} dakika ge\xE7erli, tek kullan\u0131ml\u0131k):
+${link2.url}
+
+Yap\u0131lacak: ba\u011Flant\u0131y\u0131 taray\u0131c\u0131da a\xE7 \u2192 operat\xF6r anahtar\u0131n\u0131 (HARDTOOLS_OPERATOR_TOKEN) yaz \u2192 giri\u015F.
+Giri\u015F yap\u0131l\u0131nca 30 dakika boyunca ht_operator anahtars\u0131z \xE7al\u0131\u015F\u0131r; panel oturumu da a\xE7\u0131l\u0131r.`;
+  }
+  const tokenGiven = (a.token ?? "").trim();
+  let why = "";
+  if (tokenGiven) {
+    if (!host.checkToken(tokenGiven)) {
+      host.audit({ ev: "operator_tool_denied", reason: "bad_token", action });
+      return `Hata: operat\xF6r anahtar\u0131 yanl\u0131\u015F. ${NEED_LOGIN}`;
+    }
+  } else if (!host.grantActive()) {
+    host.audit({ ev: "operator_tool_denied", reason: "no_grant", action });
+    return NEED_LOGIN;
+  }
+  if (action === "logout") {
+    if ((a.confirm ?? "").trim().toLowerCase() !== "logout") {
+      return `\xC7\u0131k\u0131\u015F\u0131 onaylamak i\xE7in confirm alan\u0131na "logout" yaz: ht_operator {"action":"logout","confirm":"logout"}`;
+    }
+    const wasActive = host.grantActive();
+    host.logout();
+    host.audit({ ev: "operator_tool_logout" });
+    return wasActive ? "Y\xF6netici oturumu kapat\u0131ld\u0131 (ara\xE7 oturumu ve panel \xE7erezi ge\xE7ersiz)." : "A\xE7\u0131k y\xF6netici oturumu yoktu; yine de \xE7erez/oturum temizlendi.";
+  }
+  if (action === "get") {
+    const u2 = (a.user ?? "").trim().toLowerCase();
+    if (a.invite) {
+      const ttl = Math.min(43200, Math.max(5, Math.round(Number(a.ttl_minutes) || 1440)));
+      const code = host.createInvite(ttl);
+      const link2 = host.revealLink(ctx.origin, code, `Tek kullan\u0131ml\u0131k kay\u0131t kodu (${ttl} dakika)`);
+      host.audit({ ev: "operator_tool_invite", ttl_min: ttl });
+      return `Davet kodu \xFCretildi (${ttl} dakika, tek kullan\u0131ml\u0131k): ${censor(code, 4, 0)}
+Kod sohbete yaz\u0131lmaz. Tamam\u0131n\u0131 g\xF6rmek i\xE7in (tek seferlik, ${link2.minutes} dakika):
+${link2.url}
+
+Kullan\u0131c\u0131 kodu /local \u2192 "Hesap a\xE7" b\xF6l\xFCm\xFCne yazar. Bekleyen kod say\u0131s\u0131: ${host.inviteCount()}`;
+    }
+    if (u2) {
+      const acc = host.account(u2);
+      if (!acc) return `Hesap yok: ${u2}. Mevcut hesaplar i\xE7in: ht_operator {"action":"get"}`;
+      return JSON.stringify({
+        hesap: acc.user,
+        olu\u015Fturma: iso(acc.createdAt),
+        son_giris: iso(acc.lastLogin),
+        kilitli: acc.locked,
+        mcp_adresi: `${ctx.origin}/lc/${censor(acc.connector, 6, 4)}`,
+        not: "MCP adresinin tamam\u0131 yaln\u0131zca hesab\u0131n sahibine g\xF6sterilir (panelde /local)."
+      }, null, 2);
+    }
+    const rows = host.accounts();
+    const signup = host.signupInfo();
+    return JSON.stringify({
+      hesaplar: rows.map((r2) => ({ hesap: r2.user, olusturma: iso(r2.createdAt), son_giris: iso(r2.lastLogin), kilitli: r2.locked, mcp: `lc/${censor(r2.connector, 6, 4)}` })),
+      hesap_sayisi: rows.length,
+      bekleyen_davet: host.inviteCount(),
+      kayit_modu: `${signup.mode} (${signup.source === "operator" ? "operat\xF6r" : "ortam"})`,
+      yonetici_oturumu: host.grantActive() ? `${host.grantLeftS()} sn` : "yok",
+      not: "Parola ve MCP anahtar\u0131 hi\xE7bir zaman tam g\xF6sterilmez; davet kodu i\xE7in invite=true kullan."
+    }, null, 2);
+  }
+  const u = (a.user ?? "").trim().toLowerCase();
+  const confirm = (a.confirm ?? "").trim().toLowerCase();
+  const pw = (a.password ?? "").trim();
+  if (a.signup !== void 0) {
+    const target = a.signup === "env" ? null : a.signup;
+    if (target === "off" && confirm !== "off") {
+      return `Kayd\u0131 tamamen kapatmak i\xE7in onay gerekli: ht_operator {"action":"set","signup":"off","confirm":"off"}`;
+    }
+    const s = host.setSignup(target);
+    host.audit({ ev: "operator_tool_signup", mode: s.mode, source: s.source });
+    return `Kay\u0131t modu: ${s.mode} (${s.source === "operator" ? "operat\xF6r" : "ortam"}).
+${s.mode === "off" ? "Yeni hesap yaln\u0131zca panelden/ara\xE7tan a\xE7\u0131labilir (davet kodu da kabul edilmez)." : s.mode === "open" ? "Herkese a\xE7\u0131k kay\u0131t: /local sayfas\u0131nda form g\xF6r\xFCn\xFCr." : "Yaln\u0131zca hi\xE7 hesap yokken kay\u0131t a\xE7\u0131k; aksi h\xE2lde davet kodu gerekir."}`;
+  }
+  if (!u) {
+    return `Hesap i\u015Flemi i\xE7in "user" gerekli.
+\xD6rnekler:
+  a\xE7/parola: ht_operator {"action":"set","user":"ali","password":""}   (bo\u015F parola = \xFCret)
+  parola:    ht_operator {"action":"set","user":"ali","password":"Yeni-Parola-9x","confirm":"ali"}
+  sil:       ht_operator {"action":"set","user":"ali","confirm":"ali"}
+  kilit a\xE7:  ht_operator {"action":"set","user":"ali","unlock":true}
+  anahtar:   ht_operator {"action":"set","user":"ali","rotate_connector":true,"confirm":"ali"}
+  ayar:      ht_operator {"action":"set","signup":"open"}`;
+  }
+  const existing = host.account(u);
+  if (a.unlock) {
+    if (!existing) return `Hesap yok: ${u}`;
+    host.unlockAccount(u);
+    host.audit({ ev: "operator_tool_unlock", user: u });
+    return `Kilidi a\xE7\u0131ld\u0131: ${u}`;
+  }
+  if (a.rotate_connector) {
+    if (!existing) return `Hesap yok: ${u}`;
+    if (confirm !== u) return `Ba\u011Flant\u0131 anahtar\u0131n\u0131 yenilemek i\xE7in onay gerekli: confirm alan\u0131na "${u}" yaz (eski MCP adresi \xE7al\u0131\u015Fmay\u0131 b\u0131rak\u0131r).`;
+    const next = host.rotateConnector(u);
+    if (!next) return `Hesap yok: ${u}`;
+    const link2 = host.revealLink(ctx.origin, next, `${u} i\xE7in yeni MCP ba\u011Flant\u0131 anahtar\u0131`);
+    host.audit({ ev: "operator_tool_rotate", user: u });
+    return `Ba\u011Flant\u0131 anahtar\u0131 yenilendi: ${u} \u2192 /lc/${censor(next, 6, 4)}
+Tamam\u0131 i\xE7in (tek seferlik, ${link2.minutes} dakika): ${link2.url}`;
+  }
+  const wantsDelete = confirm === u && !pw;
+  if (wantsDelete) {
+    if (!existing) return `Hesap yok: ${u}`;
+    host.removeAccount(u);
+    host.audit({ ev: "operator_tool_delete", user: u });
+    return `${u} silindi. MCP adresi \xE7al\u0131\u015Fmay\u0131 b\u0131rakt\u0131; disk \xFCzerindeki dosyalar silinmedi (\xE7al\u0131\u015Fma alan\u0131 k\xF6k\xFC elle silinebilir, /workspaces).`;
+  }
+  if (existing && pw && confirm !== u) {
+    return `Parola s\u0131f\u0131rlama mevcut oturumlar\u0131 d\xFC\u015F\xFCr\xFCr. Onay i\xE7in confirm alan\u0131na "${u}" yaz:
+ht_operator {"action":"set","user":"${u}","password":"\u2026","confirm":"${u}"}`;
+  }
+  if (existing && !pw && confirm !== u) {
+    return `"${u}" zaten var. Parolas\u0131n\u0131 s\u0131f\u0131rlamak i\xE7in confirm alan\u0131na "${u}" yaz (yeni g\xFC\xE7l\xFC parola \xFCretilir):
+ht_operator {"action":"set","user":"${u}","confirm":"${u}"}`;
+  }
+  const r = host.upsertAccount(u, pw);
+  if (!r.ok) return `Hata: ${r.error}`;
+  const link = host.revealLink(ctx.origin, `${u} / ${r.password}`, `${u} i\xE7in parola`);
+  host.audit({ ev: r.created ? "operator_tool_account_created" : "operator_tool_password_reset", user: u });
+  return `${r.created ? "Hesap a\xE7\u0131ld\u0131" : "Parola s\u0131f\u0131rland\u0131"}: ${u}
+Parola: ${censor(r.password, 3, 2)}  (sohbete tam yaz\u0131lmaz)
+Tamam\u0131n\u0131 g\xF6rmek i\xE7in (tek seferlik, ${link.minutes} dakika): ${link.url}
+${r.created ? "" : "Eski parola ve a\xE7\u0131k oturumlar ge\xE7ersiz oldu."}
+${why}`;
+}
+
 // src/server.ts
 import crypto12 from "node:crypto";
 import path18 from "node:path";
@@ -29657,6 +29813,26 @@ Returned: {status, question, selected[], custom, request_id, elapsed_s}.`,
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false }
     }, wrap("ht_workspace", (a) => htWorkspace(opts.workspaces, a)));
   }
+  if (opts.operator) {
+    const op = opts.operator;
+    register("ht_operator", {
+      title: "Admin panel actions from chat (invite codes, accounts, passwords)",
+      description: "Does everything the /operator admin panel does, without the browser: action=login returns a one-time link where the operator types HARDTOOLS_OPERATOR_TOKEN (this opens a 30-minute tool session, then no token is needed here); action=get reads accounts or creates an invite code shown CENSORED (full value only behind a one-time link); action=set creates an account, resets a password, deletes or unlocks an account, rotates its connector, or changes the signup mode; action=logout ends the session. Destructive actions (delete, password reset, connector rotation, logout) require confirm. Secrets are never printed in full. Without HARDTOOLS_OPERATOR_TOKEN configured this tool refuses to work.",
+      inputSchema: {
+        action: _enum(["login", "get", "set", "logout"]).optional().describe("Default: get"),
+        confirm: string2().max(120).optional().describe('Delete/reset: the user name. Logout: "logout". signup=off: "off".'),
+        token: string2().max(200).optional().describe("HARDTOOLS_OPERATOR_TOKEN \u2014 only if you prefer not to use action=login"),
+        user: string2().max(32).optional(),
+        password: string2().max(200).optional().describe("Bo\u015F b\u0131rak\u0131l\u0131rsa g\xFC\xE7l\xFC parola \xFCretilir (yaln\u0131zca tek seferlik ba\u011Flant\u0131da g\xF6sterilir)"),
+        invite: boolean2().optional().describe("action=get: yeni davet kodu \xFCret"),
+        ttl_minutes: number2().int().min(5).max(43200).optional(),
+        unlock: boolean2().optional(),
+        rotate_connector: boolean2().optional(),
+        signup: _enum(["first", "open", "off", "env"]).optional()
+      },
+      annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false }
+    }, wrap("ht_operator", (a) => htOperator(op.host, a ?? {}, { origin: op.origin })));
+  }
   register("ht_list_all_tools", {
     title: "List every hardtools tool (enabled, disabled, all)",
     description: "Shows all hardtools tools with their current state for this user: enabled, disabled and the complete catalog. Use it before ht_manage_tool when you are not sure what is off.",
@@ -29777,9 +29953,30 @@ var LocalAccounts = class {
     } catch {
     }
   }
+  /** Operatörün panelden/araçtan seçtiği kayıt modu (dosyada); yoksa ortam değişkeni geçerlidir. */
+  signupFile;
   get signupMode() {
+    if (this.signupFile) return this.signupFile;
+    return this.envSignup();
+  }
+  envSignup() {
     const v = (this.opts.signup ?? "first").trim().toLowerCase();
     return v === "open" || v === "off" ? v : "first";
+  }
+  /** Yürürlükteki kayıt modu ve kaynağı (panelde/araçta gösterilir). */
+  signupInfo() {
+    this.refresh();
+    return { mode: this.signupMode, source: this.signupFile ? "operator" : "env" };
+  }
+  /**
+   * Kayıt modunu değiştirir; `null` ortam değişkenine geri döner.
+   * "off" kaydı tamamen kapatır, "open" herkese açar, "first" yalnızca hiç hesap yokken açar.
+   */
+  setSignup(mode) {
+    this.refresh();
+    this.signupFile = mode ?? void 0;
+    this.save();
+    return this.signupInfo();
   }
   /** Kayıt sayfası gösterilsin mi? ("first" modunda yalnızca ilk hesap için.) */
   canRegister() {
@@ -29950,9 +30147,12 @@ var LocalAccounts = class {
     if (!this.file) return;
     this.items = /* @__PURE__ */ new Map();
     this.invites = [];
+    this.signupFile = void 0;
     this.fails.clear();
     try {
       const d = JSON.parse(fs17.readFileSync(this.file, "utf8"));
+      const su = String(d.signup ?? "").toLowerCase();
+      if (su === "first" || su === "open" || su === "off") this.signupFile = su;
       if (Array.isArray(d.invites)) this.invites = d.invites.filter((i) => i && typeof i.hash === "string" && typeof i.exp === "number");
       for (const a of d.items ?? []) {
         if (a && typeof a.user === "string" && typeof a.hash === "string" && typeof a.salt === "string") {
@@ -29975,7 +30175,7 @@ var LocalAccounts = class {
       fs17.mkdirSync(dir, { recursive: true, mode: 448 });
       const tmp = `${this.file}.tmp`;
       const live = this.invites.filter((i) => i.exp > Date.now());
-      fs17.writeFileSync(tmp, JSON.stringify({ v: 1, items: [...this.items.values()], ...live.length ? { invites: live } : {} }), { mode: 384 });
+      fs17.writeFileSync(tmp, JSON.stringify({ v: 1, items: [...this.items.values()], ...live.length ? { invites: live } : {}, ...this.signupFile ? { signup: this.signupFile } : {} }), { mode: 384 });
       fs17.renameSync(tmp, this.file);
       fs17.chmodSync(this.file, 384);
       const st = fs17.statSync(this.file);
@@ -30151,6 +30351,7 @@ var ALL_TOOLS = [
   "ht_schedule",
   "ht_memory",
   "ht_workspace",
+  "ht_operator",
   "ht_list_all_tools",
   "ht_manage_tool"
 ];
@@ -30427,8 +30628,13 @@ var SettingsUI = class _SettingsUI {
     if (pathname === "/operator/add") return await this.operatorAdd(req, res, origin), true;
     if (pathname === "/operator/passwd") return await this.operatorPasswd(req, res, origin), true;
     if (pathname === "/operator/unlock") return await this.operatorUnlock(req, res, origin), true;
+    if (pathname === "/operator/signup") return await this.operatorSignup(req, res, origin), true;
     if (pathname === "/operator/del") return await this.operatorDel(req, res, origin), true;
     if (pathname === "/operator/logout") return await this.operatorLogout(req, res, origin), true;
+    const linkMatch = /^\/operator\/link\/([A-Za-z0-9_-]{8,64})$/.exec(pathname);
+    if (linkMatch) return await this.operatorLoginLinkPage(req, res, origin, linkMatch[1]), true;
+    const revealMatch = /^\/operator\/r\/([A-Za-z0-9_-]{8,64})$/.exec(pathname);
+    if (revealMatch) return this.operatorRevealLinkPage(req, res, revealMatch[1]), true;
     return false;
   }
   /**
@@ -30673,6 +30879,12 @@ ${notice ? `<p class="${notice.startsWith("Hata") ? "e" : "ok"}">${esc2(notice)}
   opFails = /* @__PURE__ */ new Map();
   /** Çıkış yapılan panel oturumları: çerez kopyalanmış olsa da süresi dolana kadar geçersiz kalır. */
   opRevoked = /* @__PURE__ */ new Map();
+  /** ht_operator için tarayıcıda onaylanmış "araç oturumu" (grant). */
+  opGrantExp = 0;
+  /** Tek kullanımlık giriş bağlantıları (id → son kullanma). */
+  opLoginLinks = /* @__PURE__ */ new Map();
+  /** Tek seferlik gösterim bağlantıları (parola/kod): panel oturumu gerektirmez. */
+  opRevealLinks = /* @__PURE__ */ new Map();
   static OP_MAX_FAILS = 6;
   opSecret() {
     return (this.o.operatorPanel?.token ?? "").trim();
@@ -30733,6 +30945,96 @@ ${notice ? `<p class="${notice.startsWith("Hata") ? "e" : "ok"}">${esc2(notice)}
     }
     if (this.opFails.size > 512) this.opFails.clear();
   }
+  // ---- ht_operator köprüsü: panelin yaptığı her şey, sohbetten ----------------------------
+  opGrantActive() {
+    return this.opEnabled() && this.opGrantExp > Date.now();
+  }
+  opGrantLeftS() {
+    return Math.max(0, Math.round((this.opGrantExp - Date.now()) / 1e3));
+  }
+  opGrantOpen(seconds = 1800) {
+    this.opGrantExp = Date.now() + seconds * 1e3;
+  }
+  opLoginLink(origin) {
+    const now = Date.now();
+    for (const [k, v] of this.opLoginLinks) if (v < now) this.opLoginLinks.delete(k);
+    if (this.opLoginLinks.size > 20) this.opLoginLinks.clear();
+    const id = crypto15.randomBytes(12).toString("base64url");
+    const minutes = 15;
+    this.opLoginLinks.set(id, now + minutes * 6e4);
+    return { url: `${origin}/operator/link/${id}`, minutes };
+  }
+  opRevealLink(origin, text, note) {
+    const now = Date.now();
+    for (const [k, v] of this.opRevealLinks) if (v.exp < now) this.opRevealLinks.delete(k);
+    if (this.opRevealLinks.size > 50) this.opRevealLinks.clear();
+    const id = crypto15.randomBytes(12).toString("base64url");
+    const minutes = 5;
+    this.opRevealLinks.set(id, { text, note, exp: now + minutes * 6e4 });
+    return { url: `${origin}/operator/r/${id}`, minutes };
+  }
+  accountsAsRows() {
+    const la = this.o.local;
+    if (!la) return [];
+    return la.list().map((u) => {
+      const a = la.get(u);
+      return { user: a.user, createdAt: a.createdAt, lastLogin: a.lastLogin, locked: la.isLocked(u), connector: a.connector };
+    });
+  }
+  /** ht_operator aracının gördüğü yüzey: panelin TÜM işlevleri buradan geçer. */
+  operatorHost() {
+    const la = () => this.o.local;
+    const reserved = this.o.reservedLogin ?? (() => false);
+    return {
+      enabled: () => this.opEnabled(),
+      checkToken: (t) => {
+        if (!this.opEnabled()) return false;
+        const want = Buffer.from(this.opSecret()), got = Buffer.from(String(t ?? "").trim());
+        return want.length === got.length && crypto15.timingSafeEqual(want, got);
+      },
+      grantActive: () => this.opGrantActive(),
+      grantLeftS: () => this.opGrantLeftS(),
+      loginLink: (origin) => this.opLoginLink(origin),
+      revealLink: (origin, text, note) => this.opRevealLink(origin, text, note),
+      accounts: () => this.accountsAsRows(),
+      account: (u) => this.accountsAsRows().find((a) => a.user === u.trim().toLowerCase()),
+      upsertAccount: (user, password) => {
+        const store = la();
+        if (!store) return { ok: false, error: "bu sunucuda yerel hesaplar kapal\u0131" };
+        const u = user.trim().toLowerCase();
+        const exists = store.has(u);
+        let last = "";
+        for (let i = 0; i < 5; i++) {
+          const pw = password || randomPassword(20);
+          const r = exists ? store.adminSetPassword(u, pw) : store.create(u, pw, reserved);
+          if (r.ok) return { ok: true, created: !exists, password: pw };
+          last = r.error ?? "i\u015Flem ba\u015Far\u0131s\u0131z";
+          if (password) break;
+        }
+        return { ok: false, error: last };
+      },
+      removeAccount: (u) => Boolean(la()?.remove(u)),
+      unlockAccount: (u) => Boolean(la()?.unlock(u)),
+      rotateConnector: (u) => la()?.rotateConnector(u) ?? null,
+      createInvite: (ttlMin) => {
+        const store = la();
+        if (!store) throw new Error("yerel hesaplar kapal\u0131");
+        return store.createInvite(Math.max(5, ttlMin) * 6e4);
+      },
+      inviteCount: () => la()?.inviteCount() ?? 0,
+      signupInfo: () => la()?.signupInfo() ?? { mode: "kapal\u0131", source: "env" },
+      setSignup: (mode) => {
+        const store = la();
+        if (!store) throw new Error("yerel hesaplar kapal\u0131");
+        return store.setSignup(mode);
+      },
+      logout: () => {
+        this.opGrantExp = 0;
+        this.opRevoked.clear();
+      },
+      audit: (ev) => this.o.audit?.(ev)
+    };
+  }
   opDisabledPage(req, res) {
     const body = `${heading("Y\xF6netici paneli kapal\u0131", "Davet kodu ve hesap i\u015Flemleri i\xE7in bir y\xF6netici anahtar\u0131 tan\u0131mla.")}
 <div class="card">
@@ -30783,8 +31085,11 @@ ${noticeHtml}
 <form method="post" action="/operator/unlock" style="margin:0"><input type="hidden" name="user" value="${esc2(a.user)}"><button type="submit" data-once>Kilidi a\xE7</button></form>
 <form method="post" action="/operator/del" style="margin:0" onsubmit="return confirm('${esc2(a.user)} hesab\u0131 silinsin mi? MCP adresi \xE7al\u0131\u015Fmay\u0131 b\u0131rak\u0131r; dosyalar\u0131 diskte kal\u0131r.')"><input type="hidden" name="user" value="${esc2(a.user)}"><button type="submit" data-once>Sil</button></form>
 </td></tr>`).join("");
+    const viaTool = new URL(req.url ?? "/", "http://x").searchParams.get("tool") === "1";
+    const toolHtml = viaTool ? `<p class="ok">Y\xF6netici oturumu a\xE7\u0131ld\u0131. <code>ht_operator</code> arac\u0131 30 dakika boyunca anahtars\u0131z \xE7al\u0131\u015F\u0131r.</p>` : "";
+    const signup = la?.signupInfo();
     const body = `${heading("Y\xF6netici paneli", "Davet kodu, hesap ve parola i\u015Flemleri. Bu sayfa MCP anahtar\u0131yla de\u011Fil, ayr\u0131 bir y\xF6netici anahtar\u0131yla korunur.")}
-${noticeHtml}${revealHtml}
+${noticeHtml}${toolHtml}${revealHtml}
 <div class="card">
 <h2 style="margin-top:0">Davet kodu \xFCret</h2>
 <p class="muted">Tek kullan\u0131ml\u0131kt\u0131r; kod yaln\u0131zca bir kez g\xF6sterilir ve s\xFCresi dolunca ge\xE7ersiz olur. Kullan\u0131c\u0131 kodu <a href="/local">/local</a> sayfas\u0131ndaki <b>Hesap a\xE7</b> b\xF6l\xFCm\xFCne yazar.</p>
@@ -30798,7 +31103,7 @@ ${noticeHtml}${revealHtml}
   </select>
   <p style="margin-bottom:0"><button class="primary" type="submit" data-once>Kod \xFCret</button></p>
 </form>
-<p class="muted" style="margin-bottom:0">Bekleyen kod: <b>${la ? la.inviteCount() : 0}</b> \xB7 Hesap: <b>${accounts.length}</b></p>
+<p class="muted" style="margin-bottom:0">Bekleyen kod: <b>${la ? la.inviteCount() : 0}</b> \xB7 Hesap: <b>${accounts.length}</b> \xB7 Ara\xE7 oturumu: <b>${this.opGrantActive() ? this.opGrantLeftS() + " sn" : "yok"}</b></p>
 </div>
 <div class="card">
 <h2 style="margin-top:0">Hesap a\xE7 (kodsuz)</h2>
@@ -30808,6 +31113,20 @@ ${noticeHtml}${revealHtml}
   <label for="np">Parola <span class="muted">(bo\u015F b\u0131rak\u0131rsan g\xFC\xE7l\xFC parola \xFCretilir)</span></label>
   <input id="np" name="password" type="password" autocomplete="new-password" placeholder="bo\u015F = \xFCret">
   <p style="margin-bottom:0"><button class="primary" type="submit" data-once>Hesab\u0131 a\xE7</button></p>
+</form>
+</div>
+<div class="card">
+<h2 style="margin-top:0">Kay\u0131t modu</h2>
+<p class="muted">\u015Eu an: <b>${esc2(signup?.mode ?? "\u2014")}</b> (${signup?.source === "operator" ? "operat\xF6r se\xE7imi" : "ortam de\u011Fi\u015Fkeni"}). <code>first</code> = yaln\u0131zca hi\xE7 hesap yokken kay\u0131t; <code>open</code> = herkese a\xE7\u0131k; <code>off</code> = kay\u0131t kapal\u0131 (yaln\u0131zca panel/ara\xE7 hesap a\xE7ar).</p>
+<form method="post" action="/operator/signup">
+  <label for="sg">Yeni mod</label>
+  <select id="sg" name="signup">
+    <option value="first"${signup?.mode === "first" ? " selected" : ""}>first \u2014 ilk hesap</option>
+    <option value="open"${signup?.mode === "open" ? " selected" : ""}>open \u2014 herkese a\xE7\u0131k</option>
+    <option value="off"${signup?.mode === "off" ? " selected" : ""}>off \u2014 kapal\u0131</option>
+    <option value="env">ortam de\u011Fi\u015Fkenine d\xF6n</option>
+  </select>
+  <p style="margin-bottom:0"><button type="submit" data-once>Kaydet</button></p>
 </form>
 </div>
 <div class="card">
@@ -30821,6 +31140,63 @@ ${noticeHtml}${revealHtml}
 <p class="muted"><a href="/">panel</a> \xB7 <a href="/local">yerel hesap</a> \xB7 <a href="/workspaces">\xE7al\u0131\u015Fma alanlar\u0131</a></p>`;
     this.html(res, 200, page({ title: "Y\xF6netici paneli", subtitle: "operator", body, wide: true }));
     void origin;
+  }
+  /**
+   * ht_operator "login" bağlantısı: tek kullanımlık, 15 dakika. Kullanıcı tarayıcıda anahtarı
+   * yazınca 30 dakikalık araç oturumu (grant) + panel çerezi açılır.
+   */
+  async operatorLoginLinkPage(req, res, origin, id) {
+    if (!this.opEnabled()) return this.opDisabledPage(req, res);
+    const exp = this.opLoginLinks.get(id);
+    const valid = typeof exp === "number" && exp > Date.now();
+    const notice = (msg, kind = "ok") => {
+      const body = `${heading(valid ? "Y\xF6netici giri\u015Fi" : "Ba\u011Flant\u0131n\u0131n s\xFCresi doldu", valid ? "Bu ba\u011Flant\u0131 tek kullan\u0131ml\u0131kt\u0131r ve 15 dakika ge\xE7erlidir." : 'Yeni bir ba\u011Flant\u0131 \xFCretmek i\xE7in sohbetten ht_operator {"action":"login"} \xE7al\u0131\u015Ft\u0131r.')}
+<p class="${kind === "err" ? "e" : "ok"}">${esc2(msg)}</p>
+${valid ? `<div class="card">
+<form method="post" action="/operator/link/${esc2(id)}" autocomplete="off">
+  <label for="opt">Y\xF6netici anahtar\u0131 (<code>HARDTOOLS_OPERATOR_TOKEN</code>)</label>
+  <input id="opt" name="token" type="password" autocomplete="off" required autofocus>
+  <p class="row" style="margin-bottom:0"><button class="primary" type="submit">Giri\u015F yap</button><a class="btn" href="/operator">panele git</a></p>
+</form></div>` : ""}
+<p class="muted"><a href="/operator">y\xF6netici paneli</a> \xB7 <a href="/local">yerel hesap</a></p>`;
+      this.html(res, valid ? 200 : 410, page({ title: "Y\xF6netici giri\u015Fi", subtitle: "operator", body }));
+    };
+    if (req.method !== "POST") return notice("");
+    if (!valid) return notice("Bu ba\u011Flant\u0131 kullan\u0131lamaz.", "err");
+    if (!this.sameOriginForm(req, origin)) return notice("Form ba\u015Fka bir siteden g\xF6nderildi.", "err");
+    const ip = req.socket.remoteAddress ?? "?";
+    if (this.opThrottled(ip)) {
+      this.o.audit?.({ ev: "operator_login_throttled", ip, via: "tool_link" });
+      return notice("\xC7ok fazla hatal\u0131 deneme; 10 dakika sonra tekrar dene.", "err");
+    }
+    const p = await this.body(req);
+    const given = Buffer.from((p?.get("token") ?? "").trim());
+    const want = Buffer.from(this.opSecret());
+    if (given.length !== want.length || !crypto15.timingSafeEqual(given, want)) {
+      this.opFail(ip);
+      this.o.audit?.({ ev: "operator_login_failed", ip, via: "tool_link" });
+      return notice("Anahtar yanl\u0131\u015F.", "err");
+    }
+    this.opFails.delete(ip);
+    this.opLoginLinks.delete(id);
+    this.opGrantOpen(1800);
+    this.o.audit?.({ ev: "operator_login", ip, via: "tool_link" });
+    this.opSetCookie(res, origin);
+    res.writeHead(303, { location: "/operator?tool=1", "cache-control": "no-store" });
+    res.end();
+  }
+  /** Tek seferlik gösterim bağlantısı: parola ya da davet kodunun tamamı burada görünür. */
+  operatorRevealLinkPage(req, res, id) {
+    const now = Date.now();
+    for (const [k, v] of this.opRevealLinks) if (v.exp < now) this.opRevealLinks.delete(k);
+    const r = this.opRevealLinks.get(id);
+    const body = r ? `${heading("Tek seferlik bilgi", "Bu sayfa yaln\u0131zca k\u0131sa bir s\xFCre a\xE7\u0131kt\u0131r; ba\u011Flant\u0131y\u0131 kimseyle payla\u015Fma.")}
+<div class="card"><p class="muted" style="margin-top:0">${esc2(r.note)}</p>
+<div class="copybox"><input id="rv" type="text" readonly value="${esc2(r.text)}"><button type="button" data-copy="#rv">Kopyala</button></div>
+<p class="muted" style="margin-bottom:0">Kalan s\xFCre: ${Math.max(0, Math.round((r.exp - now) / 1e3))} sn \xB7 <a href="/operator">y\xF6netici paneli</a></p></div>` : `${heading("Ba\u011Flant\u0131 ge\xE7ersiz", "S\xFCresi dolmu\u015F ya da daha \xF6nce kullan\u0131lm\u0131\u015F olabilir.")}
+<p class="muted">Yeni bir ba\u011Flant\u0131 i\xE7in sohbetten ilgili ht_operator \xE7a\u011Fr\u0131s\u0131n\u0131 yeniden \xE7al\u0131\u015Ft\u0131r.</p>
+<p class="muted"><a href="/operator">y\xF6netici paneli</a></p>`;
+    this.html(res, r ? 200 : 410, page({ title: "Tek seferlik bilgi", subtitle: "operator", body }));
   }
   async operatorLogin(req, res, origin) {
     if (req.method !== "POST" || !this.opEnabled()) return this.operatorPage(req, res);
@@ -30907,6 +31283,17 @@ ${noticeHtml}${revealHtml}
     this.o.audit?.({ ev: "operator_password_reset", user });
     return this.opRedirect(res, `/operator?reveal=${this.opReveal(`${user} / ${pw}`, "Yeni parola \u2014 eski parola ve a\xE7\u0131k oturumlar ge\xE7ersiz")}`);
   }
+  async operatorSignup(req, res, origin) {
+    const p = await this.opGuard(req, res, origin);
+    if (p === false) return;
+    const la = this.o.local;
+    if (!la) return this.operatorPage(req, res, "Hata: bu sunucuda yerel hesaplar kapal\u0131.", "err");
+    const v = String(p?.get("signup") ?? "").trim().toLowerCase();
+    if (!["first", "open", "off", "env"].includes(v)) return this.operatorPage(req, res, "Hata: ge\xE7ersiz kay\u0131t modu.", "err");
+    const r = la.setSignup(v === "env" ? null : v);
+    this.o.audit?.({ ev: "operator_signup_mode", mode: r.mode, source: r.source });
+    return this.operatorPage(req, res, `Kay\u0131t modu: ${r.mode} (${r.source === "operator" ? "operat\xF6r" : "ortam"})`);
+  }
   async operatorUnlock(req, res, origin) {
     const p = await this.opGuard(req, res, origin);
     if (p === false) return;
@@ -30935,6 +31322,7 @@ ${noticeHtml}${revealHtml}
       this.opRevoked.set(parts.jti, Number(parts.exp));
       if (this.opRevoked.size > 256) this.opRevoked.clear();
     }
+    this.opGrantExp = 0;
     this.o.audit?.({ ev: "operator_logout" });
     this.opClearCookie(res);
     return this.opRedirect(res, "/operator");
@@ -31289,6 +31677,7 @@ async function main() {
   const keyId = publicKey ? crypto16.createHash("sha256").update(publicKey).digest("hex").slice(0, 12) : "open";
   const publicOwner = (viaKey) => viaKey ? `public:${keyId}` : "public";
   const token = process.env.HARDTOOLS_HTTP_TOKEN ?? "";
+  const operatorConfigured = (process.env.HARDTOOLS_OPERATOR_TOKEN ?? "").trim().length >= 16;
   const hasToken = token.length >= 32;
   if (!hasToken && !isPublic) {
     console.error("[hardtools] refusing to start HTTP mode: set HARDTOOLS_HTTP_TOKEN to a random secret of at least 32 chars (e.g. `openssl rand -hex 32`), or run the no-login connector with HARDTOOLS_PUBLIC=open|key.");
@@ -31631,6 +32020,8 @@ async function main() {
           ...owner === "public" ? { tools: publicTools } : {},
           ...sid ? { sessionId: "s-" + sid.slice(0, 12) } : {},
           settings: { store: settingsStore, user: userFor(owner), all: ALL_TOOLS },
+          // Yönetici aracı yalnızca anahtar tanımlıysa duyurulur; anahtarsız hiç görünmez ve çalışmaz.
+          ...operatorConfigured ? { operator: { host: settingsUI.operatorHost(), origin } } : {},
           ...baseRoot && !baseIsFsRoot ? {
             workspaces: {
               base: baseRoot,

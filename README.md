@@ -278,6 +278,38 @@ Her kimlik **kendi `/work` kökünü** alır; bir oturumda klonlanan depo başka
 - `HARDTOOLS_PER_SESSION_WORKSPACE=0` eski tek-paylaşılan-kök davranışına döner.
 - Oturum kökleri hacimde birikir; `ht_status` hangi kökte olduğunuzu gösterir.
 
+### 1.5.40 — `ht_operator`: panelin yaptığı her şey sohbetten
+
+`/operator` panelini açmadan yönetici işlemleri (davet kodu, hesap açma, parola sıfırlama, silme,
+kilidi açma, MCP anahtarı yenileme, kayıt modu) MCP aracıyla yapılır.
+
+- **`HARDTOOLS_OPERATOR_TOKEN` yoksa araç hiç duyurulmaz ve çalışmaz** (16+ karakter şart).
+- `action:"login"` → 15 dakika geçerli **tek kullanımlık bağlantı**; tarayıcıda anahtarı yazınca
+  30 dakikalık **araç oturumu** açılır (panel çerezi de verilir). Sonraki çağrılar anahtarsız çalışır.
+  (Alternatif: çağrıya `token` alanı eklersen oturum gerekmez.)
+- `action:"get"` → hesap listesi/detayı ya da `invite:true` ile **davet kodu**; kod ve MCP anahtarı
+  **sensürlü** yazılır (`ABCD••••••`), tamamı yalnızca 5 dakikalık tek seferlik bağlantıda açılır.
+- `action:"set"` → hesap aç (boş parola = üret), parola sıfırla, sil, kilidi aç, bağlantı anahtarını
+  yenile, `signup:"first|open|off|env"` ile kayıt modunu değiştir.
+- `action:"logout"` → araç oturumu + panel çerezi kapanır.
+- **`confirm`** zorunlu: hesap silme (`confirm:"<kullanıcı>"`), parola sıfırlama (aynı),
+  anahtar yenileme (aynı), `signup:"off"` (`confirm:"off"`), çıkış (`confirm:"logout"`).
+- Panel ile **tam parite**: kayıt modu panelde de görünür/değiştirilir, panelden çıkış araç
+  oturumunu da kapatır, araç oturumu panelde "Araç oturumu: N sn" olarak görünür.
+- Sırlar sohbete düşmez; her hassas değer tek seferlik `/operator/r/<id>` bağlantısında açılır.
+
+Örnekler:
+```jsonc
+{"action":"login"}
+{"action":"get"}                                   // hesaplar + bekleyen kod + kayıt modu
+{"action":"get","invite":true,"ttl_minutes":1440}  // kod sensürlü + tek seferlik bağlantı
+{"action":"set","user":"ali","password":""}        // hesap aç, güçlü parola üret
+{"action":"set","user":"ali","confirm":"ali"}      // parola sıfırla
+{"action":"set","user":"ali","confirm":"ali"}      // ...ya da sil (parola verilmezse siler)
+{"action":"set","signup":"open"}
+{"action":"logout","confirm":"logout"}
+```
+
 ### 1.5.39 — yönetici paneli (tarayıcıdan davet kodu)
 
 Fly.io panosunda web terminal yok (kaldırıldı); davet kodu üretmek, hesap açmak ve parola
