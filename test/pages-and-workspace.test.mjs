@@ -207,3 +207,59 @@ test("yerel hesaplar: parola politikası, doğrulama, kilit ve anahtar yenileme"
   assert.match(again.verify("ali", "Guclu-Parola-42x").error ?? "", /Çok fazla hatalı deneme/);
   fs.rmSync(dir, { recursive: true, force: true });
 });
+
+test("yerel hesapla /authorize akışı tamamlanır (panele değil, istemciye döner)", async (t) => {
+  // GitHub device flow yapılandırılmış gibi davranır: yerel çerez varsa GitHub'a hiç gidilmemeli.
+  const { port } = await start(t, { HARDTOOLS_OAUTH_GITHUB_CLIENT_ID: "Iv1.testclient", HARDTOOLS_OAUTH_ALLOWED_LOGINS: "kimse" });
+  const redirectUri = "https://claude.ai/api/mcp/auth_callback";
+  const reg = await request(port, { method: "POST", target: "/register",
+    headers: { "content-type": "application/json" }, body: JSON.stringify({ redirect_uris: [redirectUri], client_name: "test" }) });
+  assert.equal(reg.status, 201, reg.body.slice(0, 200));
+  const clientId = JSON.parse(reg.body).client_id;
+  const crypto = await import("node:crypto");
+  const verifier = crypto.randomBytes(32).toString("base64url");
+  const challenge = crypto.createHash("sha256").update(verifier).digest("base64url");
+  const authorize = "/authorize?" + new URLSearchParams({
+    response_type: "code", client_id: clientId, redirect_uri: redirectUri,
+    code_challenge: challenge, code_challenge_method: "S256", state: "st-1", resource: `http://127.0.0.1:${port}/mcp`,
+  }).toString();
+
+  // 1) Kayıt formu next'i taşımalı ve giriş sonrası oraya dönmeli.
+  const page = await request(port, { target: `/local?next=${encodeURIComponent(authorize)}` });
+  assert.match(page.body, /name="next"/, "next alanı forma taşınmalı");
+  const reg2 = await request(port, { method: "POST", target: "/local/register",
+    headers: { "content-type": "application/x-www-form-urlencoded", origin: `http://127.0.0.1:${port}` },
+    body: "user=oauthci&password=Guclu-Parola-77z&next=" + encodeURIComponent(authorize) });
+  assert.equal(reg2.status, 303, reg2.body.slice(0, 200));
+  assert.equal(reg2.headers.location, authorize, "giriş sonrası /authorize'a dönmeli (panele değil)");
+  const cookie = reg2.headers["set-cookie"][0].split(";")[0];
+
+  // 2) Açık yönlendirme yok: başka siteye next kabul edilmez.
+  const evil = await request(port, { method: "POST", target: "/local/login",
+    headers: { "content-type": "application/x-www-form-urlencoded", origin: `http://127.0.0.1:${port}` },
+    body: "user=oauthci&password=Guclu-Parola-77z&next=" + encodeURIComponent("https://kotu.example/x") });
+  assert.equal(evil.status, 303);
+  assert.equal(evil.headers.location, "/", "dış adres reddedilmeli");
+
+  // 3) Çerezle /authorize: GitHub'a gitmeden istemciye kod döner.
+  const auth = await request(port, { target: authorize, headers: { cookie } });
+  assert.equal(auth.status, 302, `authorize → ${auth.status}`);
+  const loc = new URL(auth.headers.location);
+  assert.equal(loc.origin + loc.pathname, redirectUri, "istemcinin callback adresine dönmeli");
+  const code = loc.searchParams.get("code");
+  assert.ok(code, "izin kodu üretilmeli");
+  assert.equal(loc.searchParams.get("state"), "st-1");
+
+  // 4) Kod → token → MCP: uçtan uca bağlantı çalışıyor.
+  const tok = await request(port, { method: "POST", target: "/token",
+    headers: { "content-type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({ grant_type: "authorization_code", code, code_verifier: verifier,
+      client_id: clientId, redirect_uri: redirectUri }).toString() });
+  assert.equal(tok.status, 200, tok.body.slice(0, 300));
+  const access = JSON.parse(tok.body).access_token;
+  assert.ok(access, "access_token dönmeli");
+  const mcp = await request(port, { method: "POST", target: "/mcp",
+    headers: { "content-type": "application/json", accept: "application/json, text/event-stream", authorization: `Bearer ${access}` },
+    body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "initialize", params: { protocolVersion: "2025-06-18", capabilities: {}, clientInfo: { name: "t", version: "1" } } }) });
+  assert.equal(mcp.status, 200, mcp.body.slice(0, 300));
+});
