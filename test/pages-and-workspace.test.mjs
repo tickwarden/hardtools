@@ -125,10 +125,14 @@ test("yerel hesap: kayıt → çerez → /lc/<anahtar> ile MCP", async (t) => {
   const cross = await request(port, { method: "POST", target: "/local/login",
     headers: { "content-type": "application/x-www-form-urlencoded", origin: "https://kotu.example" }, body: "user=testci&password=Guclu-Parola-42x" });
   assert.match(cross.body, /başka bir siteden/, "yabancı origin reddedilmeli");
-  // İkinci hesap: varsayılan modda kapalı (first).
+  // İkinci hesap: varsayılan "first" modunda davet kodu olmadan açılamaz (1.5.36).
   const second = await request(port, { method: "POST", target: "/local/register",
     headers: { "content-type": "application/x-www-form-urlencoded", origin: `http://127.0.0.1:${port}` }, body: "user=ikinci&password=Baska-Parola-7k" });
-  assert.match(second.body, /kapalı/, "varsayılan modda yalnızca ilk hesap açılır");
+  assert.match(second.body, /davet/, "varsayılan modda ikinci hesap davet kodu ister");
+  assert.equal(second.headers["set-cookie"], undefined, "davetsiz kayıtta oturum çerezi verilmemeli");
+  const ikinci = await request(port, { method: "POST", target: "/local/login",
+    headers: { "content-type": "application/x-www-form-urlencoded" }, body: "user=ikinci&password=Baska-Parola-7k" });
+  assert.match(ikinci.body, /Kullanıcı adı veya parola yanlış/, "davetsiz hesap oluşmamalı");
 });
 
 test("adoptInto kabuk iskeletini ve atık dizinlerini taşımaz", async () => {

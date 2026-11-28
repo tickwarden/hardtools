@@ -20,8 +20,9 @@ import { Variables } from "./variables.js";
 import { page as uiPage, esc, PAGE_CSP } from "./ui.js";
 import { UndoJournal } from "./undo.js";
 import { StateFile } from "./persist.js";
-import { adoptInto, measure, scanWorkspaces, writeMarker } from "./workspaces.js";
+import { adoptInto, htWorkspace, measure, scanWorkspaces, writeMarker } from "./workspaces.js";
 import { LocalAccounts } from "./localauth.js";
+import { localUserCli } from "./local-cli.js";
 import { ALL_TOOLS, SettingsUI, UserSettingsStore } from "./settings.js";
 import { VERSION } from "./version.js";
 import { probeWorkspaceHttps, probeWorkspaceShell } from "./workspace-shell.js";
@@ -38,6 +39,12 @@ async function main() {
   const profile = arg("--profile") as ProfileName | undefined;
   const httpMode = process.argv.includes("--http");
   let policy: Policy = loadPolicy({ profile });
+  // Operatör: yerel hesap yönetimi (sunucu başlatmadan, flyctl ssh üzerinden).
+  if (process.argv.includes("--local-user")) {
+    const i = process.argv.indexOf("--local-user");
+    const stateDir = process.env.HARDTOOLS_STATE_DIR?.trim() || (policy.audit.dir ? path.join(policy.audit.dir, "state") : undefined);
+    process.exit(await localUserCli(process.argv.slice(i + 1).filter(a => !["--password-stdin"].includes(a) || true), { stateDir }));
+  }
   if (httpMode) {
     if (!envFlag("HARDTOOLS_HTTP_ALLOW_LOCAL_TOOLS")) {
       policy = { ...policy, fs: { ...policy.fs, writeEnabled: false }, shell: { ...policy.shell, enabled: false } };
@@ -189,7 +196,10 @@ async function main() {
   // değişir; kökü ona bağlamak, her restart/yeni sohbette çalışma alanını "sıfırlanmış" gösteriyordu
   // (dosyalar diskte kalıyor ama sohbet yeni boş bir u-<hash> dizinine düşüyordu).
   // Katı izolasyon isteyen kurulumlar HARDTOOLS_PER_SESSION_WORKSPACE=1 ile açıkça seçer.
-  const perSession = (process.env.HARDTOOLS_PER_SESSION_WORKSPACE ?? "1").trim() !== "0";
+  // 1.5.37: VARSAYILAN = hesap kökü ortak. Bir hesabın tüm Claude sohbetleri aynı dosyaları görür
+  // ("her yeni sohbet boş geldi" şikâyeti); hesaplar birbirinden tamamen ayrı kalır (a-<kullanıcı>).
+  // Katı sohbet izolasyonu isteyen kurulumlar HARDTOOLS_PER_SESSION_WORKSPACE=1 ile açıkça seçer.
+  const perSession = (process.env.HARDTOOLS_PER_SESSION_WORKSPACE ?? "0").trim() === "1";
   const baseRoot = policy.roots[0];
   const baseIsFsRoot = Boolean(baseRoot) && baseRoot === path.parse(baseRoot).root; // "/" gibi köklerde izolasyon yapılmaz
   // Oturum kökleri taban kökün içinde tutulur (guard'ın izin verdiği tek ağaç): <kök>/u-<hash>.
@@ -430,7 +440,13 @@ async function main() {
       const isInit = (body as { method?: unknown })?.method === "initialize";
       let sid: string | undefined = sidHeader?.[0];
       let workDir = baseRoot;
-      if (perSession && owner !== "static" && baseRoot && !baseIsFsRoot && sessionBase) {
+      if (!perSession && owner !== "static" && baseRoot && !baseIsFsRoot) {
+        // Ortak mod: hesabın tüm sohbetleri aynı köke yazar. Hesap kökü kullanıcıya bağlı olduğu için
+        // bir hesabın dosyaları başka hesaba asla görünmez.
+        workDir = accountRoot(owner);
+        const key = userFor(owner);
+        if (!adopted.has(key)) { migrateUser(owner, workDir); adopted.add(key); }
+      } else if (perSession && owner !== "static" && baseRoot && !baseIsFsRoot && sessionBase) {
         const rec = sid ? sessMap.get(sid) : undefined;
         // Kayıtlı kök yalnızca AKTİF kökün doğrudan altındaki u-<hash> dizini olabilir. Böylece
         // ortam rotasyonundan ya da yeniden başlatmadan sonra sohbet eski/test bir env-… dizinine
@@ -503,12 +519,14 @@ async function main() {
         current: (user: string) => accountRootForUser(user),
         list: (user: string) => scanWorkspaces(baseRoot, accountRootForUser(user), (dir) => [...sessMap.values()].find(r => r.dir === dir)?.owner, userFor)
           .filter(e => e.user === user || (user === "operator" && e.user === undefined)),
+        // Sayfa ile model aracı AYNI doğrulamayı kullanır: sahiplik denetimi olmadan
+        // başka hesabın dizini devralınabilirdi (hesaplar arası veri sızması).
         adopt: (user: string, rel: string) => {
-          if (!/^(a|u)-[0-9a-f]{16}$/.test(rel)) throw new Error("geçersiz dizin");
           const target = accountRootForUser(user);
-          const r = adoptInto(path.join(baseRoot, rel), target);
-          audit.write({ ev: "workspace_adopt", user, from: rel, to: pathBase(target), moved: r.moved, skipped: r.skipped });
-          return `${rel} → ${pathBase(target)}: ${r.moved} öğe taşındı, ${r.skipped} atlandı`;
+          const entries = scanWorkspaces(baseRoot, target, (dir) => [...sessMap.values()].find(r => r.dir === dir)?.owner, userFor);
+          const msg = htWorkspace({ base: baseRoot, current: target, user, entries: () => entries }, { action: "adopt", dir: rel });
+          audit.write({ ev: "workspace_adopt", user, from: rel, to: pathBase(target) });
+          return msg.replace(/^WORKSPACE adopt /, `${rel} → ${pathBase(target)}: `);
         },
       },
     } : {}),

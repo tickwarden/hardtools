@@ -3367,8 +3367,8 @@ var require_utils = __commonJS({
       }
       return ind;
     }
-    function removeDotSegments(path22) {
-      let input = path22;
+    function removeDotSegments(path23) {
+      let input = path23;
       const output = [];
       let nextSlash = -1;
       let len = 0;
@@ -3442,11 +3442,11 @@ var require_utils = __commonJS({
       }
       return output.join("");
     }
-    function removeDotSegmentsRelative(path22) {
-      if (path22 === "" || path22[0] === "/") {
-        return removeDotSegments(path22);
+    function removeDotSegmentsRelative(path23) {
+      if (path23 === "" || path23[0] === "/") {
+        return removeDotSegments(path23);
       }
-      const segments = path22.split("/");
+      const segments = path23.split("/");
       const last = segments.length - 1;
       const output = [];
       let trailingDirectory = false;
@@ -3809,8 +3809,8 @@ var require_schemes = __commonJS({
       }
       if (wsComponent.resourceName) {
         const queryIndex = wsComponent.resourceName.indexOf("?");
-        const path22 = queryIndex === -1 ? wsComponent.resourceName : wsComponent.resourceName.slice(0, queryIndex);
-        wsComponent.path = path22 && path22 !== "/" ? path22 : void 0;
+        const path23 = queryIndex === -1 ? wsComponent.resourceName : wsComponent.resourceName.slice(0, queryIndex);
+        wsComponent.path = path23 && path23 !== "/" ? path23 : void 0;
         wsComponent.query = queryIndex === -1 ? void 0 : wsComponent.resourceName.slice(queryIndex + 1);
         wsComponent.resourceName = void 0;
       }
@@ -7347,12 +7347,12 @@ var require_dist = __commonJS({
         throw new Error(`Unknown format "${name}"`);
       return f;
     };
-    function addFormats(ajv, list, fs20, exportName) {
+    function addFormats(ajv, list, fs21, exportName) {
       var _a3;
       var _b;
       (_a3 = (_b = ajv.opts.code).formats) !== null && _a3 !== void 0 ? _a3 : _b.formats = (0, codegen_1._)`require("ajv-formats/dist/formats").${exportName}`;
       for (const f of list)
-        ajv.addFormat(f, fs20[f]);
+        ajv.addFormat(f, fs21[f]);
     }
     module.exports = exports = formatsPlugin;
     Object.defineProperty(exports, "__esModule", { value: true });
@@ -7597,10 +7597,10 @@ function mergeDefs(...defs) {
 function cloneDef(schema) {
   return mergeDefs(schema._zod.def);
 }
-function getElementAtPath(obj, path22) {
-  if (!path22)
+function getElementAtPath(obj, path23) {
+  if (!path23)
     return obj;
-  return path22.reduce((acc, key) => acc?.[key], obj);
+  return path23.reduce((acc, key) => acc?.[key], obj);
 }
 function promiseAllObject(promisesObj) {
   const keys = Object.keys(promisesObj);
@@ -7940,11 +7940,11 @@ function explicitlyAborted(x, startIndex = 0) {
   }
   return false;
 }
-function prefixIssues(path22, issues) {
+function prefixIssues(path23, issues) {
   return issues.map((iss) => {
     var _a3;
     (_a3 = iss).path ?? (_a3.path = []);
-    iss.path.unshift(path22);
+    iss.path.unshift(path23);
     return iss;
   });
 }
@@ -8402,16 +8402,16 @@ function flattenError(error2, mapper = (issue2) => issue2.message) {
 }
 function formatError(error2, mapper = (issue2) => issue2.message) {
   const fieldErrors = { _errors: [] };
-  const processError = (error3, path22 = []) => {
+  const processError = (error3, path23 = []) => {
     for (const issue2 of error3.issues) {
       if (issue2.code === "invalid_union" && issue2.errors.length) {
-        issue2.errors.map((issues) => processError({ issues }, [...path22, ...issue2.path]));
+        issue2.errors.map((issues) => processError({ issues }, [...path23, ...issue2.path]));
       } else if (issue2.code === "invalid_key") {
-        processError({ issues: issue2.issues }, [...path22, ...issue2.path]);
+        processError({ issues: issue2.issues }, [...path23, ...issue2.path]);
       } else if (issue2.code === "invalid_element") {
-        processError({ issues: issue2.issues }, [...path22, ...issue2.path]);
+        processError({ issues: issue2.issues }, [...path23, ...issue2.path]);
       } else {
-        const fullpath = [...path22, ...issue2.path];
+        const fullpath = [...path23, ...issue2.path];
         if (fullpath.length === 0) {
           fieldErrors._errors.push(mapper(issue2));
         } else {
@@ -12795,9 +12795,9 @@ function equalSecret(candidate, expected) {
 }
 
 // src/index.ts
-import crypto15 from "node:crypto";
-import fs19 from "node:fs";
-import path21 from "node:path";
+import crypto16 from "node:crypto";
+import fs20 from "node:fs";
+import path22 from "node:path";
 import { basename as pathBase, dirname as pathDir } from "node:path";
 import http3 from "node:http";
 
@@ -17268,10 +17268,10 @@ var OAuth = class {
   // ---- routing --------------------------------------------------------------------------
   /** Returns true when the request was an OAuth/discovery/invite route and has been fully handled. */
   async handle(req, res) {
-    const path22 = (req.url ?? "").split("?")[0];
+    const path23 = (req.url ?? "").split("?")[0];
     const method = req.method ?? "GET";
     const origin = this.origin(req);
-    if (path22 === "/.well-known/oauth-protected-resource" || path22 === "/.well-known/oauth-protected-resource/mcp") {
+    if (path23 === "/.well-known/oauth-protected-resource" || path23 === "/.well-known/oauth-protected-resource/mcp") {
       if (method !== "GET") {
         this.oerr(res, 405, "invalid_request", "GET only");
         return true;
@@ -17279,7 +17279,7 @@ var OAuth = class {
       this.json(res, 200, { resource: `${origin}/mcp`, authorization_servers: [origin], bearer_methods_supported: ["header"] });
       return true;
     }
-    if (path22 === "/.well-known/oauth-authorization-server" || path22 === "/.well-known/oauth-authorization-server/mcp") {
+    if (path23 === "/.well-known/oauth-authorization-server" || path23 === "/.well-known/oauth-authorization-server/mcp") {
       if (method !== "GET") {
         this.oerr(res, 405, "invalid_request", "GET only");
         return true;
@@ -17297,47 +17297,47 @@ var OAuth = class {
       });
       return true;
     }
-    if (path22 === "/register") {
+    if (path23 === "/register") {
       await this.register(req, res);
       return true;
     }
-    if (path22 === "/authorize") {
+    if (path23 === "/authorize") {
       await this.authorize(req, res, origin);
       return true;
     }
-    if (path22 === "/oauth/github/callback") {
+    if (path23 === "/oauth/github/callback") {
       await this.githubCallback(req, res, origin);
       return true;
     }
-    if (path22 === "/oauth/github/poll") {
+    if (path23 === "/oauth/github/poll") {
       await this.githubPoll(req, res, origin);
       return true;
     }
-    if (path22 === "/device/authorize") {
+    if (path23 === "/device/authorize") {
       await this.deviceAuthorize(req, res, origin);
       return true;
     }
-    if (path22 === "/device") {
+    if (path23 === "/device") {
       await this.devicePage(req, res, origin);
       return true;
     }
-    if (path22 === "/token") {
+    if (path23 === "/token") {
       await this.tokenEndpoint(req, res);
       return true;
     }
-    if (path22.startsWith("/invite/")) {
-      await this.handleInvite(req, res, path22, origin);
+    if (path23.startsWith("/invite/")) {
+      await this.handleInvite(req, res, path23, origin);
       return true;
     }
     return false;
   }
   // ---- /invite/<code> -------------------------------------------------------------------
-  async handleInvite(req, res, path22, origin) {
+  async handleInvite(req, res, path23, origin) {
     if (req.method !== "GET") {
       this.oerr(res, 405, "invalid_request", "GET only");
       return;
     }
-    const code = decodeURIComponent(path22.slice("/invite/".length));
+    const code = decodeURIComponent(path23.slice("/invite/".length));
     const sessionId = this.redeemInvite(code);
     if (!sessionId) {
       this.page(res, 410, "Bu davet kullan\u0131lm\u0131\u015F veya s\xFCresi dolmu\u015F. Daveti az \xF6nce a\xE7t\u0131ysan ayn\u0131 taray\u0131c\u0131 profilinde Claude\u2019dan devam et. Aksi halde yay\u0131n sahibiyle ileti\u015Fime ge\xE7.", null);
@@ -18214,8 +18214,8 @@ function getErrorMap() {
 
 // node_modules/zod/v3/helpers/parseUtil.js
 var makeIssue = (params) => {
-  const { data, path: path22, errorMaps, issueData } = params;
-  const fullPath = [...path22, ...issueData.path || []];
+  const { data, path: path23, errorMaps, issueData } = params;
+  const fullPath = [...path23, ...issueData.path || []];
   const fullIssue = {
     ...issueData,
     path: fullPath
@@ -18330,11 +18330,11 @@ var errorUtil;
 
 // node_modules/zod/v3/types.js
 var ParseInputLazyPath = class {
-  constructor(parent, value, path22, key) {
+  constructor(parent, value, path23, key) {
     this._cachedPath = [];
     this.parent = parent;
     this.data = value;
-    this._path = path22;
+    this._path = path23;
     this._key = key;
   }
   get path() {
@@ -21885,11 +21885,11 @@ function normalizeObjectSchema(schema) {
   }
   return void 0;
 }
-function getDotPath(path22) {
-  if (path22.length === 0) {
+function getDotPath(path23) {
+  if (path23.length === 0) {
     return "object root";
   }
-  return path22.reduce((acc, seg, index) => {
+  return path23.reduce((acc, seg, index) => {
     if (index === 0) {
       return String(seg);
     }
@@ -26485,7 +26485,7 @@ function anyMatch(patterns, value) {
 }
 
 // src/version.ts
-var VERSION = "1.5.35";
+var VERSION = "1.5.37";
 
 // src/net.ts
 var blocked = new net.BlockList();
@@ -28441,8 +28441,8 @@ var UserInputs = class {
   }
   // ---- browser UI -------------------------------------------------------------------
   /** Serve /ui/input/<id>. Returns false when the path is not ours. */
-  handle(req, res, path22, origin) {
-    const m = /^\/ui\/input\/([A-Za-z0-9_-]{20,64})$/.exec(path22);
+  handle(req, res, path23, origin) {
+    const m = /^\/ui\/input\/([A-Za-z0-9_-]{20,64})$/.exec(path23);
     if (!m) return false;
     const id = m[1];
     const req_ = this.byId.get(id);
@@ -28489,7 +28489,7 @@ var UserInputs = class {
           }).join("") : "";
           page2(200, shell(`<p>Kaydedildi. Sohbete d\xF6n${secrets ? "" : `; de\u011Fer <code>$HT_USER_INPUT</code> olarak kullan\u0131labilir`}.</p>${summary2 ? `<ul class="m">${summary2}</ul>` : ""}${secrets ? `<p class="m">Gizli de\u011Ferler bu sayfada tekrar g\xF6sterilmez; modelin g\xF6rece\u011Fi \xE7\u0131kt\u0131da maskelenir.</p>` : ""}`));
         } catch (e) {
-          return page2(400, shell(`<p class="e">${esc3(e.message)}</p><p class="m"><a href="${esc3(path22)}">Geri d\xF6n</a></p>`));
+          return page2(400, shell(`<p class="e">${esc3(e.message)}</p><p class="m"><a href="${esc3(path23)}">Geri d\xF6n</a></p>`));
         }
       });
       req.on("error", () => {
@@ -28514,10 +28514,10 @@ var UserInputs = class {
     };
     const mins = Math.max(1, Math.round((req_.expiresAt - Date.now()) / 6e4));
     const body = req_.fields ? `<p class="q">${esc3(req_.title)}</p>${req_.help ? `<p class="m">${esc3(req_.help)}</p>` : ""}
-<form method="post" action="${esc3(path22)}" autocomplete="off"><fieldset>${req_.fields.map(field).join("")}</fieldset>
+<form method="post" action="${esc3(path23)}" autocomplete="off"><fieldset>${req_.fields.map(field).join("")}</fieldset>
 <button type="submit">G\xF6nder</button><button type="submit" name="action" value="cancel" formnovalidate>Vazge\xE7</button></form>
 <p class="m">Yan\u0131tlar <code>$HT_USER_INPUT</code> (JSON) ve her alan i\xE7in <code>$HT_USER_INPUT_ADI</code> olarak komutlara ge\xE7er. Bu ba\u011Flant\u0131 tek kullan\u0131ml\u0131kt\u0131r, ~${mins} dk ge\xE7erlidir.</p>` : `<p class="q">${esc3(req_.title)}</p>
-<form method="post" action="${esc3(path22)}" autocomplete="off">${field({ name: req_.secret ? "secret" : "value", title: "Yan\u0131t", kind: req_.kind, secret: req_.secret, required: true, ...req_.choices ? { choices: req_.choices } : {}, ...req_.default !== void 0 ? { default: req_.default } : {}, ...req_.placeholder ? { placeholder: req_.placeholder } : {} })}
+<form method="post" action="${esc3(path23)}" autocomplete="off">${field({ name: req_.secret ? "secret" : "value", title: "Yan\u0131t", kind: req_.kind, secret: req_.secret, required: true, ...req_.choices ? { choices: req_.choices } : {}, ...req_.default !== void 0 ? { default: req_.default } : {}, ...req_.placeholder ? { placeholder: req_.placeholder } : {} })}
 <button type="submit">G\xF6nder</button><button type="submit" name="action" value="cancel" formnovalidate>Vazge\xE7</button></form>
 <p class="m">${req_.secret ? "Bu de\u011Fer gizli kabul edilir: sohbete geri d\xF6nmez, denetim kayd\u0131na yaz\u0131lmaz, komut \xE7\u0131kt\u0131s\u0131nda maskelenir." : `T\xFCr: ${esc3(req_.kind)}. De\u011Fer <code>$HT_USER_INPUT</code> olarak komutlara ge\xE7er.`} ~${mins} dk ge\xE7erlidir.</p>`;
     page2(200, shell(body));
@@ -29736,6 +29736,7 @@ var MAX_ACCOUNTS = 200;
 var MAX_FAILS = 8;
 var SCRYPT = { N: 16384, r: 8, p: 1, maxmem: 64 * 1024 * 1024 };
 var normUser = (v) => String(v ?? "").trim().toLowerCase();
+var normCode = (v) => String(v ?? "").toUpperCase().replace(/[^A-Z0-9]/g, "");
 function passwordProblem(user, password) {
   const pw = String(password ?? "");
   if (pw.length < MIN_PASSWORD) return `Parola en az ${MIN_PASSWORD} karakter olmal\u0131.`;
@@ -29757,34 +29758,57 @@ var LocalAccounts = class {
   }
   opts;
   items = /* @__PURE__ */ new Map();
+  invites = [];
   fails = /* @__PURE__ */ new Map();
   file;
+  /** Dosyanın son görülen hâli: operatör CLI'ı dosyayı değiştirdiğinde sunucu kendini tazeler. */
+  stamp = "";
+  /**
+   * Hesap dosyası dışarıdan (operatör CLI'ı) değiştiyse yeniden yükle.
+   * Sunucu bellekteki kopyayı kullanıyor; CLI ile açılan hesap/davet kodu yeniden
+   * başlatma beklemeden geçerli olmalı (canlıda tam bu yüzden "kod geçersiz" oluyordu).
+   */
+  refresh() {
+    if (!this.file) return;
+    try {
+      const st = fs17.statSync(this.file);
+      const sig = `${st.mtimeMs}:${st.size}`;
+      if (sig !== this.stamp) this.load();
+    } catch {
+    }
+  }
   get signupMode() {
     const v = (this.opts.signup ?? "first").trim().toLowerCase();
     return v === "open" || v === "off" ? v : "first";
   }
   /** Kayıt sayfası gösterilsin mi? ("first" modunda yalnızca ilk hesap için.) */
   canRegister() {
+    this.refresh();
     const mode = this.signupMode;
     if (mode === "off") return false;
     if (mode === "open") return this.items.size < MAX_ACCOUNTS;
     return this.items.size === 0;
   }
   count() {
+    this.refresh();
     return this.items.size;
   }
   list() {
+    this.refresh();
     return [...this.items.keys()].sort();
   }
   get(user) {
+    this.refresh();
     return this.items.get(normUser(user));
   }
   /** Bu kullanıcı adı yerel bir hesap mı? (GitHub login'leriyle çakışma denetimi için.) */
   has(user) {
+    this.refresh();
     return this.items.has(normUser(user));
   }
   /** Bağlantı anahtarından kullanıcı adı (MCP /lc/<anahtar> yolu). */
   userForConnector(token) {
+    this.refresh();
     if (!/^[A-Za-z0-9_-]{16,128}$/.test(token)) return null;
     for (const a of this.items.values()) {
       if (a.connector.length === token.length && crypto13.timingSafeEqual(Buffer.from(a.connector), Buffer.from(token))) return a.user;
@@ -29792,6 +29816,7 @@ var LocalAccounts = class {
     return null;
   }
   connectorFor(user) {
+    this.refresh();
     return this.items.get(normUser(user))?.connector ?? null;
   }
   /**
@@ -29799,6 +29824,7 @@ var LocalAccounts = class {
    * aynı ad iki kimlik türünde birleşirse ayarlar/çalışma alanı karışırdı.
    */
   create(user, password, reserved = () => false) {
+    this.refresh();
     const u = normUser(user);
     if (!USER_RE.test(u)) return { ok: false, error: "Kullan\u0131c\u0131 ad\u0131 3-32 karakter olmal\u0131; k\xFC\xE7\xFCk harf, rakam, nokta, tire, alt \xE7izgi." };
     if (this.items.has(u)) return { ok: false, error: "Bu kullan\u0131c\u0131 ad\u0131 zaten var." };
@@ -29822,6 +29848,7 @@ var LocalAccounts = class {
   }
   /** Parola doğrulama; hatalı denemeler kullanıcı başına 10 dakika kilitler. */
   verify(user, password) {
+    this.refresh();
     const u = normUser(user);
     const now = Date.now();
     const f = this.fails.get(u);
@@ -29851,27 +29878,89 @@ var LocalAccounts = class {
     const a = this.items.get(u);
     a.salt = crypto13.randomBytes(16).toString("base64url");
     a.hash = crypto13.scryptSync(String(next), a.salt, 64, SCRYPT).toString("base64url");
+    a.pvAt = Date.now();
     this.save();
     return { ok: true };
   }
   /** Bağlantı anahtarını yeniler (sızdıysa eski URL çalışmaz). */
   rotateConnector(user) {
+    this.refresh();
     const a = this.items.get(normUser(user));
     if (!a) return null;
     a.connector = crypto13.randomBytes(32).toString("base64url");
     this.save();
     return a.connector;
   }
+  /** Tek kullanımlık kayıt kodu üretir; kodu yalnızca bir kez döndürür (dosyada özeti durur). */
+  createInvite(ttlMs = 24 * 36e5) {
+    const code = Array.from({ length: 8 }, () => "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"[crypto13.randomInt(32)]).join("");
+    const hash = crypto13.createHash("sha256").update(normCode(code)).digest("base64url");
+    this.invites = this.invites.filter((i) => i.exp > Date.now());
+    this.invites.push({ hash, exp: Date.now() + Math.max(ttlMs, 6e4) });
+    this.save();
+    return `${code.slice(0, 4)}-${code.slice(4)}`;
+  }
+  inviteCount() {
+    this.refresh();
+    return this.invites.filter((i) => i.exp > Date.now()).length;
+  }
+  /** Kodu doğrular ve tüketir. Geçersiz/süresi dolmuşsa false. */
+  redeemInvite(code) {
+    this.refresh();
+    const hash = crypto13.createHash("sha256").update(normCode(code)).digest("base64url");
+    const now = Date.now();
+    const i = this.invites.findIndex((v) => v.exp > now && v.hash.length === hash.length && crypto13.timingSafeEqual(Buffer.from(v.hash), Buffer.from(hash)));
+    if (i === -1) return false;
+    this.invites.splice(i, 1);
+    this.save();
+    return true;
+  }
+  /** Operatörün parola sıfırlaması (mevcut parolayı bilmeden). */
+  adminSetPassword(user, next) {
+    this.refresh();
+    const u = normUser(user);
+    const a = this.items.get(u);
+    if (!a) return { ok: false, error: "B\xF6yle bir hesap yok." };
+    const problem = passwordProblem(u, next);
+    if (problem) return { ok: false, error: problem };
+    a.salt = crypto13.randomBytes(16).toString("base64url");
+    a.hash = crypto13.scryptSync(String(next), a.salt, 64, SCRYPT).toString("base64url");
+    a.pvAt = Date.now();
+    this.fails.delete(u);
+    this.save();
+    return { ok: true };
+  }
+  /** Hesabı siler (bağlantı anahtarı da geçersiz olur). */
+  remove(user) {
+    this.refresh();
+    const ok = this.items.delete(normUser(user));
+    if (ok) this.save();
+    return ok;
+  }
+  /** Kilitliyse aç (hatalı deneme sayacı bellektedir; yeniden başlatma da temizler). */
+  unlock(user) {
+    return this.fails.delete(normUser(user));
+  }
   load() {
     if (!this.file) return;
+    this.items = /* @__PURE__ */ new Map();
+    this.invites = [];
+    this.fails.clear();
     try {
       const d = JSON.parse(fs17.readFileSync(this.file, "utf8"));
+      if (Array.isArray(d.invites)) this.invites = d.invites.filter((i) => i && typeof i.hash === "string" && typeof i.exp === "number");
       for (const a of d.items ?? []) {
         if (a && typeof a.user === "string" && typeof a.hash === "string" && typeof a.salt === "string") {
           this.items.set(normUser(a.user), { ...a, user: normUser(a.user), connector: a.connector ?? "" });
         }
       }
     } catch {
+    }
+    try {
+      const st = fs17.statSync(this.file);
+      this.stamp = `${st.mtimeMs}:${st.size}`;
+    } catch {
+      this.stamp = "";
     }
   }
   save() {
@@ -29880,18 +29969,156 @@ var LocalAccounts = class {
       const dir = path19.dirname(this.file);
       fs17.mkdirSync(dir, { recursive: true, mode: 448 });
       const tmp = `${this.file}.tmp`;
-      fs17.writeFileSync(tmp, JSON.stringify({ v: 1, items: [...this.items.values()] }), { mode: 384 });
+      const live = this.invites.filter((i) => i.exp > Date.now());
+      fs17.writeFileSync(tmp, JSON.stringify({ v: 1, items: [...this.items.values()], ...live.length ? { invites: live } : {} }), { mode: 384 });
       fs17.renameSync(tmp, this.file);
       fs17.chmodSync(this.file, 384);
+      const st = fs17.statSync(this.file);
+      this.stamp = `${st.mtimeMs}:${st.size}`;
     } catch {
     }
   }
 };
 
-// src/settings.ts
+// src/local-cli.ts
 import crypto14 from "node:crypto";
 import fs18 from "node:fs";
 import path20 from "node:path";
+var LOCAL_CLI_USAGE = `Kullan\u0131m:
+  --local-user list
+  --local-user invite [--ttl <dakika>]
+  --local-user add <kullan\u0131c\u0131> [--password-stdin | --password <parola>]
+  --local-user passwd <kullan\u0131c\u0131> [--password-stdin | --password <parola>]
+  --local-user del <kullan\u0131c\u0131>`;
+function randomPassword(len = 24) {
+  const abc = "abcdefghijkmnopqrstuvwxyz", ABC = "ABCDEFGHJKLMNPQRSTUVWXYZ", num = "23456789", sym = "!@#$%*-_=+";
+  const all = abc + ABC + num + sym;
+  const pick2 = (s) => s[crypto14.randomInt(s.length)];
+  const chars = [pick2(abc), pick2(ABC), pick2(num), pick2(sym)];
+  while (chars.length < len) chars.push(pick2(all));
+  for (let i = chars.length - 1; i > 0; i--) {
+    const j = crypto14.randomInt(i + 1);
+    [chars[i], chars[j]] = [chars[j], chars[i]];
+  }
+  return chars.join("");
+}
+async function readStdin() {
+  const chunks = [];
+  for await (const c of process.stdin) chunks.push(c);
+  return Buffer.concat(chunks).toString("utf8");
+}
+async function localUserCli(argv, opts = {}) {
+  const [sub, ...rest] = argv;
+  const flag = (name) => {
+    const i = rest.indexOf(name);
+    if (i === -1) return void 0;
+    const v = rest[i + 1];
+    return v && !v.startsWith("--") ? v : "";
+  };
+  const positional = rest.filter((v, i) => !v.startsWith("--") && !(i > 0 && rest[i - 1] === "--ttl" && false));
+  const userArg = rest.find((v) => !v.startsWith("--"));
+  const store = opts.stateDir ? path20.join(opts.stateDir, "local-accounts.json") : void 0;
+  if (!store) {
+    console.error("Durum dizini bulunamad\u0131 (HARDTOOLS_STATE_DIR ya da denetim dizini gerekli).");
+    return 1;
+  }
+  const accounts = new LocalAccounts({ store, signup: process.env.HARDTOOLS_LOCAL_SIGNUP });
+  const newPassword = async (user) => {
+    let pw = "";
+    if (rest.includes("--password-stdin")) pw = (await readStdin()).split("\n")[0];
+    else if (flag("--password")) pw = flag("--password");
+    else if (process.env.HARDTOOLS_NEW_PASSWORD) pw = process.env.HARDTOOLS_NEW_PASSWORD;
+    else return { pw: randomPassword(), generated: true };
+    pw = pw.replace(/[\r\n]+$/, "");
+    const problem = passwordProblem(user, pw);
+    if (problem) return { error: problem };
+    return { pw, generated: false };
+  };
+  switch (sub) {
+    case "list": {
+      const names = accounts.list();
+      if (!names.length) console.log("Yerel hesap yok.");
+      for (const n of names) {
+        const a = accounts.get(n);
+        const last = a.lastLogin ? new Date(a.lastLogin).toISOString() : "hi\xE7";
+        console.log(`${n}	son giri\u015F: ${last}	kay\u0131t: ${new Date(a.createdAt).toISOString()}`);
+      }
+      const invites = accounts.inviteCount();
+      if (invites) console.log(`Bekleyen davet kodu: ${invites}`);
+      return 0;
+    }
+    case "invite": {
+      const ttlMin = Number(flag("--ttl") ?? "1440") || 1440;
+      const code = accounts.createInvite(Math.min(Math.max(ttlMin, 5), 60 * 24 * 30) * 6e4);
+      console.log(code);
+      console.error(`Tek kullan\u0131ml\u0131k kay\u0131t kodu (${ttlMin} dakika). Kullan\u0131c\u0131 /local sayfas\u0131ndaki "Hesap a\xE7" b\xF6l\xFCm\xFCne bu kodu yazs\u0131n.`);
+      return 0;
+    }
+    case "add":
+    case "passwd": {
+      if (!userArg) {
+        console.error(LOCAL_CLI_USAGE);
+        return 2;
+      }
+      const user = userArg.trim().toLowerCase();
+      const existing = accounts.has(user);
+      if (sub === "add" && existing) {
+        console.error(`"${user}" zaten var. Parola s\u0131f\u0131rlamak i\xE7in: --local-user passwd ${user}`);
+        return 1;
+      }
+      if (sub === "passwd" && !existing) {
+        console.error(`"${user}" yok. Hesap a\xE7mak i\xE7in: --local-user add ${user}`);
+        return 1;
+      }
+      const pwRes = await newPassword(user);
+      if ("error" in pwRes) {
+        console.error(`Parola politikas\u0131: ${pwRes.error}`);
+        return 1;
+      }
+      if (sub === "add") {
+        const r = accounts.create(user, pwRes.pw);
+        if (!r.ok) {
+          console.error(r.error);
+          return 1;
+        }
+        console.log(`Hesap a\xE7\u0131ld\u0131: ${r.account.user}`);
+      } else {
+        const r = accounts.adminSetPassword(user, pwRes.pw);
+        if (!r.ok) {
+          console.error(r.error ?? "Parola de\u011Fi\u015Ftirilemedi.");
+          return 1;
+        }
+        console.log(`Parola g\xFCncellendi: ${user}`);
+      }
+      if (pwRes.generated) console.log(`Parola (bir kez g\xF6sterilir, kaydedilmez): ${pwRes.pw}`);
+      if (pwRes.generated) console.error("Bu parolay\u0131 kullan\u0131c\u0131ya ilet; panelden de\u011Fi\u015Ftirebilir.");
+      return 0;
+    }
+    case "del": {
+      if (!userArg) {
+        console.error(LOCAL_CLI_USAGE);
+        return 2;
+      }
+      const user = userArg.trim().toLowerCase();
+      if (!accounts.remove(user)) {
+        console.error(`"${user}" yok.`);
+        return 1;
+      }
+      console.log(`Silindi: ${user}`);
+      return 0;
+    }
+    default:
+      console.error(LOCAL_CLI_USAGE);
+      return 2;
+  }
+  void positional;
+  void fs18;
+}
+
+// src/settings.ts
+import crypto15 from "node:crypto";
+import fs19 from "node:fs";
+import path21 from "node:path";
 var ALL_TOOLS = [
   "ht_read",
   "ht_write",
@@ -29954,6 +30181,8 @@ var UserSettingsStore = class {
   // grant id -> login
   revoked = /* @__PURE__ */ new Set();
   // çıkış yapılan grant'lar
+  /** Çıkış zamanı (ms): bundan önce verilmiş oturum çerezleri geçersizdir. */
+  signedOut = /* @__PURE__ */ new Map();
   store;
   keyPath;
   key;
@@ -29966,8 +30195,9 @@ var UserSettingsStore = class {
   // ---- kalıcılık ---------------------------------------------------------------------------
   load() {
     try {
-      if (this.store && fs18.existsSync(this.store)) {
-        const d = JSON.parse(fs18.readFileSync(this.store, "utf8"));
+      if (this.store && fs19.existsSync(this.store)) {
+        const d = JSON.parse(fs19.readFileSync(this.store, "utf8"));
+        for (const [u, at] of Object.entries(d.signedOut ?? {})) this.signedOut.set(u, Number(at) || 0);
         for (const [u, s] of Object.entries(d.users ?? {})) this.users.set(u, { ...defaultSettings(), ...s });
         for (const [g, u] of Object.entries(d.grants ?? {})) this.grants.set(g, u);
         for (const g of d.revoked ?? []) this.revoked.add(g);
@@ -29978,12 +30208,13 @@ var UserSettingsStore = class {
   save() {
     if (!this.store) return;
     try {
-      fs18.mkdirSync(path20.dirname(this.store), { recursive: true, mode: 448 });
+      fs19.mkdirSync(path21.dirname(this.store), { recursive: true, mode: 448 });
       const items = Object.fromEntries(this.users);
       const grants = Object.fromEntries(this.grants);
       const tmp = this.store + ".tmp";
-      fs18.writeFileSync(tmp, JSON.stringify({ v: 1, users: items, grants, revoked: [...this.revoked] }), { mode: 384 });
-      fs18.renameSync(tmp, this.store);
+      const signedOut = Object.fromEntries(this.signedOut);
+      fs19.writeFileSync(tmp, JSON.stringify({ v: 1, users: items, grants, revoked: [...this.revoked], ...Object.keys(signedOut).length ? { signedOut } : {} }), { mode: 384 });
+      fs19.renameSync(tmp, this.store);
     } catch {
     }
   }
@@ -29992,14 +30223,14 @@ var UserSettingsStore = class {
   refreshIfChanged() {
     if (!this.store) return;
     try {
-      const m = fs18.statSync(this.store).mtimeMs;
+      const m = fs19.statSync(this.store).mtimeMs;
       if (m !== this.mtime) {
         this.mtime = m;
         this.users.clear();
         this.grants.clear();
         this.revoked.clear();
         this.load();
-        this.mtime = fs18.statSync(this.store).mtimeMs;
+        this.mtime = fs19.statSync(this.store).mtimeMs;
       }
     } catch {
     }
@@ -30061,49 +30292,70 @@ var UserSettingsStore = class {
     this.save();
     return n;
   }
+  /** Çıkış: bu kullanıcıya ait, şu ana kadar verilmiş tüm oturum çerezleri geçersiz olur. */
+  signOut(user) {
+    this.signedOut.set(user, Date.now());
+    this.save();
+  }
+  /** Çerez, kullanıcının son çıkışından önce mi verilmiş? (`at` milisaniye) */
+  isSignedOutBefore(user, atMs) {
+    const t = this.signedOut.get(user);
+    return Boolean(t) && atMs < t;
+  }
   // ---- imzalı çerez -----------------------------------------------------------------------
   signingKey() {
     if (this.key) return this.key;
     try {
-      if (this.keyPath && fs18.existsSync(this.keyPath)) this.key = fs18.readFileSync(this.keyPath);
+      if (this.keyPath && fs19.existsSync(this.keyPath)) this.key = fs19.readFileSync(this.keyPath);
     } catch {
     }
     if (!this.key || this.key.length < 32) {
-      this.key = crypto14.randomBytes(32);
+      this.key = crypto15.randomBytes(32);
       try {
         if (this.keyPath) {
-          fs18.mkdirSync(path20.dirname(this.keyPath), { recursive: true, mode: 448 });
-          fs18.writeFileSync(this.keyPath, this.key, { mode: 384 });
+          fs19.mkdirSync(path21.dirname(this.keyPath), { recursive: true, mode: 448 });
+          fs19.writeFileSync(this.keyPath, this.key, { mode: 384 });
         }
       } catch {
       }
     }
     return this.key;
   }
-  cookieFor(user, ttlS = 12 * 3600) {
-    const exp = Math.floor(Date.now() / 1e3) + ttlS;
-    const body = `${Buffer.from(user).toString("base64url")}.${exp}`;
-    const sig = crypto14.createHmac("sha256", this.signingKey()).update(body).digest("base64url");
+  /**
+   * İmzalı oturum çerezi. Sürüm 2: veriliş zamanı (`iat`) ve kimlik türü (`k`) imzaya dahildir.
+   * - `iat`, yerel hesapta parola değişimi/silme sonrası eski oturumların düşmesini sağlar.
+   * - `k` = "l" yerel hesap, "g" GitHub, "t" statik token: silinen yerel hesabın çerezi geçersiz olur.
+   */
+  cookieFor(user, ttlS = 12 * 3600, kind = "g") {
+    const iat = Date.now(), exp = Math.floor(iat / 1e3) + ttlS;
+    const body = `2.${Buffer.from(user).toString("base64url")}.${exp}.${iat}.${kind}`;
+    const sig = crypto15.createHmac("sha256", this.signingKey()).update(body).digest("base64url");
     return `${body}.${sig}`;
+  }
+  /** Çerezden kimlik ve veriliş zamanı (saniye). Geçersiz/imzalı bozuksa null. */
+  sessionFromCookie(value) {
+    if (!value) return null;
+    const parts = value.split(".");
+    if (parts.length !== 6 || parts[0] !== "2") return null;
+    const [ver, b64, exp, iat, kind, sig] = parts;
+    const body = `${ver}.${b64}.${exp}.${iat}.${kind}`;
+    const want = crypto15.createHmac("sha256", this.signingKey()).update(body).digest("base64url");
+    if (sig.length !== want.length || !crypto15.timingSafeEqual(Buffer.from(sig), Buffer.from(want))) return null;
+    if (Number(exp) * 1e3 < Date.now()) return null;
+    try {
+      const user = Buffer.from(b64, "base64url").toString("utf8");
+      if (!user) return null;
+      return { user, at: Number(iat) || 0, kind: kind === "l" ? "l" : kind === "t" ? "t" : "g" };
+    } catch {
+      return null;
+    }
   }
   /** Bu ad bir kullanıcı kaydı olarak biliniyor mu? (Yerel hesapla çakışmayı engellemek için.) */
   hasUser(name) {
     return this.users.has(name) || this.grants.has(name);
   }
   userFromCookie(value) {
-    if (!value) return null;
-    const parts = value.split(".");
-    if (parts.length !== 3) return null;
-    const [b64, exp, sig] = parts;
-    const body = `${b64}.${exp}`;
-    const want = crypto14.createHmac("sha256", this.signingKey()).update(body).digest("base64url");
-    if (sig.length !== want.length || !crypto14.timingSafeEqual(Buffer.from(sig), Buffer.from(want))) return null;
-    if (Number(exp) * 1e3 < Date.now()) return null;
-    try {
-      return Buffer.from(b64, "base64url").toString("utf8") || null;
-    } catch {
-      return null;
-    }
+    return this.sessionFromCookie(value)?.user ?? null;
   }
 };
 var SettingsUI = class {
@@ -30133,7 +30385,15 @@ var SettingsUI = class {
   cookieUser(req) {
     const raw = String(req.headers.cookie ?? "");
     const m = /(?:^|;\s*)ht_s=([^;]+)/.exec(raw);
-    return this.o.store.userFromCookie(m?.[1]);
+    const s = this.o.store.sessionFromCookie(m?.[1]);
+    if (!s) return null;
+    if (this.o.store.isSignedOutBefore(s.user, s.at)) return null;
+    if (s.kind === "l") {
+      const a = this.o.local?.get(s.user);
+      if (!a) return null;
+      if (a.pvAt && s.at < a.pvAt) return null;
+    }
+    return s.user;
   }
   setCookie(res, value, secure, maxAgeS) {
     res.setHeader("set-cookie", `ht_s=${value}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${maxAgeS}${secure ? "; Secure" : ""}`);
@@ -30155,6 +30415,7 @@ var SettingsUI = class {
     if (pathname === "/local/login") return await this.localLogin(req, res, origin), true;
     if (pathname === "/local/register") return await this.localRegister(req, res, origin), true;
     if (pathname === "/local/connector") return await this.localConnector(req, res, origin), true;
+    if (pathname === "/local/password") return await this.localPassword(req, res, origin), true;
     return false;
   }
   /**
@@ -30189,23 +30450,38 @@ var SettingsUI = class {
     const body = `${heading("Panel", user ? `Giri\u015F: ${user}` : "Ba\u011Flant\u0131 adresini kopyala, sayfalara g\xF6z at.")}
 <div class="card">
 <h2 style="margin-top:0">MCP adresi</h2>
-<p class="muted">Bu adresi Claude'da \u201CConnector ekle\u201D alan\u0131na yap\u0131\u015Ft\u0131r. Ba\u015Fkas\u0131 da kopyalay\u0131p kendi hesab\u0131yla ekleyebilir;${localConnector ? " bu adres yaln\u0131zca senin yerel hesab\u0131na ba\u011Fl\u0131d\u0131r." : " giri\u015F kendi hesab\u0131yla yap\u0131l\u0131r."}</p>
+<p class="muted">Bu adresi Claude'da \u201CConnector ekle\u201D alan\u0131na yap\u0131\u015Ft\u0131r. Ba\u015Fkas\u0131 da kopyalay\u0131p kendi hesab\u0131yla ekleyebilir;${localConnector ? " bu adres yaln\u0131zca senin yerel hesab\u0131na ba\u011Fl\u0131d\u0131r." : " giri\u015F kendi hesab\u0131yla yap\u0131l\u0131r."} Bu hesaba ba\u011Fl\u0131 <strong>t\xFCm sohbetler ayn\u0131 \xE7al\u0131\u015Fma alan\u0131n\u0131</strong> g\xF6r\xFCr; ba\u015Fka hesab\u0131n dosyalar\u0131 g\xF6r\xFCnmez.</p>
 <div class="copybox"><input id="mcp" type="text" readonly value="${esc2(mcpUrl)}"><button type="button" data-copy="#mcp">Kopyala</button></div>
 <p class="muted" style="margin-bottom:0">${localConnector ? 'Anahtar s\u0131zd\u0131ysa <a href="/local">yerel hesap sayfas\u0131ndan</a> yenileyebilirsin.' : `Sunucu: <code>${esc2(origin)}</code>`}</p>
 </div>
 <h2>Sayfalar</h2>
 <div class="tiles">${tiles}</div>
-${user ? `<p class="muted"><a href="/settings/logout">\xE7\u0131k\u0131\u015F yap</a></p>` : `<p class="muted"><a href="/settings">giri\u015F yap</a> \xB7 <a href="/local">yerel hesap</a></p>`}`;
+${user ? `<form method="post" action="/settings/logout" style="margin:0"><p class="muted" style="margin:0"><button class="ghost" type="submit">\xE7\u0131k\u0131\u015F yap</button></p></form>` : `<p class="muted"><a href="/settings">giri\u015F yap</a> \xB7 <a href="/local">yerel hesap</a></p>`}`;
     this.html(res, 200, page({ title: "Panel", subtitle: "panel", body }));
   }
   /** /local — yerel hesap girişi ve (izinliyse) kayıt. */
+  /** Form gövdesi ya da adres çubuğundan gelen `next` (yalnız aynı origin yolu kabul edilir). */
+  formNext(req, body) {
+    const fromBody = body?.get("next");
+    if (fromBody) return safeNext(fromBody);
+    const q = new URL(req.url ?? "/", "http://x").searchParams.get("next");
+    return q ? safeNext(q) : "";
+  }
   localPage(req, res, notice = "", next = "") {
     const la = this.o.local;
     const canReg = Boolean(la?.canRegister());
     const keep = safeNext(next);
+    const me = this.cookieUser(req);
+    const mine = me && la?.has(me) ? la.get(me) : void 0;
     const body = `${heading("Yerel hesap", "GitHub hesab\u0131n yoksa ya da GitHub giri\u015Fi \xE7al\u0131\u015Fm\u0131yorsa buradan gir.")}
 ${notice ? `<p class="${notice.startsWith("Hata") ? "e" : "ok"}">${esc2(notice)}</p>` : ""}
-<div class="card">
+${mine ? `<div class="card">
+<h2 style="margin-top:0">Giri\u015F: ${esc2(mine.user)}</h2>
+<p class="muted">Bu taray\u0131c\u0131 ${esc2(mine.user)} hesab\u0131yla giri\u015F yapm\u0131\u015F. Ba\u011Flant\u0131 adresin:</p>
+<div class="copybox"><input id="lc" type="text" readonly value="${esc2(this.origin(req) + "/lc/" + mine.connector)}"><button type="button" data-copy="#lc">Kopyala</button></div>
+<form method="post" action="/local/connector"><p><button type="submit" data-once>Ba\u011Flant\u0131 anahtar\u0131n\u0131 yenile</button></p></form>
+<p class="muted" style="margin-bottom:0"><form method="post" action="/settings/logout" style="display:inline"><button class="ghost" type="submit">\xE7\u0131k\u0131\u015F yap</button></form> \xB7 <a href="/">panel</a></p>
+</div>` : `<div class="card">
 <h2 style="margin-top:0">Giri\u015F</h2>
 <form method="post" action="/local/login" autocomplete="on">
   ${keep ? `<input type="hidden" name="next" value="${esc2(keep)}">` : ""}
@@ -30215,8 +30491,9 @@ ${notice ? `<p class="${notice.startsWith("Hata") ? "e" : "ok"}">${esc2(notice)}
   <input id="lp" name="password" type="password" autocomplete="current-password" required>
   <p><button class="primary" type="submit">Giri\u015F yap</button></p>
 </form>
+<p class="muted" style="margin-bottom:0">Parolan\u0131 unuttuysan y\xF6netici s\u0131f\u0131rlar (<code>node dist/index.js --local-user passwd &lt;ad&gt;</code>). Hesab\u0131n hi\xE7 yoksa a\u015Fa\u011F\u0131dan a\xE7.</p>`}
 </div>
-${canReg ? `<div class="card">
+${mine ? "" : canReg ? `<div class="card">
 <h2 style="margin-top:0">Hesap a\xE7</h2>
 <p class="muted">${la?.count() === 0 ? "Bu sunucuda hen\xFCz yerel hesap yok: ilk hesab\u0131 sen a\xE7acaks\u0131n." : "Yeni yerel hesap a\xE7."} Parola en az 10 karakter, iki t\xFCr karakter i\xE7ermeli.</p>
 <form method="post" action="/local/register" autocomplete="off">
@@ -30227,7 +30504,31 @@ ${canReg ? `<div class="card">
   <input id="rp" name="password" type="password" autocomplete="new-password" required>
   <p><button type="submit">Hesap a\xE7</button></p>
 </form>
-</div>` : `<p class="muted">Yeni hesap a\xE7ma kapal\u0131. Operat\xF6r yeni bir yerel hesap a\xE7abilir.</p>`}
+</div>` : `<div class="card">
+<h2 style="margin-top:0">Hesap a\xE7</h2>
+<p class="muted">Bu sunucuda kay\u0131t <strong>davet koduna</strong> ba\u011Fl\u0131 (${la?.count() ?? 0} yerel hesap var). Kodu y\xF6netici \xFCretir; sen yaln\u0131zca bir kez kullanabilirsin.</p>
+<form method="post" action="/local/register" autocomplete="off">
+  ${keep ? `<input type="hidden" name="next" value="${esc2(keep)}">` : ""}
+  <label for="rc">Davet kodu</label>
+  <input id="rc" name="code" type="text" placeholder="XXXX-XXXX" autocomplete="off" required>
+  <label for="ru">Kullan\u0131c\u0131 ad\u0131 (3-32 karakter)</label>
+  <input id="ru" name="user" type="text" autocomplete="username" required>
+  <label for="rp">Parola</label>
+  <input id="rp" name="password" type="password" autocomplete="new-password" required>
+  <p><button type="submit">Hesap a\xE7</button></p>
+</form>
+<p class="muted" style="margin-bottom:0">Kod yoksa y\xF6neticiden iste: <code>node dist/index.js --local-user invite</code></p>
+</div>`}
+${mine ? `<div class="card">
+<h2 style="margin-top:0">Parola de\u011Fi\u015Ftir</h2>
+<form method="post" action="/local/password" autocomplete="off">
+  <label for="cp">Mevcut parola</label>
+  <input id="cp" name="current" type="password" autocomplete="current-password" required>
+  <label for="np">Yeni parola</label>
+  <input id="np" name="next" type="password" autocomplete="new-password" required>
+  <p><button type="submit">Parolay\u0131 de\u011Fi\u015Ftir</button></p>
+</form>
+</div>` : ""}
 <p class="muted"><a href="/">panel</a> \xB7 <a href="/settings/login">GitHub ile giri\u015F</a></p>`;
     this.html(res, 200, page({ title: "Yerel hesap", subtitle: "local", body }));
   }
@@ -30243,39 +30544,61 @@ ${canReg ? `<div class="card">
   }
   async localLogin(req, res, origin) {
     if (req.method !== "POST") return this.localPage(req, res);
-    if (!this.sameOriginForm(req, origin)) return this.localPage(req, res, "Hata: form ba\u015Fka bir siteden g\xF6nderildi.");
+    if (!this.sameOriginForm(req, origin)) return this.localPage(req, res, "Hata: form ba\u015Fka bir siteden g\xF6nderildi.", this.formNext(req));
     const la = this.o.local;
-    if (!la) return this.localPage(req, res, "Hata: bu sunucuda yerel hesaplar kapal\u0131.");
+    if (!la) return this.localPage(req, res, "Hata: bu sunucuda yerel hesaplar kapal\u0131.", this.formNext(req));
     const p = await this.body(req);
+    const keep = this.formNext(req, p);
     const user = (p?.get("user") ?? "").trim().toLowerCase();
     const pw = p?.get("password") ?? "";
     const r = la.verify(user, pw);
     if (!r.ok) {
       this.o.audit?.({ ev: "local_login_failed", user });
-      return this.localPage(req, res, `Hata: ${r.error}`);
+      return this.localPage(req, res, `Hata: ${r.error}`, keep);
     }
     this.o.audit?.({ ev: "local_login", user });
-    this.setCookie(res, this.o.store.cookieFor(user), origin.startsWith("https://"), 12 * 3600);
-    const to = safeNext(p?.get("next") ?? "");
+    this.setCookie(res, this.o.store.cookieFor(user, 12 * 3600, "l"), origin.startsWith("https://"), 12 * 3600);
+    const to = keep;
     if (to && browserForm(req)) return this.continuePage(res, to, "Giri\u015F tamam. Ba\u011Flant\u0131 ak\u0131\u015F\u0131na d\xF6n\xFCl\xFCyor\u2026");
     res.writeHead(303, { location: to || "/", "cache-control": "no-store" });
     res.end();
   }
   async localRegister(req, res, origin) {
     if (req.method !== "POST") return this.localPage(req, res);
-    if (!this.sameOriginForm(req, origin)) return this.localPage(req, res, "Hata: form ba\u015Fka bir siteden g\xF6nderildi.");
+    if (!this.sameOriginForm(req, origin)) return this.localPage(req, res, "Hata: form ba\u015Fka bir siteden g\xF6nderildi.", this.formNext(req));
     const la = this.o.local;
-    if (!la || !la.canRegister()) return this.localPage(req, res, "Hata: yeni yerel hesap a\xE7ma kapal\u0131.");
+    if (!la) return this.localPage(req, res, "Hata: bu sunucuda yerel hesaplar kapal\u0131.", this.formNext(req));
+    const openReg = la.canRegister();
     const p = await this.body(req);
+    const keep = this.formNext(req, p);
     const user = (p?.get("user") ?? "").trim().toLowerCase();
+    if (!openReg) {
+      const code = p?.get("code") ?? "";
+      if (!code.trim()) return this.localPage(req, res, "Hata: kay\u0131t davet koduna ba\u011Fl\u0131; kodu yaz.", keep);
+      if (!la.redeemInvite(code)) return this.localPage(req, res, "Hata: davet kodu ge\xE7ersiz ya da s\xFCresi dolmu\u015F.", keep);
+    }
     const r = la.create(user, p?.get("password") ?? "", (n) => Boolean(this.o.reservedLogin?.(n)));
-    if (!r.ok) return this.localPage(req, res, `Hata: ${r.error}`);
+    if (!r.ok) return this.localPage(req, res, `Hata: ${r.error}`, keep);
     this.o.audit?.({ ev: "local_account_created", user: r.account.user });
-    this.setCookie(res, this.o.store.cookieFor(r.account.user), origin.startsWith("https://"), 12 * 3600);
-    const to = safeNext(p?.get("next") ?? "");
+    this.setCookie(res, this.o.store.cookieFor(r.account.user, 12 * 3600, "l"), origin.startsWith("https://"), 12 * 3600);
+    const to = keep;
     if (to && browserForm(req)) return this.continuePage(res, to, "Hesap a\xE7\u0131ld\u0131. Ba\u011Flant\u0131 ak\u0131\u015F\u0131na d\xF6n\xFCl\xFCyor\u2026");
     res.writeHead(303, { location: to || "/", "cache-control": "no-store" });
     res.end();
+  }
+  /** Oturum sahibi kendi parolasını değiştirir (mevcut parola doğrulanır). */
+  async localPassword(req, res, origin) {
+    if (req.method !== "POST") return this.localPage(req, res);
+    if (!this.sameOriginForm(req, origin)) return this.localPage(req, res, "Hata: form ba\u015Fka bir siteden g\xF6nderildi.");
+    const user = this.cookieUser(req);
+    const la = this.o.local;
+    if (!user || !la?.has(user)) return this.localPage(req, res, "Hata: parola de\u011Fi\u015Ftirmek i\xE7in giri\u015F yap.");
+    const p = await this.body(req);
+    const r = la.changePassword(user, p?.get("current") ?? "", p?.get("next") ?? "");
+    if (!r.ok) return this.localPage(req, res, `Hata: ${r.error}`);
+    this.o.audit?.({ ev: "local_password_changed", user });
+    this.setCookie(res, this.o.store.cookieFor(user, 12 * 3600, "l"), origin.startsWith("https://"), 12 * 3600);
+    return this.localPage(req, res, "Parola de\u011Fi\u015Fti.");
   }
   /** Bağlantı anahtarını yenile (sızmışsa eski adres çalışmaz). */
   async localConnector(req, res, _origin) {
@@ -30297,28 +30620,31 @@ ${canReg ? `<div class="card">
     if (!ws) return this.html(res, 404, page({ title: "\xC7al\u0131\u015Fma alanlar\u0131", body: `<p class="e">Bu sunucuda \xE7al\u0131\u015Fma alan\u0131 listesi kapal\u0131.</p>` }));
     let notice = "";
     if (req.method === "POST") {
-      const p = await this.body(req);
-      const dir = p?.get("adopt");
-      if (!dir) notice = "Devral\u0131nacak dizin se\xE7ilmedi.";
+      if (!this.sameOriginForm(req, origin)) notice = "Hata: form ba\u015Fka bir siteden g\xF6nderildi.";
       else {
-        try {
-          notice = ws.adopt(user, dir);
-        } catch (e) {
-          notice = `Hata: ${e.message}`;
+        const p = await this.body(req);
+        const dir = p?.get("adopt");
+        if (!dir) notice = "Hata: devral\u0131nacak dizin se\xE7ilmedi.";
+        else {
+          try {
+            notice = ws.adopt(user, dir);
+          } catch (e) {
+            notice = `Hata: ${e.message}`;
+          }
         }
       }
     }
     const rows = ws.list(user);
     const kb2 = (n) => n < 1024 ? `${n} B` : n < 1 << 20 ? `${(n / 1024).toFixed(1)} KB` : n < 1 << 30 ? `${(n / 1048576).toFixed(1)} MB` : `${(n / 1073741824).toFixed(2)} GB`;
-    const body = `${heading("\xC7al\u0131\u015Fma alanlar\u0131", "Hesab\u0131n k\xF6kleri ve eski sohbetlerin b\u0131rakt\u0131\u011F\u0131 i\u015Fler. Devral, se\xE7ilen dizinin dosyalar\u0131n\u0131 hesap k\xF6k\xFCne ta\u015F\u0131r; var olan\u0131n \xFCzerine yazmaz. Kabuk iskeleti (.hardtools) ve geri d\xF6n\xFC\u015F\xFCm kutusu ta\u015F\u0131nmaz.")}
-${notice ? `<p class="ok">${esc2(notice)}</p>` : ""}
+    const body = `${heading("\xC7al\u0131\u015Fma alanlar\u0131", "Bu hesaba ba\u011Fl\u0131 t\xFCm Claude sohbetleri ayn\u0131 \xE7al\u0131\u015Fma alan\u0131n\u0131 g\xF6r\xFCr (hesab\u0131nda tek k\xF6k). A\u015Fa\u011F\u0131daki eski dizinler \xF6nceki s\xFCr\xFCmlerden kalan i\u015Flerdir: Devral, se\xE7ilen dizinin dosyalar\u0131n\u0131 hesap k\xF6k\xFCne ta\u015F\u0131r; var olan\u0131n \xFCzerine yazmaz. Kabuk iskeleti (.hardtools) ve geri d\xF6n\xFC\u015F\xFCm kutusu ta\u015F\u0131nmaz.")}
+${notice ? `<p class="${notice.startsWith("Hata") ? "e" : "ok"}">${esc2(notice)}</p>` : ""}
 <div class="card"><div class="tablewrap"><table>
 <thead><tr><th>Dizin</th><th>T\xFCr</th><th>Dosya</th><th>Boyut</th><th>Son kullan\u0131m</th><th></th></tr></thead>
 <tbody>${rows.map((r) => `<tr${r.current ? ' style="font-weight:600"' : ""}>
-<td><code>${esc2(r.rel)}</code>${r.current ? ' <span class="pill">bu hesap</span>' : ""}${esc2(r.rel) === path20.basename(cur()) ? ' <span class="pill on">etkin</span>' : ""}</td>
+<td><code>${esc2(r.rel)}</code>${r.current ? ' <span class="pill">bu hesap</span>' : ""}${esc2(r.rel) === path21.basename(cur()) ? ' <span class="pill on">etkin</span>' : ""}</td>
 <td>${r.kind === "account" ? "hesap" : "sohbet"}${r.user ? ` \xB7 ${esc2(r.user)}` : ""}</td>
 <td>${r.files}${r.scratchFiles ? ` <span class="muted">(+${r.scratchFiles} iskelet)</span>` : ""}</td><td>${kb2(r.bytes)}${r.scratchBytes ? ` <span class="muted">+ ${kb2(r.scratchBytes)} iskelet</span>` : ""}</td><td>${new Date(r.lastUsed).toISOString().replace("T", " ").slice(0, 16)}</td>
-<td>${r.current ? "" : `<form method="post" action="/workspaces" style="margin:0"><input type="hidden" name="adopt" value="${esc2(r.rel)}"><button type="submit" data-once>Devral</button></form>`}</td>
+<td>${r.current ? "" : `<form method="post" action="/workspaces" style="margin:0" onsubmit="return confirm('${esc2(r.rel)} dizinindeki dosyalar hesap k\xF6k\xFCne ta\u015F\u0131nacak. Var olan dosyalar korunur. Devam?')"><input type="hidden" name="adopt" value="${esc2(r.rel)}"><button type="submit" data-once>Devral</button></form>`}</td>
 </tr>`).join("") || `<tr><td colspan="6" class="muted">Kay\u0131t yok.</td></tr>`}</tbody></table></div></div>
 <p class="muted">Ayn\u0131 listeyi modelden de isteyebilirsin: <code>ht_workspace {"action":"list"}</code> \xB7 devam: <code>ht_workspace {"action":"adopt","dir":"u-\u2026"}</code></p>
 <p class="muted"><a href="/">panel</a> \xB7 <a href="/settings">ayarlar</a></p>`;
@@ -30482,10 +30808,16 @@ ${gh ? `<p class="muted">Claude'da ba\u011Flan\u0131rken kulland\u0131\u011F\u01
     res.end();
   }
   async logout(req, res, origin) {
-    if (req.method !== "POST") return this.html(res, 405, page({ title: "Ayarlar", body: `<p class="e">Yaln\u0131z POST.</p>` }));
+    if (req.method !== "POST") return this.html(res, 200, page({ title: "\xC7\u0131k\u0131\u015F", subtitle: "settings", body: `${heading("\xC7\u0131k\u0131\u015F yap")}
+<div class="card"><p class="muted">Bu taray\u0131c\u0131daki oturum kapat\u0131lacak. Oturumu kapatmak i\xE7in d\xFC\u011Fmeye bas.</p>
+<form method="post" action="/settings/logout"><p><button class="primary" type="submit">\xC7\u0131k\u0131\u015F yap</button></p></form>
+<p class="muted" style="margin-bottom:0"><a href="${esc2(origin)}/">panel</a></p></div>` }));
     const user = this.cookieUser(req);
     let revoked = 0;
-    if (user) revoked = this.o.store.revokeUser(user);
+    if (user) {
+      revoked = this.o.store.revokeUser(user);
+      this.o.store.signOut(user);
+    }
     this.o.audit?.({ ev: "settings_logout", user: user ?? "-", revoked });
     res.setHeader("set-cookie", "ht_s=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0");
     const body = `${heading("\xC7\u0131k\u0131\u015F yap\u0131ld\u0131")}
@@ -30501,10 +30833,10 @@ ${gh ? `<p class="muted">Claude'da ba\u011Flan\u0131rken kulland\u0131\u011F\u01
     const p = await this.body(req);
     const given = String(p?.get("token") ?? "").trim();
     const want = this.o.operatorToken ?? "";
-    if (!want || given.length !== want.length || !crypto14.timingSafeEqual(Buffer.from(given), Buffer.from(want)))
+    if (!want || given.length !== want.length || !crypto15.timingSafeEqual(Buffer.from(given), Buffer.from(want)))
       return this.loginPage(res, "Token yanl\u0131\u015F.");
     const user = "operator";
-    this.setCookie(res, this.o.store.cookieFor(user), origin.startsWith("https://"), 12 * 3600);
+    this.setCookie(res, this.o.store.cookieFor(user, 12 * 3600, "t"), origin.startsWith("https://"), 12 * 3600);
     this.o.audit?.({ ev: "settings_login", user, via: "token" });
     return this.redirect(res, origin);
   }
@@ -30524,7 +30856,7 @@ ${gh ? `<p class="muted">Claude'da ba\u011Flan\u0131rken kulland\u0131\u011F\u01
       body: new URLSearchParams({ client_id: gh.clientId, scope: "read:user user:email" }).toString()
     });
     if (!dc || typeof dc.device_code !== "string") return this.loginPage(res, "GitHub'dan kod al\u0131namad\u0131, tekrar dene.");
-    const t = crypto14.randomBytes(18).toString("base64url");
+    const t = crypto15.randomBytes(18).toString("base64url");
     this.pending.set(t, {
       deviceCode: dc.device_code,
       userCode: String(dc.user_code),
@@ -30616,6 +30948,11 @@ async function main() {
   const profile = arg("--profile");
   const httpMode = process.argv.includes("--http");
   let policy = loadPolicy({ profile });
+  if (process.argv.includes("--local-user")) {
+    const i = process.argv.indexOf("--local-user");
+    const stateDir2 = process.env.HARDTOOLS_STATE_DIR?.trim() || (policy.audit.dir ? path22.join(policy.audit.dir, "state") : void 0);
+    process.exit(await localUserCli(process.argv.slice(i + 1).filter((a) => !["--password-stdin"].includes(a) || true), { stateDir: stateDir2 }));
+  }
   if (httpMode) {
     if (!envFlag("HARDTOOLS_HTTP_ALLOW_LOCAL_TOOLS")) {
       policy = { ...policy, fs: { ...policy.fs, writeEnabled: false }, shell: { ...policy.shell, enabled: false } };
@@ -30633,7 +30970,7 @@ async function main() {
   console.error(`[hardtools] ${VERSION} profile=${policy.profile} roots=${policy.roots.join(",")} transport=${httpMode ? "http" : "stdio"} audit=${audit.file}`);
   if (!httpMode) {
     const stdioRoot = policy.roots[0];
-    const stdioOpts = stdioRoot && stdioRoot !== path21.parse(stdioRoot).root ? { workspaces: { base: stdioRoot, current: stdioRoot, user: (process.env.HARDTOOLS_ACCOUNT ?? "local").trim() || "local" } } : void 0;
+    const stdioOpts = stdioRoot && stdioRoot !== path22.parse(stdioRoot).root ? { workspaces: { base: stdioRoot, current: stdioRoot, user: (process.env.HARDTOOLS_ACCOUNT ?? "local").trim() || "local" } } : void 0;
     await createServer(policy, audit, void 0, void 0, void 0, stdioOpts).connect(new StdioServerTransport());
     return;
   }
@@ -30657,7 +30994,7 @@ async function main() {
   const loginFree = isPublic && (publicMode === "key" || publicTools !== null || anonAll);
   const loginRequired = isPublic && !loginFree;
   if (isPublic) console.error(`[hardtools] public connector mode=${publicMode}; tools=${publicTools ? [...publicTools].join(",") : "all"}; ${loginFree ? "no OAuth challenge" : "login required (bearer or OAuth)"}${anonAll && !publicTools ? " (HARDTOOLS_PUBLIC_ANON: tam set giri\u015Fsiz)" : ""}`);
-  const keyId = publicKey ? crypto15.createHash("sha256").update(publicKey).digest("hex").slice(0, 12) : "open";
+  const keyId = publicKey ? crypto16.createHash("sha256").update(publicKey).digest("hex").slice(0, 12) : "open";
   const publicOwner = (viaKey) => viaKey ? `public:${keyId}` : "public";
   const token = process.env.HARDTOOLS_HTTP_TOKEN ?? "";
   const hasToken = token.length >= 32;
@@ -30675,11 +31012,11 @@ async function main() {
   const ghLogins = (process.env.HARDTOOLS_OAUTH_ALLOWED_LOGINS ?? "").split(",").map((s) => s.trim()).filter(Boolean);
   const ghEmails = (process.env.HARDTOOLS_OAUTH_ALLOWED_EMAILS ?? "").split(",").map((s) => s.trim()).filter(Boolean);
   const ghAllowAny = ["1", "true", "yes", "*"].includes((process.env.HARDTOOLS_OAUTH_ALLOW_ANY ?? "").trim().toLowerCase()) || ghLogins.includes("*") || ghEmails.includes("*");
-  const stateDir = process.env.HARDTOOLS_STATE_DIR?.trim() || (policy.audit.dir ? path21.join(policy.audit.dir, "state") : void 0);
-  const stateFile = (name) => stateDir ? path21.join(stateDir, name) : void 0;
-  const memoryDir = stateDir ? path21.join(stateDir, "memory") : void 0;
-  const persistKey = stateDir ? path21.join(stateDir, "persist.key") : void 0;
-  const persistFile = (name) => stateDir ? new StateFile(path21.join(stateDir, name), persistKey) : void 0;
+  const stateDir = process.env.HARDTOOLS_STATE_DIR?.trim() || (policy.audit.dir ? path22.join(policy.audit.dir, "state") : void 0);
+  const stateFile = (name) => stateDir ? path22.join(stateDir, name) : void 0;
+  const memoryDir = stateDir ? path22.join(stateDir, "memory") : void 0;
+  const persistKey = stateDir ? path22.join(stateDir, "persist.key") : void 0;
+  const persistFile = (name) => stateDir ? new StateFile(path22.join(stateDir, name), persistKey) : void 0;
   const undoState = persistFile("undo.enc"), schedState = persistFile("schedule.enc");
   let github;
   if (ghId) {
@@ -30735,15 +31072,15 @@ async function main() {
   const sharedShares = new Shares(Date.now, persistFile("shares.enc"));
   const sharedVars = new Variables(persistFile("vars.enc"));
   const sharedUndo = new UndoJournal(undoState);
-  const perSession = (process.env.HARDTOOLS_PER_SESSION_WORKSPACE ?? "1").trim() !== "0";
+  const perSession = (process.env.HARDTOOLS_PER_SESSION_WORKSPACE ?? "0").trim() === "1";
   const baseRoot = policy.roots[0];
-  const baseIsFsRoot = Boolean(baseRoot) && baseRoot === path21.parse(baseRoot).root;
+  const baseIsFsRoot = Boolean(baseRoot) && baseRoot === path22.parse(baseRoot).root;
   const sessionBase = baseRoot && !baseIsFsRoot ? baseRoot : void 0;
   const sessionsFile = stateFile("sessions.json");
   const sessMap = /* @__PURE__ */ new Map();
   if (sessionsFile) {
     try {
-      const d = JSON.parse(fs19.readFileSync(sessionsFile, "utf8"));
+      const d = JSON.parse(fs20.readFileSync(sessionsFile, "utf8"));
       for (const r of d.items ?? []) if (r?.sid && r?.dir) sessMap.set(r.sid, { owner: r.owner ?? "", dir: r.dir, last: r.last ?? 0 });
     } catch {
     }
@@ -30756,45 +31093,45 @@ async function main() {
       try {
         const now = Date.now();
         for (const [sid, r] of sessMap) if (now - r.last > 7 * 24 * 36e5) sessMap.delete(sid);
-        fs19.mkdirSync(path21.dirname(sessionsFile), { recursive: true, mode: 448 });
+        fs20.mkdirSync(path22.dirname(sessionsFile), { recursive: true, mode: 448 });
         const tmp = sessionsFile + ".tmp";
-        fs19.writeFileSync(tmp, JSON.stringify({ v: 1, items: [...sessMap].map(([sid, r]) => ({ sid, ...r })) }), { mode: 384 });
-        fs19.renameSync(tmp, sessionsFile);
+        fs20.writeFileSync(tmp, JSON.stringify({ v: 1, items: [...sessMap].map(([sid, r]) => ({ sid, ...r })) }), { mode: 384 });
+        fs20.renameSync(tmp, sessionsFile);
       } catch {
       }
     }, 250);
     sessSaveTimer.unref?.();
   };
   const mkRoot = (dir, owner) => {
-    fs19.mkdirSync(dir, { recursive: true, mode: 448 });
+    fs20.mkdirSync(dir, { recursive: true, mode: 448 });
     if (owner) writeMarker(dir, owner, userFor(owner));
     return dir;
   };
   const accountRootForUser = (user) => {
-    const dir = path21.join(baseRoot, "a-" + crypto15.createHash("sha256").update("user\0" + user.toLowerCase()).digest("hex").slice(0, 16));
+    const dir = path22.join(baseRoot, "a-" + crypto16.createHash("sha256").update("user\0" + user.toLowerCase()).digest("hex").slice(0, 16));
     mkRoot(dir);
     writeMarker(dir, "user:" + user, user);
     return dir;
   };
   const accountRoot = (owner) => accountRootForUser(userFor(owner));
-  const sessionRoot = (sid, owner) => mkRoot(path21.join(sessionBase, "u-" + crypto15.createHash("sha256").update("sid\0" + sid).digest("hex").slice(0, 16)), owner);
+  const sessionRoot = (sid, owner) => mkRoot(path22.join(sessionBase, "u-" + crypto16.createHash("sha256").update("sid\0" + sid).digest("hex").slice(0, 16)), owner);
   const countFiles = (dir, limit = 25) => {
     let n = 0;
     const walk = (d, depth) => {
       if (n >= limit || depth > 3) return;
       let names;
       try {
-        names = fs19.readdirSync(d);
+        names = fs20.readdirSync(d);
       } catch {
         return;
       }
       for (const name of names) {
         if (n >= limit) return;
         if (name.startsWith(".")) continue;
-        const abs = path21.join(d, name);
+        const abs = path22.join(d, name);
         let st;
         try {
-          st = fs19.lstatSync(abs);
+          st = fs20.lstatSync(abs);
         } catch {
           continue;
         }
@@ -30807,14 +31144,14 @@ async function main() {
     return n;
   };
   const adoptLatestSession = (owner, accountDir) => {
-    const marker = path21.join(accountDir, ".ht-adopted");
-    if (fs19.existsSync(marker) || countFiles(accountDir) > 0) return void 0;
-    const mine = [...sessMap.entries()].filter(([, r]) => r.owner === owner && r.dir !== accountDir && fs19.existsSync(r.dir)).sort((a, b) => b[1].last - a[1].last);
+    const marker = path22.join(accountDir, ".ht-adopted");
+    if (fs20.existsSync(marker) || countFiles(accountDir) > 0) return void 0;
+    const mine = [...sessMap.entries()].filter(([, r]) => r.owner === owner && r.dir !== accountDir && fs20.existsSync(r.dir)).sort((a, b) => b[1].last - a[1].last);
     for (const [, rec] of mine) {
       if (countFiles(rec.dir) === 0) continue;
       const r = adoptInto(rec.dir, accountDir);
       try {
-        fs19.writeFileSync(marker, JSON.stringify({ from: rec.dir, at: Date.now(), moved: r.moved }), { mode: 384 });
+        fs20.writeFileSync(marker, JSON.stringify({ from: rec.dir, at: Date.now(), moved: r.moved }), { mode: 384 });
       } catch {
       }
       audit.write({ ev: "workspace_adopt", owner, from: rec.dir, to: accountDir, moved: r.moved, skipped: r.skipped });
@@ -30826,15 +31163,15 @@ async function main() {
   const seedFromUser = (owner, dir) => {
     try {
       const from = accountRoot(owner);
-      if (path21.resolve(from) === path21.resolve(dir)) return;
+      if (path22.resolve(from) === path22.resolve(dir)) return;
       const m = measure(from);
       if (!m.files || m.files > 2e3 || m.bytes > 64 * 1024 * 1024) return;
-      for (const name of fs19.readdirSync(from)) {
+      for (const name of fs20.readdirSync(from)) {
         if (name === ".ht-owner" || name === ".hardtools" || name === ".ht-trash" || name === ".recycle") continue;
-        const src = path21.join(from, name), dst = path21.join(dir, name);
-        if (fs19.existsSync(dst)) continue;
+        const src = path22.join(from, name), dst = path22.join(dir, name);
+        if (fs20.existsSync(dst)) continue;
         try {
-          fs19.cpSync(src, dst, { recursive: true, errorOnExist: false, force: false });
+          fs20.cpSync(src, dst, { recursive: true, errorOnExist: false, force: false });
         } catch {
         }
       }
@@ -30873,8 +31210,8 @@ async function main() {
       res.end(JSON.stringify({ error: msg }));
     };
     try {
-      const path22 = (req.url ?? "").split("?")[0];
-      if (path22 === "/healthz") {
+      const path23 = (req.url ?? "").split("?")[0];
+      if (path23 === "/healthz") {
         res.writeHead(200, { "content-type": "application/json", "cache-control": "no-store" });
         res.end(JSON.stringify({
           ok: true,
@@ -30889,12 +31226,12 @@ async function main() {
       }
       const h = String(req.headers.host ?? "").toLowerCase();
       if (!allowedHosts.has(h)) return send(403, "host not allowed");
-      if (path22 === "/" || path22 === "/local" || path22.startsWith("/local/") || path22 === "/settings" || path22.startsWith("/settings/") || path22 === "/workspaces") {
-        if (await settingsUI.handle(req, res, path22)) return;
+      if (path23 === "/" || path23 === "/local" || path23.startsWith("/local/") || path23 === "/settings" || path23.startsWith("/settings/") || path23 === "/workspaces") {
+        if (await settingsUI.handle(req, res, path23)) return;
       }
-      if (sharedInputs.handle(req, res, path22, oauth.origin(req))) return;
+      if (sharedInputs.handle(req, res, path23, oauth.origin(req))) return;
       const sameOrigin = req.headers.origin === oauth.origin(req);
-      const tokenProtected = path22.startsWith("/settings/");
+      const tokenProtected = path23.startsWith("/settings/");
       if (req.headers.origin && !sameOrigin && !tokenProtected) return send(403, "browser origins are not allowed");
       const ip = req.socket.remoteAddress ?? "?";
       const now = Date.now();
@@ -30909,17 +31246,17 @@ async function main() {
       b.n++;
       hits.set(ip, b);
       if (b.n > 120) return send(429, "rate limited");
-      if (sharedShares.download(req, res, path22)) return;
-      if (req.method === "GET" && path22 === "/connect") {
-        return connectPage(req, res, path22, loginFree && publicMode === "key" && publicKey ? publicKey : "");
+      if (sharedShares.download(req, res, path23)) return;
+      if (req.method === "GET" && path23 === "/connect") {
+        return connectPage(req, res, path23, loginFree && publicMode === "key" && publicKey ? publicKey : "");
       }
       if (loginFree) {
-        if (/^\/(?:\.well-known\/|register$|authorize$|token$|oauth\/|invite\/)/.test(path22)) return send(404, "not found");
-        if (req.method === "GET" && (path22 === "/connect" || /^\/c\/[A-Za-z0-9_-]{16,128}$/.test(path22))) return connectPage(req, res, path22, publicMode === "key" && publicKey ? publicKey : "");
+        if (/^\/(?:\.well-known\/|register$|authorize$|token$|oauth\/|invite\/)/.test(path23)) return send(404, "not found");
+        if (req.method === "GET" && (path23 === "/connect" || /^\/c\/[A-Za-z0-9_-]{16,128}$/.test(path23))) return connectPage(req, res, path23, publicMode === "key" && publicKey ? publicKey : "");
       } else if (await oauth.handle(req, res)) return;
-      const keyPath = /^\/c\/([A-Za-z0-9_-]{16,128})(?:\/mcp)?$/.exec(path22);
-      const localPath = /^\/lc\/([A-Za-z0-9_-]{16,128})(?:\/mcp)?$/.exec(path22);
-      const isMcpPath = path22 === "/mcp" || keyPath !== null || localPath !== null;
+      const keyPath = /^\/c\/([A-Za-z0-9_-]{16,128})(?:\/mcp)?$/.exec(path23);
+      const localPath = /^\/lc\/([A-Za-z0-9_-]{16,128})(?:\/mcp)?$/.exec(path23);
+      const isMcpPath = path23 === "/mcp" || keyPath !== null || localPath !== null;
       if (!isMcpPath) return send(404, "not found");
       const m = /^Bearer (.+)$/.exec(String(req.headers.authorization ?? ""));
       let owner = m ? hasToken && equalSecret(m[1], token) ? "static" : oauth.accessScope(m[1]) : null;
@@ -30929,7 +31266,7 @@ async function main() {
       }
       if (!owner && loginFree) {
         if (keyPath && publicKey && equalSecret(keyPath[1], publicKey)) owner = publicOwner(true);
-        else if (path22 === "/mcp" && publicMode !== "key") owner = publicOwner(false);
+        else if (path23 === "/mcp" && publicMode !== "key") owner = publicOwner(false);
       }
       if (!owner) {
         return send(
@@ -30959,17 +31296,24 @@ async function main() {
       const isInit = body?.method === "initialize";
       let sid = sidHeader?.[0];
       let workDir = baseRoot;
-      if (perSession && owner !== "static" && baseRoot && !baseIsFsRoot && sessionBase) {
+      if (!perSession && owner !== "static" && baseRoot && !baseIsFsRoot) {
+        workDir = accountRoot(owner);
+        const key = userFor(owner);
+        if (!adopted.has(key)) {
+          migrateUser(owner, workDir);
+          adopted.add(key);
+        }
+      } else if (perSession && owner !== "static" && baseRoot && !baseIsFsRoot && sessionBase) {
         const rec = sid ? sessMap.get(sid) : void 0;
         const liveBase = policy.roots[0];
-        const recFresh = Boolean(rec && rec.owner === owner && fs19.existsSync(rec.dir) && pathDir(rec.dir) === liveBase && pathBase(rec.dir).startsWith("u-"));
+        const recFresh = Boolean(rec && rec.owner === owner && fs20.existsSync(rec.dir) && pathDir(rec.dir) === liveBase && pathBase(rec.dir).startsWith("u-"));
         if (rec && !recFresh && sid) sessMap.delete(sid);
         if (rec && recFresh && rec.dir) {
           workDir = rec.dir;
           rec.last = Date.now();
           saveSessions();
         } else if (isInit && !sid) {
-          sid = crypto15.randomBytes(18).toString("base64url");
+          sid = crypto16.randomBytes(18).toString("base64url");
           workDir = sessionRoot(sid, owner);
           if (baseRoot && !baseIsFsRoot) seedFromUser(owner, workDir);
           sessMap.set(sid, { owner, dir: workDir, last: Date.now() });
@@ -31044,12 +31388,14 @@ async function main() {
         // Tarayıcıdan gelen istekte MCP oturumu yok: etkin kök = hesabın kökü.
         current: (user) => accountRootForUser(user),
         list: (user) => scanWorkspaces(baseRoot, accountRootForUser(user), (dir) => [...sessMap.values()].find((r) => r.dir === dir)?.owner, userFor).filter((e) => e.user === user || user === "operator" && e.user === void 0),
+        // Sayfa ile model aracı AYNI doğrulamayı kullanır: sahiplik denetimi olmadan
+        // başka hesabın dizini devralınabilirdi (hesaplar arası veri sızması).
         adopt: (user, rel2) => {
-          if (!/^(a|u)-[0-9a-f]{16}$/.test(rel2)) throw new Error("ge\xE7ersiz dizin");
           const target = accountRootForUser(user);
-          const r = adoptInto(path21.join(baseRoot, rel2), target);
-          audit.write({ ev: "workspace_adopt", user, from: rel2, to: pathBase(target), moved: r.moved, skipped: r.skipped });
-          return `${rel2} \u2192 ${pathBase(target)}: ${r.moved} \xF6\u011Fe ta\u015F\u0131nd\u0131, ${r.skipped} atland\u0131`;
+          const entries = scanWorkspaces(baseRoot, target, (dir) => [...sessMap.values()].find((r) => r.dir === dir)?.owner, userFor);
+          const msg = htWorkspace({ base: baseRoot, current: target, user, entries: () => entries }, { action: "adopt", dir: rel2 });
+          audit.write({ ev: "workspace_adopt", user, from: rel2, to: pathBase(target) });
+          return msg.replace(/^WORKSPACE adopt /, `${rel2} \u2192 ${pathBase(target)}: `);
         }
       }
     } : {}
@@ -31087,7 +31433,7 @@ async function main() {
     p = { ...policy, shell, net: net3 };
     return p;
   };
-  const connectPage = (req, res, path22, key) => {
+  const connectPage = (req, res, path23, key) => {
     const origin = oauth.origin(req);
     const base = key ? `${origin}/c/${key}` : `${origin}/mcp`;
     const others = key ? `${origin}/mcp` : "";
@@ -31101,7 +31447,7 @@ async function main() {
 <div class="card"><textarea readonly onclick="this.select()">${esc2(base)}</textarea></div>
 <ol><li>Ad: <code>hardtools</code></li><li>Uzak MCP sunucu adresi: <code>${esc2(base)}</code></li>${others ? `<li>Anahtar gerekmez; bu adres yaln\u0131zca s\u0131n\u0131rl\u0131 ara\xE7lar\u0131 a\xE7ar. Tam yetki i\xE7in <code>/c/&lt;anahtar&gt;</code> adresini kullan.</li>` : `<li>Bu adres anahtar\u0131n kendisidir: payla\u015Fma.</li>`}</ol>
 <p class="muted">Ba\u011Fland\u0131ktan sonra ara\xE7lar sohbette g\xF6r\xFCn\xFCr. Sunucu d\xFC\u015Ferse <code>/healthz</code> izleyicisi ve konteyner g\xF6zc\xFCs\xFC yeniden ba\u015Flat\u0131r.</p>
-${path22 !== "/connect" ? `<p class="muted"><a href="${origin}/connect">ba\u011Flanma sayfas\u0131</a> \xB7 <a href="${origin}/settings">ayarlar</a></p>` : ""}`
+${path23 !== "/connect" ? `<p class="muted"><a href="${origin}/connect">ba\u011Flanma sayfas\u0131</a> \xB7 <a href="${origin}/settings">ayarlar</a></p>` : ""}`
     });
     res.writeHead(200, { "content-type": "text/html; charset=utf-8", "cache-control": "no-store", "referrer-policy": "no-referrer", "x-frame-options": "DENY", "x-content-type-options": "nosniff", "content-security-policy": PAGE_CSP });
     res.end(html);
