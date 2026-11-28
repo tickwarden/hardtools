@@ -18,7 +18,9 @@ const audit = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "e2e-audit-"
 const cfg = path.join(audit, "config.json");
 fs.writeFileSync(cfg, JSON.stringify({ audit: { dir: audit, failClosed: false }, fs: { writeEnabled: true }, shell: { enabled: false } }));
 const stateDir = path.join(audit, "state");
+const OPKEY = "e2e-operator-anahtar-0123456789";
 const env = { ...process.env, HARDTOOLS_ROOTS: root, HARDTOOLS_CONFIG: cfg, HARDTOOLS_STATE_DIR: stateDir, HARDTOOLS_LOCAL_SIGNUP: "first",
+  HARDTOOLS_OPERATOR_TOKEN: OPKEY,
   HARDTOOLS_HTTP_TOKEN: "e".repeat(4) + "0123456789abcdef0123456789abcdef", HARDTOOLS_OAUTH_GITHUB_CLIENT_ID: "", HARDTOOLS_OAUTH_ALLOWED_LOGINS: "" };
 
 const problems = [];
@@ -133,6 +135,34 @@ const readBack = textOf(await callTool("ht_read", { path: "paylasim.txt" }));
 ok(/ilk sohbet/.test(readBack), "ikinci MCP çağrısı önceki yazmayı görüyor (ortak hesap kökü)");
 const accDirs = fs.readdirSync(root).filter((n) => n.startsWith("a-"));
 ok(accDirs.length === 1 && fs.existsSync(path.join(root, accDirs[0], "paylasim.txt")), "dosya tek hesap kökünde: " + accDirs.join(","));
+
+// 10c) Yönetici paneli: tarayıcıdan davet kodu üretimi (terminal/flyctl gerekmez)
+await page.goto(`${origin}/operator`, { waitUntil: "networkidle2" });
+ok(Boolean(await page.$('form[action="/operator/login"] input[name="token"]')), "yönetici paneli anahtar formu");
+await page.type('form[action="/operator/login"] input[name="token"]', OPKEY);
+await Promise.all([page.waitForNavigation({ waitUntil: "networkidle2" }).catch(() => null), page.click('form[action="/operator/login"] button[type="submit"]')]);
+const panelText = await page.evaluate(() => document.body.innerText);
+ok(/Davet kodu üret/.test(panelText) && /Hesaplar/.test(panelText), "panel açıldı (davet + hesap listesi)");
+await page.select('form[action="/operator/invite"] select[name="ttl"]', "30");
+await Promise.all([page.waitForNavigation({ waitUntil: "networkidle2" }).catch(() => null), page.click('form[action="/operator/invite"] button[type="submit"]')]);
+const panelCode = await page.$eval("#rev", (e) => e.value).catch(() => "");
+ok(/^[A-Z0-9]{4}-[A-Z0-9]{4}$/.test(panelCode), "panelden kod üretildi: " + panelCode);
+// Panelden üretilen kod gerçekten hesap açıyor mu? (ayrı sekme = temiz çerez)
+// Ayrı tarayıcı bağlamı: çerezler paylaşılmasın (giriş yapmış sekme kayıt formunu göstermez).
+const ctx2 = browser.createBrowserContext ? await browser.createBrowserContext() : await browser.createIncognitoBrowserContext();
+const page2 = await ctx2.newPage();
+page2.on("console", (m) => { if (/Content Security Policy|Uncaught/i.test(m.text())) consoleErrors.push("panel-kayit: " + m.text().slice(0, 120)); });
+await page2.goto(`${origin}/local`, { waitUntil: "networkidle2" });
+await page2.type('form[action="/local/register"] input[name="code"]', panelCode);
+await page2.type('form[action="/local/register"] input[name="user"]', "panelkodlu");
+await page2.type('form[action="/local/register"] input[name="password"]', "Panel-Kod-58x");
+await Promise.all([page2.waitForNavigation({ waitUntil: "networkidle2" }).catch(() => null), page2.click('form[action="/local/register"] button[type="submit"]')]);
+ok(/Giriş: panelkodlu/.test(await page2.evaluate(() => document.body.innerText)), "panelden üretilen kodla hesap açıldı ve giriş yapıldı");
+// Parola sıfırlama: panelden üretilen parola ile giriş
+await page.goto(`${origin}/operator`, { waitUntil: "networkidle2" });
+const rows = await page.$$('form[action="/operator/passwd"]');
+ok(rows.length >= 2, "panelde hesap satırları var: " + rows.length);
+await page2.close(); await ctx2.close();
 
 // 11) OAuth akışı: /local?next=/authorize… → devam sayfası → callback
 const reg = await new Promise((res, rej) => {

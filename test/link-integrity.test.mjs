@@ -53,7 +53,7 @@ async function boot(t, env = {}) {
   return { port, cookie, root, stateDir };
 }
 
-const PAGES = ["/", "/local", "/settings", "/workspaces", "/connect", "/device"];
+const PAGES = ["/", "/local", "/settings", "/workspaces", "/connect", "/device", "/operator"];
 
 test("tüm sayfalardaki dahili bağlantılar 404/405 vermez", async (t) => {
   const { port, cookie } = await boot(t);

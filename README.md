@@ -278,6 +278,21 @@ Her kimlik **kendi `/work` kökünü** alır; bir oturumda klonlanan depo başka
 - `HARDTOOLS_PER_SESSION_WORKSPACE=0` eski tek-paylaşılan-kök davranışına döner.
 - Oturum kökleri hacimde birikir; `ht_status` hangi kökte olduğunuzu gösterir.
 
+### 1.5.39 — yönetici paneli (tarayıcıdan davet kodu)
+
+Fly.io panosunda web terminal yok (kaldırıldı); davet kodu üretmek, hesap açmak ve parola
+sıfırlamak yalnızca `flyctl ssh console` ile mümkündü. Artık tarayıcıdan:
+
+- `/operator` sayfası: `HARDTOOLS_OPERATOR_TOKEN` (Fly panosu → Secrets, en az 16 karakter) ile giriş.
+- Davet kodu üret (30 dk / 24 saat / 7 gün / 30 gün), kodsuz hesap aç, parola sıfırla (güçlü parola
+  üretir ve bir kez gösterir), kilidi aç, hesap sil.
+- Üretilen kod/parola POST yanıtında değil, kısa ömürlü `?reveal=` bağlantısında gösterilir:
+  sayfa yenilenince ikinci kod üretilmez.
+- Güvenlik: MCP bearer'ından **ayrı** anahtar, HMAC imzalı `HttpOnly` çerez (jti ile sunucu tarafı
+  iptal), 6 hatalı denemeden sonra 10 dakika kilit, çapraz origin reddi, denetim kaydı.
+- Anahtar tanımlı değilse panel açılmaz; sayfa yalnızca nasıl tanımlanacağını anlatır (kısa anahtar
+  da paneli açmaz).
+
 ### 1.5.38 — çalışma alanı: hesap başına TEK kök (varsayılan)
 
 Bir hesaba bağlı **tüm Claude sohbetleri aynı dosyaları görür**: kök `<HARDTOOLS_ROOTS[0]>/a-<sha256(hesap)[:16]>`.

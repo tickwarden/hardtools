@@ -118,7 +118,8 @@ test("davet kodu: kayıt kapalıyken hesap açmanın tek yolu ve tek kullanıml�
   const page = await request(port, { target: "/local" });
   assert.equal(page.status, 200);
   assert.match(page.body, /name="code"/, "kayıt kapalıyken davet kodu alanı gösterilmeli");
-  assert.match(page.body, /--local-user invite/, "kodun nereden alınacağı yazılmalı");
+  // 1.5.39: kod artık tarayıcıdaki yönetici panelinden de üretilir; sayfa oraya yönlendirmeli.
+  assert.match(page.body, /yönetici panelinden/i, "kodun nereden alınacağı yazılmalı");
 
   const noCode = await request(port, { method: "POST", target: "/local/register", headers: FORM,
     body: enc({ user: "davetli", password: "Guclu-Parola-11a" }) });
