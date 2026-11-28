@@ -228,10 +228,12 @@ test("yerel hesapla /authorize akışı tamamlanır (panele değil, istemciye d�
   const page = await request(port, { target: `/local?next=${encodeURIComponent(authorize)}` });
   assert.match(page.body, /name="next"/, "next alanı forma taşınmalı");
   const reg2 = await request(port, { method: "POST", target: "/local/register",
-    headers: { "content-type": "application/x-www-form-urlencoded", origin: `http://127.0.0.1:${port}` },
+    headers: { "content-type": "application/x-www-form-urlencoded", origin: `http://127.0.0.1:${port}`, accept: "text/html,application/xhtml+xml" },
     body: "user=oauthci&password=Guclu-Parola-77z&next=" + encodeURIComponent(authorize) });
-  assert.equal(reg2.status, 303, reg2.body.slice(0, 200));
-  assert.equal(reg2.headers.location, authorize, "giriş sonrası /authorize'a dönmeli (panele değil)");
+  // CSP `form-action 'self'` yönlendirme zincirini de denetlediği için 303 yerine devam sayfası döner.
+  assert.equal(reg2.status, 200, reg2.body.slice(0, 200));
+  assert.match(reg2.body, /http-equiv="refresh"/, "devam sayfası meta refresh içermeli");
+  assert.match(reg2.body, /\/authorize\?response_type=code/, "devam sayfası /authorize adresini taşımalı (panele değil)");
   const cookie = reg2.headers["set-cookie"][0].split(";")[0];
 
   // 2) Açık yönlendirme yok: başka siteye next kabul edilmez.
@@ -262,4 +264,72 @@ test("yerel hesapla /authorize akışı tamamlanır (panele değil, istemciye d�
     headers: { "content-type": "application/json", accept: "application/json, text/event-stream", authorization: `Bearer ${access}` },
     body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "initialize", params: { protocolVersion: "2025-06-18", capabilities: {}, clientInfo: { name: "t", version: "1" } } }) });
   assert.equal(mcp.status, 200, mcp.body.slice(0, 300));
+});
+
+test("CSP form-action: form sonrası istemciye geçiş 302 değil devam sayfasıyla olur", async (t) => {
+  // GitHub yapılandırılmamış sunucu: /authorize token formunu gösterir.
+  const token = "z".repeat(4) + "0123456789abcdef0123456789abcdef";
+  const { port } = await start(t, { HARDTOOLS_HTTP_TOKEN: token, HARDTOOLS_OAUTH_GITHUB_CLIENT_ID: "", HARDTOOLS_OAUTH_ALLOWED_LOGINS: "" });
+  const redirectUri = "https://claude.ai/api/mcp/auth_callback";
+  const reg = await request(port, { method: "POST", target: "/register",
+    headers: { "content-type": "application/json" }, body: JSON.stringify({ redirect_uris: [redirectUri] }) });
+  const clientId = JSON.parse(reg.body).client_id;
+  const crypto = await import("node:crypto");
+  const verifier = crypto.randomBytes(32).toString("base64url");
+  const challenge = crypto.createHash("sha256").update(verifier).digest("base64url");
+  const body = new URLSearchParams({ response_type: "code", client_id: clientId, redirect_uri: redirectUri,
+    code_challenge: challenge, code_challenge_method: "S256", state: "st-2", access_token: token }).toString();
+
+  const r = await request(port, { method: "POST", target: "/authorize",
+    headers: { "content-type": "application/x-www-form-urlencoded", accept: "text/html,application/xhtml+xml" }, body });
+  // Programatik istemci (Accept: */*) 302 sözleşmesini korur.
+  const api = await request(port, { method: "POST", target: "/authorize",
+    headers: { "content-type": "application/x-www-form-urlencoded" }, body });
+  assert.equal(api.status, 302, `API istemcisi 302 almalı: ${api.status}`);
+  // 302 + Location olsaydı Chrome "form-action 'self'" ihlali verip gönderimi kesiyordu.
+  assert.equal(r.status, 200, `POST /authorize → ${r.status}`);
+  assert.equal(r.headers.location, undefined, "form sonrası 302 yönlendirme olmamalı");
+  assert.match(r.body, /http-equiv="refresh"/, "devam sayfası meta refresh içermeli");
+  assert.match(r.body, new RegExp(redirectUri.replace(/[.]/g, "\\.")), "devam sayfası istemci adresini taşımalı");
+  assert.match(r.body, /code=/, "izin kodu devam adresinde olmalı");
+});
+
+test("izin formu Origin: null üretmez; kendi origin'i kabul, çapraz origin reddedilir", async (t) => {
+  // Chrome, <meta name="referrer" content="no-referrer"> olan sayfadan form gönderirken
+  // `Origin: null` yollar ve sunucu bunu haklı olarak 403 ile reddeder — izin formu kırılıyordu.
+  // Form sayfaları artık meta referrer = same-origin kullanır; koruma katı kalır.
+  const token = "y".repeat(4) + "0123456789abcdef0123456789abcdef";
+  const { port } = await start(t, { HARDTOOLS_HTTP_TOKEN: token, HARDTOOLS_OAUTH_GITHUB_CLIENT_ID: "", HARDTOOLS_OAUTH_ALLOWED_LOGINS: "" });
+  const redirectUri = "https://claude.ai/api/mcp/auth_callback";
+  const reg = await request(port, { method: "POST", target: "/register",
+    headers: { "content-type": "application/json" }, body: JSON.stringify({ redirect_uris: [redirectUri] }) });
+  const clientId = JSON.parse(reg.body).client_id;
+  const crypto = await import("node:crypto");
+  const challenge = crypto.createHash("sha256").update(crypto.randomBytes(32).toString("base64url")).digest("base64url");
+  const q = { response_type: "code", client_id: clientId, redirect_uri: redirectUri,
+    code_challenge: challenge, code_challenge_method: "S256", state: "st-3" };
+  const body = new URLSearchParams({ ...q, access_token: token }).toString();
+  const headers = { "content-type": "application/x-www-form-urlencoded", accept: "text/html,application/xhtml+xml" };
+  const ownOrigin = `http://127.0.0.1:${port}`;
+
+  // Form sayfası tarayıcıya "same-origin" demeli; "no-referrer" olsaydı POST Origin: null taşırdı.
+  const consent = await request(port, { method: "GET", target: "/authorize?" + new URLSearchParams(q).toString() });
+  assert.equal((consent.headers["referrer-policy"] ?? "").toLowerCase(), "same-origin");
+  assert.doesNotMatch(consent.body, /name="referrer" content="no-referrer"/, "meta referrer form POST'unu null yapmamalı");
+
+  const own = await request(port, { method: "POST", target: "/authorize", headers: { ...headers, origin: ownOrigin }, body });
+  assert.equal(own.status, 200, `kendi formumuz kabul edilmeli: ${own.status} ${own.body.slice(0, 120)}`);
+  assert.match(own.body, /code=/, "izin kodu üretilmeli");
+
+  const nul = await request(port, { method: "POST", target: "/authorize", headers: { ...headers, origin: "null" }, body });
+  assert.equal(nul.status, 403, "Origin: null reddedilmeye devam etmeli");
+
+  const evil = await request(port, { method: "POST", target: "/authorize", headers: { ...headers, origin: "https://evil.example" }, body });
+  assert.equal(evil.status, 403, "çapraz origin reddedilmeli");
+  assert.doesNotMatch(evil.body, /code=/, "çapraz origin'e kod sızmamalı");
+
+  // Cihaz onayı formu da aynı düzeltmeden pay almalı.
+  const device = await request(port, { method: "GET", target: "/device" });
+  assert.equal((device.headers["referrer-policy"] ?? "").toLowerCase(), "same-origin");
+  assert.doesNotMatch(device.body, /name="referrer" content="no-referrer"/);
 });

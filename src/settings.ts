@@ -44,6 +44,9 @@ export const defaultSettings = (): UserSettings => ({
   allowedCommands: [], allowedUrls: [], updatedAt: 0,
 });
 
+/** İstek bir tarayıcı formundan mı geliyor? (CSP form-action yalnız tarayıcıyı bağlar.) */
+const browserForm = (req: http.IncomingMessage) => /text\/html/i.test(String(req.headers.accept ?? ""));
+
 /** Yalnız aynı origin'de bir yol kabul edilir: açık yönlendirme olmaz. */
 export function safeNext(v: string | null | undefined): string {
   const s = String(v ?? "").trim();
@@ -280,6 +283,23 @@ export class SettingsUI {
     return false;
   }
 
+  /**
+   * Form gönderiminden sonra çapraz origin'e devam edilecekse 303 kullanılmaz: CSP form-action
+   * yönlendirme zincirini de denetlediği için OAuth akışı (… → claude.ai) tarayıcıda kesiliyordu.
+   * Bunun yerine kısa bir "devam ediliyor" sayfası döner; gezinme CSP form-action kuralına girmez.
+   */
+  private continuePage(res: http.ServerResponse, to: string, note: string) {
+    const body = `${heading("Devam ediliyor")}
+<p class="muted">${esc(note)}</p>
+<div class="card"><p><a class="btn" href="${esc(to)}" data-once>Devam et</a></p>
+<p class="muted" style="margin-bottom:0"><code>${esc(to)}</code></p></div>
+<meta http-equiv="refresh" content="0;url=${esc(to)}">`;
+    this.html(res, 200, uiPage({
+      title: "Devam ediliyor", subtitle: "devam", body,
+      script: `try{location.replace(${JSON.stringify(to)});}catch(e){}`,
+    }));
+  }
+
   /** Panel (/): çalışma alanları, ayarlar ve MCP adresi tek yerde; adresi kopyalama düğmesi. */
   private dashboard(req: http.IncomingMessage, res: http.ServerResponse, origin: string) {
     if (req.method !== "GET") return this.html(res, 405, uiPage({ title: "Panel", body: `<p class="e">Yalnız GET.</p>` }));
@@ -360,8 +380,9 @@ ${canReg ? `<div class="card">
     }
     this.o.audit?.({ ev: "local_login", user });
     this.setCookie(res, this.o.store.cookieFor(user), origin.startsWith("https://"), 12 * 3600);
-    const to = safeNext(p?.get("next") ?? "") || "/";
-    res.writeHead(303, { location: to, "cache-control": "no-store" }); res.end();
+    const to = safeNext(p?.get("next") ?? "");
+    if (to && browserForm(req)) return this.continuePage(res, to, "Giriş tamam. Bağlantı akışına dönülüyor…");
+    res.writeHead(303, { location: to || "/", "cache-control": "no-store" }); res.end();
   }
 
   private async localRegister(req: http.IncomingMessage, res: http.ServerResponse, origin: string) {
@@ -375,8 +396,9 @@ ${canReg ? `<div class="card">
     if (!r.ok) return this.localPage(req, res, `Hata: ${r.error}`);
     this.o.audit?.({ ev: "local_account_created", user: r.account.user });
     this.setCookie(res, this.o.store.cookieFor(r.account.user), origin.startsWith("https://"), 12 * 3600);
-    const to = safeNext(p?.get("next") ?? "") || "/";
-    res.writeHead(303, { location: to, "cache-control": "no-store" }); res.end();
+    const to = safeNext(p?.get("next") ?? "");
+    if (to && browserForm(req)) return this.continuePage(res, to, "Hesap açıldı. Bağlantı akışına dönülüyor…");
+    res.writeHead(303, { location: to || "/", "cache-control": "no-store" }); res.end();
   }
 
   /** Bağlantı anahtarını yenile (sızmışsa eski adres çalışmaz). */
