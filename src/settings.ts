@@ -44,6 +44,15 @@ export const defaultSettings = (): UserSettings => ({
   allowedCommands: [], allowedUrls: [], updatedAt: 0,
 });
 
+/** Yalnız aynı origin'de bir yol kabul edilir: açık yönlendirme olmaz. */
+export function safeNext(v: string | null | undefined): string {
+  const s = String(v ?? "").trim();
+  if (!s || s.length > 2048) return "";
+  if (!s.startsWith("/") || s.startsWith("//")) return "";
+  if (/[\\\u0000-\u001f]/.test(s)) return "";
+  return s;
+}
+
 const MAX_LIST = 200;
 const norm = (v: string) => v.trim().slice(0, 512);
 const uniq = (a: string[]) => [...new Set(a.map(norm).filter(Boolean))].slice(0, MAX_LIST);
@@ -261,7 +270,10 @@ export class SettingsUI {
     if (pathname === "/settings/logout") return await this.logout(req, res, origin), true;
     if (pathname === "/workspaces") return await this.workspacesPage(req, res, origin), true;
     if (pathname === "/") return this.dashboard(req, res, origin), true;
-    if (pathname === "/local") return this.localPage(req, res, ""), true;
+    if (pathname === "/local") {
+      const next = new URL(req.url ?? "/", "http://x").searchParams.get("next") ?? "";
+      return this.localPage(req, res, "", next), true;
+    }
     if (pathname === "/local/login") return await this.localLogin(req, res, origin), true;
     if (pathname === "/local/register") return await this.localRegister(req, res, origin), true;
     if (pathname === "/local/connector") return await this.localConnector(req, res, origin), true;
@@ -293,14 +305,16 @@ ${user ? `<p class="muted"><a href="/settings/logout">çıkış yap</a></p>` : `
   }
 
   /** /local — yerel hesap girişi ve (izinliyse) kayıt. */
-  private localPage(req: http.IncomingMessage, res: http.ServerResponse, notice = "") {
+  private localPage(req: http.IncomingMessage, res: http.ServerResponse, notice = "", next = "") {
     const la = this.o.local;
     const canReg = Boolean(la?.canRegister());
+    const keep = safeNext(next);
     const body = `${heading("Yerel hesap", "GitHub hesabın yoksa ya da GitHub girişi çalışmıyorsa buradan gir.")}
 ${notice ? `<p class="${notice.startsWith("Hata") ? "e" : "ok"}">${esc(notice)}</p>` : ""}
 <div class="card">
 <h2 style="margin-top:0">Giriş</h2>
 <form method="post" action="/local/login" autocomplete="on">
+  ${keep ? `<input type="hidden" name="next" value="${esc(keep)}">` : ""}
   <label for="lu">Kullanıcı adı</label>
   <input id="lu" name="user" type="text" autocomplete="username" required>
   <label for="lp">Parola</label>
@@ -312,6 +326,7 @@ ${canReg ? `<div class="card">
 <h2 style="margin-top:0">Hesap aç</h2>
 <p class="muted">${la?.count() === 0 ? "Bu sunucuda henüz yerel hesap yok: ilk hesabı sen açacaksın." : "Yeni yerel hesap aç."} Parola en az 10 karakter, iki tür karakter içermeli.</p>
 <form method="post" action="/local/register" autocomplete="off">
+  ${keep ? `<input type="hidden" name="next" value="${esc(keep)}">` : ""}
   <label for="ru">Kullanıcı adı (3-32 karakter)</label>
   <input id="ru" name="user" type="text" autocomplete="username" required>
   <label for="rp">Parola</label>
@@ -345,7 +360,8 @@ ${canReg ? `<div class="card">
     }
     this.o.audit?.({ ev: "local_login", user });
     this.setCookie(res, this.o.store.cookieFor(user), origin.startsWith("https://"), 12 * 3600);
-    res.writeHead(303, { location: "/", "cache-control": "no-store" }); res.end();
+    const to = safeNext(p?.get("next") ?? "") || "/";
+    res.writeHead(303, { location: to, "cache-control": "no-store" }); res.end();
   }
 
   private async localRegister(req: http.IncomingMessage, res: http.ServerResponse, origin: string) {
@@ -359,7 +375,8 @@ ${canReg ? `<div class="card">
     if (!r.ok) return this.localPage(req, res, `Hata: ${r.error}`);
     this.o.audit?.({ ev: "local_account_created", user: r.account.user });
     this.setCookie(res, this.o.store.cookieFor(r.account.user), origin.startsWith("https://"), 12 * 3600);
-    res.writeHead(303, { location: "/", "cache-control": "no-store" }); res.end();
+    const to = safeNext(p?.get("next") ?? "") || "/";
+    res.writeHead(303, { location: to, "cache-control": "no-store" }); res.end();
   }
 
   /** Bağlantı anahtarını yenile (sızmışsa eski adres çalışmaz). */

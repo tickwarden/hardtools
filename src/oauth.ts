@@ -73,6 +73,8 @@ interface GhPending {
   cc: string;
   st: string;
   nextPoll: number;
+  /** Yerel hesap yolundan dönülecek /authorize adresi (giriş sonrası OAuth akışı devam etsin). */
+  returnTo?: string;
 }
 
 export interface OAuthOptions {
@@ -83,6 +85,8 @@ export interface OAuthOptions {
   github?: GithubIdp;
   /** Yeni bir izin (grant) verildiğinde çağrılır: grant -> GitHub login eşlemesi (ayarlar için). */
   onGrant?: (grant: string, login: string) => void;
+  /** Yerel hesap oturumu (çerez) varsa kullanıcı adı: /authorize GitHub'a gitmeden tamamlanır. */
+  localUser?: (req: http.IncomingMessage) => string | null;
   /** Çıkış yapılmış grant'lar reddedilir: bağlantı anında düşer. */
   grantRevoked?: (grant: string) => boolean;
 }
@@ -363,6 +367,14 @@ export class OAuth {
     return { login, email, permitted };
   }
 
+  /** Orijinal /authorize isteğini yeniden kurar (yerel hesap girişinden sonra geri dönmek için). */
+  private authorizeUrlOf(q: Record<string, string>): string {
+    const keep = ["response_type", "client_id", "redirect_uri", "code_challenge", "code_challenge_method", "scope", "resource", "state"];
+    const u = new URLSearchParams();
+    for (const k of keep) if (typeof q[k] === "string" && q[k]) u.set(k, q[k]);
+    return `/authorize?${u.toString()}`;
+  }
+
   /** Device flow: GitHub'dan tek kullanımlık kod al ve bekleme sayfasını göster. */
   private async startGithubDevice(res: http.ServerResponse, q: Record<string, string>) {
     const dc = await this.ghJson(`${this.ghWeb()}/login/device/code`, {
@@ -384,6 +396,7 @@ export class OAuth {
       cid: q.client_id, ru: q.redirect_uri, cc: q.code_challenge,
       st: typeof q.state === "string" ? q.state.slice(0, 512) : "",
       nextPoll: 0,
+      returnTo: this.authorizeUrlOf(q),
     };
     this.ghPending.set(ticket, p);
     for (const [k, v] of this.ghPending) if (v.exp < this.now() - 60 || this.ghPending.size > 64) this.ghPending.delete(k);
@@ -460,7 +473,7 @@ ${note ? `<p class="muted">${esc(note)}</p>` : ""}
 <div class="card">
 <h2 style="margin-top:0">GitHub hesabın yok mu?</h2>
 <p class="muted">Yerel hesapla girebilirsin; GitHub girişi çalışmadığında da bu yol açıktır.</p>
-<p class="row"><a class="btn" href="/local">Yerel hesapla gir</a> <a class="btn ghost" href="/">Panel</a></p>
+<p class="row"><a class="btn" href="/local?next=${encodeURIComponent(p.returnTo ?? "/")}">Yerel hesapla gir</a> <a class="btn ghost" href="/">Panel</a></p>
 <p class="muted" style="margin-bottom:0">Yerel hesapla girdikten sonra paneldeki kişisel bağlantı adresini (<code>/lc/…</code>) Claude'a ekle.</p>
 </div>
 <meta http-equiv="refresh" content="5;url=${esc(next)}">`;
@@ -541,6 +554,16 @@ ${note ? `<p class="muted">${esc(note)}</p>` : ""}
         const jti = crypto.randomBytes(12).toString("base64url");
         const code = this.sign({ t: "code", jti, cid: q.client_id, ru: q.redirect_uri, cc: q.code_challenge, exp: this.now() + CODE_TTL_S });
         this.o.audit?.({ ev: "oauth_authorize", ok: true, via: "invite_session" });
+        return back({ code });
+      }
+      // Yerel hesapla giriş yapılmışsa GitHub'a gönderilmez: izin kodu doğrudan üretilir.
+      // (GitHub hesabı olmayan kullanıcı ve GitHub girişi bozukken kullanılan yol.)
+      const localUser = this.o.localUser?.(req) ?? null;
+      if (localUser) {
+        const jti = crypto.randomBytes(12).toString("base64url");
+        this.o.onGrant?.(jti, localUser);
+        const code = this.sign({ t: "code", jti, cid: q.client_id, ru: q.redirect_uri, cc: q.code_challenge, exp: this.now() + CODE_TTL_S });
+        this.o.audit?.({ ev: "oauth_authorize", ok: true, via: "local_account", login: localUser.slice(0, 64) });
         return back({ code });
       }
       if (this.github) {

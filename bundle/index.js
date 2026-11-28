@@ -17446,6 +17446,13 @@ var OAuth = class {
     const permitted = this.github?.allowAny ? Boolean(login) : !!login && allowLogin.has(login) || !!email2 && allowEmail.has(email2);
     return { login, email: email2, permitted };
   }
+  /** Orijinal /authorize isteğini yeniden kurar (yerel hesap girişinden sonra geri dönmek için). */
+  authorizeUrlOf(q) {
+    const keep = ["response_type", "client_id", "redirect_uri", "code_challenge", "code_challenge_method", "scope", "resource", "state"];
+    const u = new URLSearchParams();
+    for (const k of keep) if (typeof q[k] === "string" && q[k]) u.set(k, q[k]);
+    return `/authorize?${u.toString()}`;
+  }
   /** Device flow: GitHub'dan tek kullanımlık kod al ve bekleme sayfasını göster. */
   async startGithubDevice(res, q) {
     const dc = await this.ghJson(`${this.ghWeb()}/login/device/code`, {
@@ -17468,7 +17475,8 @@ var OAuth = class {
       ru: q.redirect_uri,
       cc: q.code_challenge,
       st: typeof q.state === "string" ? q.state.slice(0, 512) : "",
-      nextPoll: 0
+      nextPoll: 0,
+      returnTo: this.authorizeUrlOf(q)
     };
     this.ghPending.set(ticket, p);
     for (const [k, v] of this.ghPending) if (v.exp < this.now() - 60 || this.ghPending.size > 64) this.ghPending.delete(k);
@@ -17543,7 +17551,7 @@ ${note ? `<p class="muted">${esc4(note)}</p>` : ""}
 <div class="card">
 <h2 style="margin-top:0">GitHub hesab\u0131n yok mu?</h2>
 <p class="muted">Yerel hesapla girebilirsin; GitHub giri\u015Fi \xE7al\u0131\u015Fmad\u0131\u011F\u0131nda da bu yol a\xE7\u0131kt\u0131r.</p>
-<p class="row"><a class="btn" href="/local">Yerel hesapla gir</a> <a class="btn ghost" href="/">Panel</a></p>
+<p class="row"><a class="btn" href="/local?next=${encodeURIComponent(p.returnTo ?? "/")}">Yerel hesapla gir</a> <a class="btn ghost" href="/">Panel</a></p>
 <p class="muted" style="margin-bottom:0">Yerel hesapla girdikten sonra paneldeki ki\u015Fisel ba\u011Flant\u0131 adresini (<code>/lc/\u2026</code>) Claude'a ekle.</p>
 </div>
 <meta http-equiv="refresh" content="5;url=${esc4(next)}">`;
@@ -17624,6 +17632,14 @@ ${note ? `<p class="muted">${esc4(note)}</p>` : ""}
         const jti2 = crypto3.randomBytes(12).toString("base64url");
         const code2 = this.sign({ t: "code", jti: jti2, cid: q.client_id, ru: q.redirect_uri, cc: q.code_challenge, exp: this.now() + CODE_TTL_S });
         this.o.audit?.({ ev: "oauth_authorize", ok: true, via: "invite_session" });
+        return back({ code: code2 });
+      }
+      const localUser = this.o.localUser?.(req) ?? null;
+      if (localUser) {
+        const jti2 = crypto3.randomBytes(12).toString("base64url");
+        this.o.onGrant?.(jti2, localUser);
+        const code2 = this.sign({ t: "code", jti: jti2, cid: q.client_id, ru: q.redirect_uri, cc: q.code_challenge, exp: this.now() + CODE_TTL_S });
+        this.o.audit?.({ ev: "oauth_authorize", ok: true, via: "local_account", login: localUser.slice(0, 64) });
         return back({ code: code2 });
       }
       if (this.github) {
@@ -26443,7 +26459,7 @@ function anyMatch(patterns, value) {
 }
 
 // src/version.ts
-var VERSION = "1.5.33";
+var VERSION = "1.5.34";
 
 // src/net.ts
 var blocked = new net.BlockList();
@@ -29895,6 +29911,13 @@ var defaultSettings = () => ({
   allowedUrls: [],
   updatedAt: 0
 });
+function safeNext(v) {
+  const s = String(v ?? "").trim();
+  if (!s || s.length > 2048) return "";
+  if (!s.startsWith("/") || s.startsWith("//")) return "";
+  if (/[\\\u0000-\u001f]/.test(s)) return "";
+  return s;
+}
 var MAX_LIST = 200;
 var norm = (v) => v.trim().slice(0, 512);
 var uniq = (a) => [...new Set(a.map(norm).filter(Boolean))].slice(0, MAX_LIST);
@@ -30098,7 +30121,10 @@ var SettingsUI = class {
     if (pathname === "/settings/logout") return await this.logout(req, res, origin), true;
     if (pathname === "/workspaces") return await this.workspacesPage(req, res, origin), true;
     if (pathname === "/") return this.dashboard(req, res, origin), true;
-    if (pathname === "/local") return this.localPage(req, res, ""), true;
+    if (pathname === "/local") {
+      const next = new URL(req.url ?? "/", "http://x").searchParams.get("next") ?? "";
+      return this.localPage(req, res, "", next), true;
+    }
     if (pathname === "/local/login") return await this.localLogin(req, res, origin), true;
     if (pathname === "/local/register") return await this.localRegister(req, res, origin), true;
     if (pathname === "/local/connector") return await this.localConnector(req, res, origin), true;
@@ -30128,14 +30154,16 @@ ${user ? `<p class="muted"><a href="/settings/logout">\xE7\u0131k\u0131\u015F ya
     this.html(res, 200, page({ title: "Panel", subtitle: "panel", body }));
   }
   /** /local — yerel hesap girişi ve (izinliyse) kayıt. */
-  localPage(req, res, notice = "") {
+  localPage(req, res, notice = "", next = "") {
     const la = this.o.local;
     const canReg = Boolean(la?.canRegister());
+    const keep = safeNext(next);
     const body = `${heading("Yerel hesap", "GitHub hesab\u0131n yoksa ya da GitHub giri\u015Fi \xE7al\u0131\u015Fm\u0131yorsa buradan gir.")}
 ${notice ? `<p class="${notice.startsWith("Hata") ? "e" : "ok"}">${esc2(notice)}</p>` : ""}
 <div class="card">
 <h2 style="margin-top:0">Giri\u015F</h2>
 <form method="post" action="/local/login" autocomplete="on">
+  ${keep ? `<input type="hidden" name="next" value="${esc2(keep)}">` : ""}
   <label for="lu">Kullan\u0131c\u0131 ad\u0131</label>
   <input id="lu" name="user" type="text" autocomplete="username" required>
   <label for="lp">Parola</label>
@@ -30147,6 +30175,7 @@ ${canReg ? `<div class="card">
 <h2 style="margin-top:0">Hesap a\xE7</h2>
 <p class="muted">${la?.count() === 0 ? "Bu sunucuda hen\xFCz yerel hesap yok: ilk hesab\u0131 sen a\xE7acaks\u0131n." : "Yeni yerel hesap a\xE7."} Parola en az 10 karakter, iki t\xFCr karakter i\xE7ermeli.</p>
 <form method="post" action="/local/register" autocomplete="off">
+  ${keep ? `<input type="hidden" name="next" value="${esc2(keep)}">` : ""}
   <label for="ru">Kullan\u0131c\u0131 ad\u0131 (3-32 karakter)</label>
   <input id="ru" name="user" type="text" autocomplete="username" required>
   <label for="rp">Parola</label>
@@ -30182,7 +30211,8 @@ ${canReg ? `<div class="card">
     }
     this.o.audit?.({ ev: "local_login", user });
     this.setCookie(res, this.o.store.cookieFor(user), origin.startsWith("https://"), 12 * 3600);
-    res.writeHead(303, { location: "/", "cache-control": "no-store" });
+    const to = safeNext(p?.get("next") ?? "") || "/";
+    res.writeHead(303, { location: to, "cache-control": "no-store" });
     res.end();
   }
   async localRegister(req, res, origin) {
@@ -30196,7 +30226,8 @@ ${canReg ? `<div class="card">
     if (!r.ok) return this.localPage(req, res, `Hata: ${r.error}`);
     this.o.audit?.({ ev: "local_account_created", user: r.account.user });
     this.setCookie(res, this.o.store.cookieFor(r.account.user), origin.startsWith("https://"), 12 * 3600);
-    res.writeHead(303, { location: "/", "cache-control": "no-store" });
+    const to = safeNext(p?.get("next") ?? "") || "/";
+    res.writeHead(303, { location: to, "cache-control": "no-store" });
     res.end();
   }
   /** Bağlantı anahtarını yenile (sızmışsa eski adres çalışmaz). */
@@ -30638,6 +30669,12 @@ async function main() {
     extraRedirectUris: (process.env.HARDTOOLS_OAUTH_REDIRECT_URIS ?? "").split(",").map((s) => s.trim()).filter(Boolean),
     github,
     onGrant: (grant, login) => settingsStore.bindGrant(grant, login),
+    // Yerel hesap çerezi: /authorize GitHub'a gitmeden tamamlanır (GitHub'sız kullanıcı yolu).
+    localUser: (req) => {
+      const m = /(?:^|;\s*)ht_s=([^;]+)/.exec(String(req.headers.cookie ?? ""));
+      const u = settingsStore.userFromCookie(m?.[1]);
+      return u && localAccounts.has(u) ? u : null;
+    },
     grantRevoked: (grant) => settingsStore.isRevoked(grant)
   });
   const inviteOrigin = process.env.HARDTOOLS_INVITE_ORIGIN ?? "";
