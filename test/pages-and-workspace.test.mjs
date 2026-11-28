@@ -78,6 +78,12 @@ test("sayfa metinlerine HTML etiketi sızmaz, dahili bağlantılar 404 vermez", 
     const r = await request(port, { target: href, headers: { cookie } });
     assert.ok(r.status < 400, `dahili bağlantı kırık: ${href} → ${r.status}`);
   }
+  // GitHub akışındaki sayfalar da yerel hesap yolunu göstermeli (GitHub bozulduğunda çıkış yolu).
+  const device = await request(port, { target: "/device" });
+  assert.equal(device.status, 200, "/device → " + device.status);
+  assert.match(device.body, /href="\/local"/, "cihaz onayı sayfasında yerel hesap bağlantısı olmalı");
+  assert.match(device.body, /Yerel hesapla gir/, "yerel hesap düğmesi görünmeli");
+
   // Bildirilen somut kırık: /connect sayfası giriş zorunlu modda da açılmalı.
   const connect = await request(port, { target: "/connect", headers: { cookie } });
   assert.equal(connect.status, 200, "/connect giriş zorunlu modda 404 vermemeli");
