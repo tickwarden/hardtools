@@ -26485,7 +26485,7 @@ function anyMatch(patterns, value) {
 }
 
 // src/version.ts
-var VERSION = "1.5.37";
+var VERSION = "1.5.38";
 
 // src/net.ts
 var blocked = new net.BlockList();
@@ -27024,7 +27024,7 @@ import fs8 from "node:fs";
 import os3 from "node:os";
 import path8 from "node:path";
 import { spawn, spawnSync } from "node:child_process";
-var launcher = "/usr/bin/bwrap";
+var launcher = (process.env.HARDTOOLS_BWRAP ?? "").trim() || "/usr/bin/bwrap";
 var guestStart = `set -eu
 r=$(mktemp -d /tmp/ht-ready.XXXXXXXX)
 mkfifo "$r/port"
@@ -27177,7 +27177,7 @@ function workspaceArgs(p, cwd, program, args, lease) {
   try {
     fs8.accessSync(launcher, fs8.constants.X_OK);
   } catch {
-    throw new PolicyError("worker_unavailable", "bubblewrap is not installed at /usr/bin/bwrap; no host-shell fallback");
+    throw new PolicyError("worker_unavailable", `bubblewrap is not installed at ${launcher}; no host-shell fallback (HARDTOOLS_BWRAP ile yol verilebilir)`);
   }
   const childCwd = path8.posix.join("/work", path8.relative(root, cwd));
   return [

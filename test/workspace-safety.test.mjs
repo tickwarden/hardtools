@@ -139,8 +139,9 @@ test("ht_shell: silinen kabuk iskeleti kendini onarır", { skip: spawnSync("bash
   const sid = a.headers["mcp-session-id"];
   const first = await call(rpc, "ht_shell", { command: "echo ilk" }, sid);
   assert.match(textOf(first), /ilk/, "kabuk çalışmalı: " + textOf(first).slice(0, 200));
-  const roots = fs.readdirSync(root).filter((d) => d.startsWith("u-"));
-  assert.equal(roots.length, 1, "tek sohbet kökü");
+  // 1.5.37 varsayılanı: sohbet kökü = hesap kökü (a-…). Kabuk iskeleti orada yaşar.
+  const roots = fs.readdirSync(root).filter((d) => d.startsWith("a-"));
+  assert.equal(roots.length, 1, "tek hesap kökü: " + fs.readdirSync(root).join(","));
   // İskeleti dışarıdan sil (devralma/temizlik sonrası durum).
   fs.rmSync(path.join(root, roots[0], ".hardtools"), { recursive: true, force: true });
   const second = await call(rpc, "ht_shell", { command: "echo ikinci" }, sid);

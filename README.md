@@ -278,7 +278,7 @@ Her kimlik **kendi `/work` kökünü** alır; bir oturumda klonlanan depo başka
 - `HARDTOOLS_PER_SESSION_WORKSPACE=0` eski tek-paylaşılan-kök davranışına döner.
 - Oturum kökleri hacimde birikir; `ht_status` hangi kökte olduğunuzu gösterir.
 
-### 1.5.37 — çalışma alanı: hesap başına TEK kök (varsayılan)
+### 1.5.38 — çalışma alanı: hesap başına TEK kök (varsayılan)
 
 Bir hesaba bağlı **tüm Claude sohbetleri aynı dosyaları görür**: kök `<HARDTOOLS_ROOTS[0]>/a-<sha256(hesap)[:16]>`.
 Böylece "her yeni sohbet boş geldi, dosyalarım kayboldu" durumu biter. Hesaplar birbirinden tamamen ayrıdır;
