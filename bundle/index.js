@@ -17540,6 +17540,12 @@ var OAuth = class {
 ${note ? `<p class="muted">${esc4(note)}</p>` : ""}
 </div>
 <p class="muted">Devam etmiyorsa <a href="${esc4(next)}">buraya dokun</a>.</p>
+<div class="card">
+<h2 style="margin-top:0">GitHub hesab\u0131n yok mu?</h2>
+<p class="muted">Yerel hesapla girebilirsin; GitHub giri\u015Fi \xE7al\u0131\u015Fmad\u0131\u011F\u0131nda da bu yol a\xE7\u0131kt\u0131r.</p>
+<p class="row"><a class="btn" href="/local">Yerel hesapla gir</a> <a class="btn ghost" href="/">Panel</a></p>
+<p class="muted" style="margin-bottom:0">Yerel hesapla girdikten sonra paneldeki ki\u015Fisel ba\u011Flant\u0131 adresini (<code>/lc/\u2026</code>) Claude'a ekle.</p>
+</div>
 <meta http-equiv="refresh" content="5;url=${esc4(next)}">`;
     return this.html(resOut, code, body, {});
   }
@@ -17723,7 +17729,13 @@ ${msg ? `<p class="${cls}">${escH(msg)}</p>` : ""}
 <label for="access_token">Eri\u015Fim anahtar\u0131</label>
 <input id="access_token" name="access_token" type="password" required autocomplete="off" placeholder="Bearer olmadan">
 <p class="row" style="margin-top:.8rem"><button class="primary" type="submit" data-once>Onayla</button></p>
-</form></div>`;
+</form></div>
+<div class="card">
+<h2 style="margin-top:0">GitHub hesab\u0131n yok mu?</h2>
+<p class="muted">Yerel hesapla girebilirsin; GitHub giri\u015Fi \xE7al\u0131\u015Fmad\u0131\u011F\u0131nda da bu yol a\xE7\u0131kt\u0131r.</p>
+<p class="row"><a class="btn" href="/local">Yerel hesapla gir</a> <a class="btn ghost" href="/">Panel</a></p>
+<p class="muted" style="margin-bottom:0">Yerel hesapla girdikten sonra paneldeki ki\u015Fisel ba\u011Flant\u0131 adresini (<code>/lc/\u2026</code>) Claude'a ekle.</p>
+</div>`;
     res.writeHead(200, { "content-type": "text/html; charset=utf-8", "cache-control": "no-store", "x-frame-options": "DENY", "referrer-policy": "same-origin", "content-security-policy": PAGE_CSP });
     res.end(page({ title: "hardtools \xB7 cihaz onay\u0131", subtitle: "OAuth device", body }));
   }
@@ -26431,7 +26443,7 @@ function anyMatch(patterns, value) {
 }
 
 // src/version.ts
-var VERSION = "1.5.32";
+var VERSION = "1.5.33";
 
 // src/net.ts
 var blocked = new net.BlockList();
