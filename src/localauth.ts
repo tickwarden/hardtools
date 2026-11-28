@@ -75,9 +75,34 @@ export class LocalAccounts {
     } catch { /* dosya yok: bellek hâli geçerli */ }
   }
 
+  /** Operatörün panelden/araçtan seçtiği kayıt modu (dosyada); yoksa ortam değişkeni geçerlidir. */
+  private signupFile?: "first" | "open" | "off";
+
   private get signupMode(): "first" | "open" | "off" {
+    if (this.signupFile) return this.signupFile;
+    return this.envSignup();
+  }
+
+  private envSignup(): "first" | "open" | "off" {
     const v = (this.opts.signup ?? "first").trim().toLowerCase();
     return v === "open" || v === "off" ? v : "first";
+  }
+
+  /** Yürürlükteki kayıt modu ve kaynağı (panelde/araçta gösterilir). */
+  signupInfo(): { mode: "first" | "open" | "off"; source: "operator" | "env" } {
+    this.refresh();
+    return { mode: this.signupMode, source: this.signupFile ? "operator" : "env" };
+  }
+
+  /**
+   * Kayıt modunu değiştirir; `null` ortam değişkenine geri döner.
+   * "off" kaydı tamamen kapatır, "open" herkese açar, "first" yalnızca hiç hesap yokken açar.
+   */
+  setSignup(mode: "first" | "open" | "off" | null): { mode: "first" | "open" | "off"; source: "operator" | "env" } {
+    this.refresh();
+    this.signupFile = mode ?? undefined;
+    this.save();
+    return this.signupInfo();
   }
 
   /** Kayıt sayfası gösterilsin mi? ("first" modunda yalnızca ilk hesap için.) */
@@ -249,10 +274,13 @@ export class LocalAccounts {
     // Dosya doğruluk kaynağıdır: eski bellek hâli birleştirilmez, yoksa silinen hesap geri gelir.
     this.items = new Map();
     this.invites = [];
+    this.signupFile = undefined;
     // Operatör müdahalesi (parola sıfırlama, hesap açma/silme) hatalı deneme kilidini de açar.
     this.fails.clear();
     try {
-      const d = JSON.parse(fs.readFileSync(this.file, "utf8")) as { items?: LocalAccount[]; invites?: Invite[] };
+      const d = JSON.parse(fs.readFileSync(this.file, "utf8")) as { items?: LocalAccount[]; invites?: Invite[]; signup?: string };
+      const su = String(d.signup ?? "").toLowerCase();
+      if (su === "first" || su === "open" || su === "off") this.signupFile = su;
       if (Array.isArray(d.invites)) this.invites = d.invites.filter((i) => i && typeof i.hash === "string" && typeof i.exp === "number");
       for (const a of d.items ?? []) {
         if (a && typeof a.user === "string" && typeof a.hash === "string" && typeof a.salt === "string") {
@@ -270,7 +298,7 @@ export class LocalAccounts {
       fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
       const tmp = `${this.file}.tmp`;
       const live = this.invites.filter((i) => i.exp > Date.now());
-      fs.writeFileSync(tmp, JSON.stringify({ v: 1, items: [...this.items.values()], ...(live.length ? { invites: live } : {}) }), { mode: 0o600 });
+      fs.writeFileSync(tmp, JSON.stringify({ v: 1, items: [...this.items.values()], ...(live.length ? { invites: live } : {}), ...(this.signupFile ? { signup: this.signupFile } : {}) }), { mode: 0o600 });
       fs.renameSync(tmp, this.file);
       fs.chmodSync(this.file, 0o600);
       const st = fs.statSync(this.file); this.stamp = `${st.mtimeMs}:${st.size}`;

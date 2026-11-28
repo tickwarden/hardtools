@@ -22,6 +22,7 @@ import { htSchedule, Scheduler } from "./schedule.js";
 import { AccountMemory, htMemory } from "./memory.js";
 import { StateFile } from "./persist.js";
 import { htWorkspace, type WsContext } from "./workspaces.js";
+import { htOperator, type OperatorHost, type OperatorArgs } from "./operator-tool.js";
 import crypto from "node:crypto";
 import path from "node:path";
 import { ErrorCode, ListResourcesRequestSchema, ListResourceTemplatesRequestSchema, McpError, ReadResourceRequestSchema, type CallToolResult } from "@modelcontextprotocol/sdk/types.js";
@@ -62,6 +63,8 @@ export interface ServerOptions {
   state?: { dir: string; keyPath?: string };
   /** Çalışma alanı dizinleri: hangi hesap hangi kökte, eski kökü devralma. */
   workspaces?: WsContext;
+  /** Yönetici işlemleri (ht_operator): panelin yaptığı her şey sohbetten. Anahtar yoksa araç kapalı. */
+  operator?: { host: OperatorHost; origin: string };
 }
 
 export function createServer(policy: Policy, audit: Audit, workspace = createWorkspace(), owner = "stdio", origin?: string, opts: ServerOptions = {}): McpServer {
@@ -567,6 +570,27 @@ Returned: {status, question, selected[], custom, request_id, elapsed_s}.`,
       inputSchema: { action: z.enum(["list", "adopt"]).optional(), dir: z.string().min(1).max(32).optional() },
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
     }, wrap("ht_workspace", (a) => htWorkspace(opts.workspaces!, a)));
+  }
+
+  if (opts.operator) {
+    const op = opts.operator;
+    register("ht_operator", {
+      title: "Admin panel actions from chat (invite codes, accounts, passwords)",
+      description: "Does everything the /operator admin panel does, without the browser: action=login returns a one-time link where the operator types HARDTOOLS_OPERATOR_TOKEN (this opens a 30-minute tool session, then no token is needed here); action=get reads accounts or creates an invite code shown CENSORED (full value only behind a one-time link); action=set creates an account, resets a password, deletes or unlocks an account, rotates its connector, or changes the signup mode; action=logout ends the session. Destructive actions (delete, password reset, connector rotation, logout) require confirm. Secrets are never printed in full. Without HARDTOOLS_OPERATOR_TOKEN configured this tool refuses to work.",
+      inputSchema: {
+        action: z.enum(["login", "get", "set", "logout"]).optional().describe("Default: get"),
+        confirm: z.string().max(120).optional().describe("Delete/reset: the user name. Logout: \"logout\". signup=off: \"off\"."),
+        token: z.string().max(200).optional().describe("HARDTOOLS_OPERATOR_TOKEN — only if you prefer not to use action=login"),
+        user: z.string().max(32).optional(),
+        password: z.string().max(200).optional().describe("Boş bırakılırsa güçlü parola üretilir (yalnızca tek seferlik bağlantıda gösterilir)"),
+        invite: z.boolean().optional().describe("action=get: yeni davet kodu üret"),
+        ttl_minutes: z.number().int().min(5).max(43200).optional(),
+        unlock: z.boolean().optional(),
+        rotate_connector: z.boolean().optional(),
+        signup: z.enum(["first", "open", "off", "env"]).optional(),
+      },
+      annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false },
+    }, wrap("ht_operator", (a: OperatorArgs) => htOperator(op.host, a ?? {}, { origin: op.origin })));
   }
 
   register("ht_list_all_tools", {

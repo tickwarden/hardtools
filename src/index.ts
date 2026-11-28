@@ -106,6 +106,8 @@ async function main() {
   const publicOwner = (viaKey: boolean) => (viaKey ? `public:${keyId}` : "public");
 
   const token = process.env.HARDTOOLS_HTTP_TOKEN ?? "";
+  /** ht_operator yalnızca bu anahtar tanımlıysa vardır (en az 16 karakter). */
+  const operatorConfigured = (process.env.HARDTOOLS_OPERATOR_TOKEN ?? "").trim().length >= 16;
   const hasToken = token.length >= 32;
   if (!hasToken && !isPublic) { console.error("[hardtools] refusing to start HTTP mode: set HARDTOOLS_HTTP_TOKEN to a random secret of at least 32 chars (e.g. `openssl rand -hex 32`), or run the no-login connector with HARDTOOLS_PUBLIC=open|key."); process.exit(1); }
   if (!hasToken) console.error("[hardtools] no static bearer token; the no-login connector is the only entry point.");
@@ -476,6 +478,8 @@ async function main() {
           ...(owner === "public" ? { tools: publicTools } : {}),
           ...(sid ? { sessionId: "s-" + sid.slice(0, 12) } : {}),
           settings: { store: settingsStore, user: userFor(owner), all: ALL_TOOLS },
+          // Yönetici aracı yalnızca anahtar tanımlıysa duyurulur; anahtarsız hiç görünmez ve çalışmaz.
+          ...(operatorConfigured ? { operator: { host: settingsUI.operatorHost(), origin } } : {}),
           ...(baseRoot && !baseIsFsRoot ? {
             workspaces: {
               base: baseRoot, current: workDir, user: userFor(owner),

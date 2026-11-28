@@ -164,6 +164,33 @@ const rows = await page.$$('form[action="/operator/passwd"]');
 ok(rows.length >= 2, "panelde hesap satırları var: " + rows.length);
 await page2.close(); await ctx2.close();
 
+// 10d) ht_operator: sohbetten yönetici işlemleri (login bağlantısı → UI'da anahtar → oturum)
+const opCall = async (args) => {
+  const raw = await rpcCall({ jsonrpc: "2.0", id: 1, method: "tools/call", params: { name: "ht_operator", arguments: args } });
+  const line = raw.split("\n").find((l) => l.startsWith("data: "));
+  const j = line ? JSON.parse(line.slice(6)) : JSON.parse(raw);
+  return j.result?.content?.[0]?.text ?? JSON.stringify(j);
+};
+const denied = await opCall({ action: "get" });
+ok(/login/.test(denied) && !/hesap_sayisi/.test(denied), "ht_operator: oturumsuz çağrı veri vermiyor, giriş yolu gösteriyor");
+const loginTxt = await opCall({ action: "login" });
+const toolLink = /(http:\/\/127\.0\.0\.1:\d+\/operator\/link\/[A-Za-z0-9_-]+)/.exec(loginTxt)?.[1];
+ok(Boolean(toolLink), "ht_operator login bağlantısı üretildi");
+const ctxTool = browser.createBrowserContext ? await browser.createBrowserContext() : await browser.createIncognitoBrowserContext();
+const pageTool = await ctxTool.newPage();
+await pageTool.goto(toolLink, { waitUntil: "networkidle2" });
+ok(Boolean(await pageTool.$('input[name="token"]')), "bağlantı sayfası anahtar alanı gösteriyor");
+await pageTool.type('input[name="token"]', OPKEY);
+await Promise.all([pageTool.waitForNavigation({ waitUntil: "networkidle2" }).catch(() => null), pageTool.click('button[type="submit"]')]);
+ok(/Araç oturumu|Davet kodu üret/.test(await pageTool.evaluate(() => document.body.innerText)), "anahtar UI'da yazılınca panel + araç oturumu açıldı");
+const listed = await opCall({ action: "get" });
+ok(/hesap_sayisi/.test(listed), "araç oturumu açıldıktan sonra ht_operator get çalışıyor");
+const invTxt = await opCall({ action: "get", invite: true, ttl_minutes: 30 });
+ok(/Davet kodu üretildi/.test(invTxt) && /•/.test(invTxt) && !/[A-Z0-9]{4}-[A-Z0-9]{4}/.test(invTxt), "davet kodu sohbete sensürlü yazıldı");
+const out = await opCall({ action: "logout", confirm: "logout" });
+ok(/kapatıldı/.test(out), "ht_operator logout oturumu kapattı: " + out.slice(0, 60));
+await pageTool.close(); await ctxTool.close();
+
 // 11) OAuth akışı: /local?next=/authorize… → devam sayfası → callback
 const reg = await new Promise((res, rej) => {
   const rq = http.request({ host: "127.0.0.1", port, path: "/register", method: "POST", headers: { "content-type": "application/json" } }, (rs) => {
